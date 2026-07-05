@@ -44,3 +44,47 @@ pnpm --filter @learn-assistant/extension build
 pnpm --filter @learn-assistant/console test
 pnpm --filter @learn-assistant/console build
 ```
+
+## 安装器流程
+
+控制台启动后会先请求 `GET /api/v1/setup/status`：
+
+- 已存在 `.env`、数据库连接正常、核心数据表已初始化时，直接进入业务控制台。
+- 未安装或数据库不可用时，进入“系统安装向导”。
+- 安装向导支持远端 PostgreSQL、远端 MySQL / MariaDB，也可以填写本机数据库地址。
+
+安装向导 API：
+
+```text
+GET  /api/v1/setup/status
+POST /api/v1/setup/test-database
+POST /api/v1/setup/initialize
+```
+
+数据库配置字段：
+
+```json
+{
+  "database_type": "postgresql",
+  "host": "db.example.com",
+  "port": 5432,
+  "database": "learn",
+  "username": "learn_user",
+  "password": "secret"
+}
+```
+
+MySQL / MariaDB 使用：
+
+```json
+{
+  "database_type": "mysql",
+  "host": "mysql.example.com",
+  "port": 3306,
+  "database": "learn",
+  "username": "learn_user",
+  "password": "secret"
+}
+```
+
+安装器会生成根目录 `.env`，并在初始化时创建核心业务表。Windows 原生数据库安装或 Docker 数据库启动后续可以继续接入到这个安装向导。

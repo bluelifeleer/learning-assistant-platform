@@ -93,3 +93,106 @@ p {
   color: #5d6b7a;
   font-size: 14px;
 }
+
+.installer-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #eef3f8;
+}
+
+.installer-panel {
+  width: min(920px, 100%);
+  border: 1px solid #d8e2ec;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 22px;
+}
+
+.installer-panel header {
+  border-bottom: 1px solid #e1e8f0;
+  padding-bottom: 14px;
+}
+
+.eyebrow {
+  margin-bottom: 6px;
+  color: #2470b8;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.installer-panel h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.setup-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.setup-checks span {
+  border: 1px solid #ccd8e4;
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: #34495e;
+  background: #f8fbfd;
+}
+
+.setup-checks span[data-ok="yes"] {
+  border-color: #9fd2a8;
+  color: #1b6f2a;
+  background: #f0fbf2;
+}
+
+.installer-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.installer-form label {
+  display: grid;
+  gap: 6px;
+  color: #33485c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.installer-form input,
+.installer-form select {
+  width: 100%;
+  border: 1px solid #cdd8e3;
+  border-radius: 6px;
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.installer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  border-top: 1px solid #e1e8f0;
+  padding-top: 14px;
+}
+
+.installer-actions span {
+  margin-right: auto;
+  color: #596b7d;
+  font-size: 13px;
+}
+
+.installer-actions button {
+  border: 0;
+  border-radius: 6px;
+  background: #1669b2;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 9px 12px;
+}
