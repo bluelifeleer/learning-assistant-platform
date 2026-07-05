@@ -1,6 +1,7 @@
 import { CaptureClient } from "./capture/client";
 import { pickAdapter } from "./adapters/registry";
 import { loadExtensionConfig } from "./config";
+import { shouldMountAssistantOverlay } from "./framePolicy";
 import { AssistantOverlay } from "./ui/overlay";
 
 console.info("[Learning Assistant] content script loaded", location.href);
@@ -8,12 +9,12 @@ console.info("[Learning Assistant] content script loaded", location.href);
 async function boot(): Promise<void> {
   const config = await loadExtensionConfig();
   const adapter = pickAdapter(new URL(location.href), config.enabledAdapters);
-  const overlay = new AssistantOverlay();
-  overlay.mount();
+  const overlay = shouldMountAssistantOverlay(window.top === window) ? new AssistantOverlay() : undefined;
+  overlay?.mount();
 
   const course = adapter.extractCourse(document);
   const currentChapter = adapter.extractCurrentChapter(document);
-  overlay.update({
+  overlay?.update({
     adapterName: adapter.name,
     courseTitle: course?.title,
     chapterTitle: currentChapter?.title,
@@ -29,7 +30,7 @@ async function boot(): Promise<void> {
     adapter_id: adapter.id,
     adapter_name: adapter.name,
     enabled_adapters: config.enabledAdapters,
-  }).catch(() => overlay.update({ adapterName: adapter.name, courseTitle: course?.title, status: "本地服务未连接" }));
+  }).catch(() => overlay?.update({ adapterName: adapter.name, courseTitle: course?.title, status: "本地服务未连接" }));
 
   if (course) {
     void client.post("/capture/course-snapshot", {
@@ -44,13 +45,13 @@ async function boot(): Promise<void> {
         sort_order: chapter.sortOrder,
         children: [],
       })),
-    }).catch(() => overlay.update({ adapterName: adapter.name, courseTitle: course.title, status: "本地服务未连接" }));
+    }).catch(() => overlay?.update({ adapterName: adapter.name, courseTitle: course.title, status: "本地服务未连接" }));
   }
 
   const video = adapter.findVideo(document);
   if (video) {
-    video.addEventListener("play", () => overlay.update({ adapterName: adapter.name, courseTitle: course?.title, status: "正在记录播放" }));
-    video.addEventListener("ended", () => overlay.remindManualSave());
+    video.addEventListener("play", () => overlay?.update({ adapterName: adapter.name, courseTitle: course?.title, status: "正在记录播放" }));
+    video.addEventListener("ended", () => overlay?.remindManualSave());
   }
 
   let lastTranscript = "";
@@ -68,7 +69,9 @@ async function boot(): Promise<void> {
     }).catch(() => undefined);
   });
 
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
 }
 
 void boot().catch((error: unknown) => console.error("[Learning Assistant] content script failed", error));

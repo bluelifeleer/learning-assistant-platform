@@ -15,6 +15,13 @@ describe("extension manifest", () => {
     expect(contentScript.all_frames).toBe(true);
   });
 
+  it("does not inject into the local console", () => {
+    const [contentScript] = manifest.content_scripts;
+
+    expect(contentScript.exclude_matches).toContain("http://127.0.0.1:17891/*");
+    expect(contentScript.exclude_matches).toContain("http://localhost:17891/*");
+  });
+
   it("points to generated loadable scripts after build", () => {
     expect(existsSync(resolve(extensionRoot, "dist", "content.js"))).toBe(true);
     expect(existsSync(resolve(extensionRoot, "dist", "background.js"))).toBe(true);
