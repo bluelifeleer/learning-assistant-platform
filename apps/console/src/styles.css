@@ -53,6 +53,46 @@ body {
   color: #ffffff;
 }
 
+.auth-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  border-top: 1px solid #274158;
+  padding-top: 14px;
+  font-size: 12px;
+}
+
+.auth-panel input,
+.inline-form input,
+.inline-form select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #cdd8e3;
+  border-radius: 6px;
+  padding: 8px 9px;
+  font: inherit;
+}
+
+.auth-panel button,
+.inline-form button {
+  border: 0;
+  border-radius: 6px;
+  background: #1669b2;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 8px 10px;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.segmented button[data-active="no"] {
+  background: #1c354c;
+}
+
 .workspace {
   min-width: 0;
   padding: 18px 22px;
@@ -257,6 +297,49 @@ p {
 
 .plugin-client-row span {
   overflow-wrap: anywhere;
+}
+
+.inline-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 1fr) auto;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.data-table {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.data-table > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  border-bottom: 1px solid #edf2f7;
+  padding: 8px 0;
+}
+
+.data-table span,
+.record-row span,
+.record-row p {
+  overflow-wrap: anywhere;
+}
+
+.record-list,
+.stacked-page {
+  display: grid;
+  gap: 10px;
+}
+
+.record-row {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #e0e7ef;
+  border-radius: 6px;
+  background: #fbfdff;
+  padding: 10px;
 }
 
 .plugin-client-row span[data-online="yes"] {

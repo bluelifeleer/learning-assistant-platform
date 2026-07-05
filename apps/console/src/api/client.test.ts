@@ -1,8 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createExport,
   createPluginToken,
+  fetchAdapters,
+  fetchCourses,
+  fetchNotes,
   fetchPluginStatus,
+  fetchTranscripts,
   initializeSetup,
+  login,
+  register,
   testDatabaseConnection,
   type SetupInitializePayload,
 } from "./client";
@@ -74,5 +81,58 @@ describe("plugin client", () => {
     await fetchPluginStatus();
 
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/plugin-status");
+  });
+});
+
+describe("auth client", () => {
+  it("registers and logs in users", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ token: "la_test", user: { email: "user@example.com" } }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await register({ email: "user@example.com", password: "secret123", display_name: "User One" });
+    await login({ email: "user@example.com", password: "secret123" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:17890/api/v1/auth/register",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:17890/api/v1/auth/login",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+});
+
+describe("workspace client", () => {
+  it("fetches dashboard resources", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchCourses();
+    await fetchTranscripts();
+    await fetchNotes();
+    await fetchAdapters();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/courses");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/transcripts");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/notes");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/adapters");
+  });
+
+  it("creates export tasks with the session token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "exp", status: "queued", format: "markdown" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createExport({ course_id: "course-1", format: "markdown" }, "la_session");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/exports",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ authorization: "Bearer la_session" }),
+      }),
+    );
   });
 });

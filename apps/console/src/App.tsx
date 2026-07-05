@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
-import type { PluginClientStatus } from "./api/client";
+import type { AuthResponse, PluginClientStatus } from "./api/client";
 import { fetchSetupStatus, type SetupStatus } from "./api/client";
-import { CourseDetail } from "./pages/CourseDetail";
+import { Adapters } from "./pages/Adapters";
+import { AuthPanel } from "./pages/AuthPanel";
 import { Courses } from "./pages/Courses";
 import { Dashboard } from "./pages/Dashboard";
 import { Exports } from "./pages/Exports";
 import { Installer } from "./pages/Installer";
+import { Notes } from "./pages/Notes";
 import { Settings } from "./pages/Settings";
+import { Transcripts } from "./pages/Transcripts";
+import { UsersAuth } from "./pages/UsersAuth";
 import { formatPluginBindingState, getPluginBindingState, type PluginBindingState } from "./pages/pluginStatus";
 import "./styles.css";
 
@@ -18,13 +22,13 @@ interface AppProps {
   initialPage?: ConsolePage;
 }
 
-function WorkspacePage({ page }: { page: ConsolePage }) {
+function WorkspacePage({ page, session }: { page: ConsolePage; session: AuthResponse | null }) {
   if (page === "课程") return <Courses />;
-  if (page === "字幕") return <CourseDetail title="字幕" description="按课程和章节查看字幕片段，支持后续筛选、校对和导出。" />;
-  if (page === "笔记") return <CourseDetail title="笔记" description="记录人工补充的章节笔记，和字幕、课程章节关联。" />;
-  if (page === "导出") return <Exports />;
-  if (page === "站点适配器") return <Settings title="站点适配器" description="查看内置 adapter、启用状态和匹配域名。" />;
-  if (page === "用户与授权") return <Settings title="用户与授权" description="管理本地用户、插件 Token 和后续商业授权信息。" />;
+  if (page === "字幕") return <Transcripts />;
+  if (page === "笔记") return <Notes token={session?.token} />;
+  if (page === "导出") return <Exports token={session?.token} />;
+  if (page === "站点适配器") return <Adapters />;
+  if (page === "用户与授权") return <UsersAuth session={session} />;
   return <Settings title="设置" description="配置本地 API、组织信息、数据库连接和系统偏好。" />;
 }
 
@@ -32,6 +36,12 @@ export function App({ initialSetupStatus, initialPage = "课程" }: AppProps) {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | undefined>(initialSetupStatus);
   const [activePage, setActivePage] = useState<ConsolePage>(initialPage);
   const [pluginState, setPluginState] = useState<PluginBindingState>("unbound");
+  const [session, setSession] = useState<AuthResponse | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("learn_assistant_session");
+    if (saved) setSession(JSON.parse(saved) as AuthResponse);
+  }, []);
 
   useEffect(() => {
     if (initialSetupStatus) return;
@@ -64,6 +74,7 @@ export function App({ initialSetupStatus, initialPage = "课程" }: AppProps) {
             </button>
           ))}
         </nav>
+        <AuthPanel session={session} onSessionChange={setSession} />
       </aside>
       <main className="workspace">
         <section className="status-row">
@@ -74,7 +85,7 @@ export function App({ initialSetupStatus, initialPage = "课程" }: AppProps) {
         {activePage === "课程" ? (
           <Dashboard onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
         ) : (
-          <WorkspacePage page={activePage} />
+          <WorkspacePage page={activePage} session={session} />
         )}
       </main>
     </div>

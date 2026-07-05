@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.models.entities import Membership, Organization, User
 from app.schemas.setup import DatabaseConfigIn, DatabaseTestOut, SetupInitializeIn, SetupStatusOut
+from app.services.auth import hash_password
 
 REQUIRED_TABLES = {
     "organizations",
@@ -183,7 +184,7 @@ def initialize_database(payload: SetupInitializeIn, env_path: Path | None = None
         with Session(engine) as session:
             if not session.query(Organization).first():
                 organization = Organization(name=payload.organization_name, plan="local", license_key=payload.license_key, license_status="active" if payload.license_key else "inactive")
-                user = User(email=payload.admin_email, display_name="Administrator", password_hash=payload.admin_password)
+                user = User(email=payload.admin_email, display_name="Administrator", password_hash=hash_password(payload.admin_password))
                 session.add_all([organization, user])
                 session.flush()
                 session.add(Membership(organization_id=organization.id, user_id=user.id, role="owner"))
