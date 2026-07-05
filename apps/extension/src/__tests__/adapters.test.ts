@@ -52,4 +52,30 @@ describe("adapter registry", () => {
       mediaType: "hls",
     });
   });
+
+  it("extracts active text track cues before visible subtitle text", () => {
+    const activeCues = [
+      { text: "第一句标准字幕" },
+      { text: "第二句标准字幕" },
+    ];
+    const video = {
+      textTracks: [
+        { activeCues },
+      ],
+    } as unknown as HTMLVideoElement;
+    const fakeDocument = {
+      querySelector: (selector: string) => {
+        if (selector === "video") return video;
+        if (selector === "[aria-live], .subtitle, .caption, .captions") return { textContent: "页面可见字幕" };
+        return null;
+      },
+    } as unknown as Document;
+
+    const transcript = genericVideoAdapter.extractTranscript(fakeDocument);
+
+    expect(transcript).toEqual({
+      text: "第一句标准字幕\n第二句标准字幕",
+      source: "track",
+    });
+  });
 });
