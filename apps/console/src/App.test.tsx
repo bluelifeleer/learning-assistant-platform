@@ -12,7 +12,7 @@ describe("App", () => {
   });
 
   it("renders the work console navigation when installed", () => {
-    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialSession={{ token: "la_test", user: { id: "u1", email: "user@example.com", display_name: "User One" } }} />);
+    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
 
     expect(html).toContain("学习助手控制台");
     expect(html).toContain("课程");
@@ -24,13 +24,28 @@ describe("App", () => {
     const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} />);
 
     expect(html).toContain("登录学习助手");
+    expect(html).toContain("机构在线学习数据中台");
+    expect(html).toContain("浏览器插件托管");
+    expect(html).toContain("私有化部署");
+    expect(html).toContain("邮箱或用户名");
+    expect(html).toContain("用户名");
     expect(html).not.toContain("插件状态:");
   });
 
   it("can render a left-navigation workspace page", () => {
-    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="字幕" initialSession={{ token: "la_test", user: { id: "u1", email: "user@example.com", display_name: "User One" } }} />);
+    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="字幕" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
 
     expect(html).toContain("字幕");
     expect(html).toContain("正在读取字幕");
+  });
+
+  it("renders actionable adapter and settings pages", () => {
+    const adapterHtml = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="站点适配器" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+    const settingsHtml = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="设置" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+
+    expect(adapterHtml).toContain("新增适配器");
+    expect(adapterHtml).toContain("保存适配器");
+    expect(settingsHtml).toContain("系统设置");
+    expect(settingsHtml).toContain("保存设置");
   });
 });

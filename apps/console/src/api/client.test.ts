@@ -7,11 +7,15 @@ import {
   fetchCourses,
   fetchNotes,
   fetchPluginStatus,
+  fetchSettings,
   fetchTranscripts,
   initializeSetup,
   login,
   register,
+  saveAdapter,
+  updateSettings,
   testDatabaseConnection,
+  updateMe,
   type SetupInitializePayload,
 } from "./client";
 
@@ -101,17 +105,27 @@ describe("auth client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await register({ email: "user@example.com", password: "secret123", display_name: "User One" });
-    await login({ email: "user@example.com", password: "secret123" });
+    await login({ account: "userone", password: "secret123" });
+    await updateMe({ username: "userone", display_name: "User One" }, "la_session");
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "http://127.0.0.1:17890/api/v1/auth/register",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ email: "user@example.com", password: "secret123", display_name: "User One" }) }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "http://127.0.0.1:17890/api/v1/auth/login",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ account: "userone", password: "secret123" }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:17890/api/v1/auth/me",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ username: "userone", display_name: "User One" }),
+        headers: expect.objectContaining({ authorization: "Bearer la_session" }),
+      }),
     );
   });
 });
@@ -130,6 +144,27 @@ describe("workspace client", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/transcripts");
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/notes");
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/adapters");
+  });
+
+  it("saves adapters and workspace settings", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "1", adapter_id: "generic-video" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await saveAdapter({ adapter_id: "generic-video", name: "Generic Video", status: "enabled", host_patterns: { hosts: ["example.com"] } });
+    await fetchSettings();
+    await updateSettings({ organization_name: "Commercial Workspace", license_key: "LIC-456" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:17890/api/v1/adapters",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://127.0.0.1:17890/api/v1/settings");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:17890/api/v1/settings",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ organization_name: "Commercial Workspace", license_key: "LIC-456" }) }),
+    );
   });
 
   it("creates export tasks with the session token", async () => {

@@ -65,20 +65,108 @@ body {
   font-size: 12px;
 }
 
-.auth-panel h1 {
+.auth-panel h1,
+.auth-panel h2 {
   margin: 0;
   font-size: 22px;
 }
 
+.auth-landing {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 420px);
+  align-items: center;
+  gap: 28px;
+  width: min(1080px, 100%);
+}
+
+.auth-commercial {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+  color: #102033;
+}
+
+.auth-commercial h1 {
+  margin: 0;
+  max-width: 760px;
+  font-size: 42px;
+  line-height: 1.12;
+  font-weight: 750;
+}
+
+.auth-lead {
+  max-width: 720px;
+  color: #42576d;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.commercial-points {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.commercial-points article {
+  min-width: 0;
+  border: 1px solid #d8e2ec;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.commercial-points strong,
+.commercial-points span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.commercial-points strong {
+  margin-bottom: 8px;
+  color: #102033;
+  font-size: 15px;
+}
+
+.commercial-points span {
+  color: #5d6b7a;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.commercial-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.commercial-stats span {
+  border: 1px solid #cbd9e7;
+  border-radius: 6px;
+  background: #f8fbfd;
+  padding: 8px 10px;
+  color: #445b70;
+  font-size: 13px;
+}
+
+.commercial-stats strong {
+  color: #1669b2;
+}
+
 .auth-panel input,
 .inline-form input,
-.inline-form select {
+.inline-form select,
+.inline-form textarea {
   min-width: 0;
   width: 100%;
   border: 1px solid #cdd8e3;
   border-radius: 6px;
   padding: 8px 9px;
   font: inherit;
+}
+
+.inline-form textarea {
+  min-height: 82px;
+  resize: vertical;
 }
 
 .auth-panel button,
@@ -105,7 +193,9 @@ body {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: #eef3f8;
+  background:
+    linear-gradient(135deg, rgba(22, 105, 178, 0.08), transparent 42%),
+    #eef3f8;
   padding: 24px;
 }
 
@@ -336,6 +426,14 @@ p {
   margin: 10px 0 12px;
 }
 
+.adapter-form {
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(110px, 140px) auto;
+}
+
+.adapter-form textarea {
+  grid-column: 1 / -1;
+}
+
 .data-table {
   display: grid;
   gap: 6px;
@@ -349,6 +447,10 @@ p {
   gap: 8px;
   border-bottom: 1px solid #edf2f7;
   padding: 8px 0;
+}
+
+.settings-table > div {
+  grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
 }
 
 .data-table span,
@@ -378,4 +480,19 @@ p {
 
 .plugin-client-row span[data-online="no"] {
   color: #8a4d16;
+}
+
+@media (max-width: 900px) {
+  .auth-landing {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .auth-commercial h1 {
+    font-size: 32px;
+  }
+
+  .commercial-points {
+    grid-template-columns: 1fr;
+  }
 }

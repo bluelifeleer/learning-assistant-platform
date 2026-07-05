@@ -84,6 +84,34 @@ class AdapterListOut(BaseModel):
     items: list[AdapterItem]
 
 
+class AdapterSaveIn(BaseModel):
+    adapter_id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=200)
+    status: str = Field(default="enabled", min_length=1, max_length=50)
+    host_patterns: dict = Field(default_factory=dict)
+
+
+class AdapterUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    status: str | None = Field(default=None, min_length=1, max_length=50)
+    host_patterns: dict | None = None
+
+
+class WorkspaceSettingsOut(BaseModel):
+    organization_name: str
+    plan: str
+    license_key: str | None = None
+    license_status: str
+    api_base_url: str
+    database_type: str | None = None
+    export_dir: str
+
+
+class WorkspaceSettingsUpdateIn(BaseModel):
+    organization_name: str | None = Field(default=None, min_length=1, max_length=200)
+    license_key: str | None = Field(default=None, max_length=200)
+
+
 class ExportCreateIn(BaseModel):
     course_id: str | None = None
     format: str = "markdown"

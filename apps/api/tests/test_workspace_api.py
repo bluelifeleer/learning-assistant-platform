@@ -88,3 +88,45 @@ def test_notes_and_exports_have_workspace_lists(client):
     )
     assert export_response.status_code == 200
     assert client.get("/api/v1/exports").json()["items"][0]["format"] == "markdown"
+
+
+def test_adapter_can_be_created_and_updated(client):
+    create_response = client.post(
+        "/api/v1/adapters",
+        json={
+            "adapter_id": "generic-video",
+            "name": "Generic Video",
+            "status": "enabled",
+            "host_patterns": {"hosts": ["example.com"]},
+        },
+    )
+
+    assert create_response.status_code == 200
+    assert create_response.json()["name"] == "Generic Video"
+
+    update_response = client.put(
+        "/api/v1/adapters/generic-video",
+        json={"name": "Generic Video Updated", "status": "disabled", "host_patterns": {"hosts": ["learn.example.com"]}},
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["status"] == "disabled"
+    adapters = client.get("/api/v1/adapters").json()["items"]
+    assert adapters[0]["name"] == "Generic Video Updated"
+
+
+def test_settings_can_be_read_and_updated(client):
+    initial = client.get("/api/v1/settings")
+
+    assert initial.status_code == 200
+    assert "organization_name" in initial.json()
+    assert "api_base_url" in initial.json()
+
+    response = client.put(
+        "/api/v1/settings",
+        json={"organization_name": "Commercial Workspace", "license_key": "LIC-456"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["organization_name"] == "Commercial Workspace"
+    assert response.json()["license_status"] == "active"

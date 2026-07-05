@@ -29,14 +29,14 @@ function loadSavedSession(): AuthResponse | null {
   return saved ? (JSON.parse(saved) as AuthResponse) : null;
 }
 
-function WorkspacePage({ page, session, onPluginStatusChange }: { page: ConsolePage; session: AuthResponse | null; onPluginStatusChange: (clients: PluginClientStatus[]) => void }) {
+function WorkspacePage({ page, session, onSessionChange, onPluginStatusChange }: { page: ConsolePage; session: AuthResponse | null; onSessionChange: (session: AuthResponse | null) => void; onPluginStatusChange: (clients: PluginClientStatus[]) => void }) {
   if (page === "课程") return <Courses />;
   if (page === "字幕") return <Transcripts />;
   if (page === "笔记") return <Notes token={session?.token} />;
   if (page === "导出") return <Exports token={session?.token} />;
   if (page === "插件管理") return <PluginPanel onStatusChange={onPluginStatusChange} />;
   if (page === "站点适配器") return <Adapters />;
-  if (page === "用户与授权") return <UsersAuth session={session} />;
+  if (page === "用户与授权") return <UsersAuth session={session} onSessionChange={onSessionChange} />;
   return <Settings title="设置" description="配置本地 API、组织信息、数据库连接和系统偏好。" />;
 }
 
@@ -90,7 +90,7 @@ export function App({ initialSetupStatus, initialPage = "课程", initialSession
           <span className="user-chip">{session.user.display_name} · {session.user.email}</span>
           <button type="button" className="text-button" onClick={() => { localStorage.removeItem("learn_assistant_session"); setSession(null); }}>退出</button>
         </section>
-        <WorkspacePage page={activePage} session={session} onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
+        <WorkspacePage page={activePage} session={session} onSessionChange={setSession} onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
       </main>
     </div>
   );

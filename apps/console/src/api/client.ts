@@ -64,6 +64,7 @@ export interface PluginStatusResponse {
 
 export interface UserProfile {
   id: string;
+  username?: string | null;
   email: string;
   display_name: string;
 }
@@ -80,8 +81,13 @@ export interface RegisterPayload {
 }
 
 export interface LoginPayload {
-  email: string;
+  account: string;
   password: string;
+}
+
+export interface UserUpdatePayload {
+  username?: string | null;
+  display_name?: string | null;
 }
 
 export interface CourseItem {
@@ -128,6 +134,13 @@ export interface AdapterItem {
   host_patterns: Record<string, unknown>;
 }
 
+export interface AdapterSavePayload {
+  adapter_id: string;
+  name: string;
+  status: string;
+  host_patterns: Record<string, unknown>;
+}
+
 export interface ExportItem {
   id: string;
   course_id?: string | null;
@@ -143,11 +156,26 @@ export interface ExportCreatePayload {
   format: "markdown" | "json";
 }
 
+export interface WorkspaceSettings {
+  organization_name: string;
+  plan: string;
+  license_key?: string | null;
+  license_status: string;
+  api_base_url: string;
+  database_type?: string | null;
+  export_dir: string;
+}
+
+export interface WorkspaceSettingsUpdatePayload {
+  organization_name?: string;
+  license_key?: string;
+}
+
 export const API_BASE_URL = "http://127.0.0.1:17890/api/v1";
 
-async function postJson<T>(path: string, body: unknown, token?: string): Promise<T> {
+async function postJson<T>(path: string, body: unknown, token?: string, method = "POST"): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body),
   });
@@ -210,6 +238,10 @@ export async function fetchMe(token: string): Promise<UserProfile> {
   return getJson<UserProfile>("/auth/me", token);
 }
 
+export async function updateMe(payload: UserUpdatePayload, token: string): Promise<UserProfile> {
+  return postJson<UserProfile>("/auth/me", payload, token, "PUT");
+}
+
 export async function fetchCourses(): Promise<{ items: CourseItem[] }> {
   return getJson<{ items: CourseItem[] }>("/courses");
 }
@@ -224,6 +256,18 @@ export async function fetchNotes(): Promise<{ items: NoteItem[] }> {
 
 export async function fetchAdapters(): Promise<{ items: AdapterItem[] }> {
   return getJson<{ items: AdapterItem[] }>("/adapters");
+}
+
+export async function saveAdapter(payload: AdapterSavePayload): Promise<AdapterItem> {
+  return postJson<AdapterItem>("/adapters", payload);
+}
+
+export async function fetchSettings(): Promise<WorkspaceSettings> {
+  return getJson<WorkspaceSettings>("/settings");
+}
+
+export async function updateSettings(payload: WorkspaceSettingsUpdatePayload): Promise<WorkspaceSettings> {
+  return postJson<WorkspaceSettings>("/settings", payload, undefined, "PUT");
 }
 
 export async function fetchExports(): Promise<{ items: ExportItem[] }> {

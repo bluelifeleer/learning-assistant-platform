@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.entities import ApiToken, Membership, User
-from app.schemas.auth import AuthTokenOut, LoginIn, RegisterIn, UserOut
+from app.schemas.auth import AuthTokenOut, LoginIn, RegisterIn, UserOut, UserUpdateIn
 from app.services.auth_tokens import create_plain_token, hash_token
 from app.services.plugins import ensure_default_organization
 
@@ -32,7 +32,7 @@ def verify_password(password: str, stored_hash: str) -> bool:
 
 
 def user_out(user: User) -> UserOut:
-    return UserOut(id=user.id, email=user.email, display_name=user.display_name)
+    return UserOut(id=user.id, username=user.username, email=user.email, display_name=user.display_name)
 
 
 class AuthService:
@@ -67,8 +67,26 @@ class AuthService:
         self.db.refresh(user)
         return AuthTokenOut(token=token, user=user_out(user))
 
+    def update_current_user(self, bearer_token: str, payload: UserUpdateIn) -> UserOut:
+        user = self.current_user(bearer_token)
+        if payload.display_name is not None:
+            user.display_name = payload.display_name
+        if payload.username is not None:
+            username = payload.username.strip().lower()
+            if username:
+                existing = self.db.query(User).filter(User.username == username, User.id != user.id).first()
+                if existing:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already registered")
+            user.username = username or None
+        self.db.commit()
+        self.db.refresh(user)
+        return user_out(user)
+
     def login(self, payload: LoginIn) -> AuthTokenOut:
-        user = self.db.query(User).filter(User.email == payload.email.lower()).first()
+        account = (payload.account or "").strip()
+        user = self.db.query(User).filter(User.email == account.lower()).first()
+        if not user:
+            user = self.db.query(User).filter(User.username == account.lower()).first()
         if not user or not verify_password(payload.password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         token = self.create_session_token(user)
