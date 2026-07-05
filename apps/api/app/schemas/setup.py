@@ -19,6 +19,7 @@ class SetupInitializeIn(BaseModel):
     organization_name: str = Field(min_length=1)
     admin_email: str = Field(min_length=3)
     admin_password: str = Field(min_length=6)
+    license_key: str | None = None
     database: DatabaseConfigIn
     initialize_schema: bool = True
 

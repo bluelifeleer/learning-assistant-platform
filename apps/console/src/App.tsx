@@ -30,7 +30,7 @@ export function App({ initialSetupStatus }: AppProps) {
   }
 
   if (!setupStatus.installed) {
-    return <Installer status={setupStatus} />;
+    return <Installer status={setupStatus} onInstalled={setSetupStatus} />;
   }
 
   return (

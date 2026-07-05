@@ -53,6 +53,7 @@ def test_write_env_file_persists_remote_database_config() -> None:
         organization_name="Acme Training",
         admin_email="admin@example.com",
         admin_password="change-me",
+        license_key="LIC-123",
         database=DatabaseConfigIn(
             database_type="mysql",
             host="mysql.example.com",
@@ -72,6 +73,7 @@ def test_write_env_file_persists_remote_database_config() -> None:
     assert "DEFAULT_ORG_NAME=Acme Training" in content
     assert "DEFAULT_ADMIN_EMAIL=admin@example.com" in content
     assert "DEFAULT_ADMIN_PASSWORD=change-me" in content
+    assert "LICENSE_KEY=LIC-123" in content
 
 
 def test_setup_status_endpoint_is_available(client: TestClient) -> None:
@@ -91,4 +93,3 @@ def test_database_type_rejects_unknown_value() -> None:
             username="learn",
             password="secret",
         )
-

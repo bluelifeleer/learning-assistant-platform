@@ -162,6 +162,7 @@ def write_env_file(env_path: Path, payload: SetupInitializeIn) -> None:
             f"DEFAULT_ORG_NAME={payload.organization_name}",
             f"DEFAULT_ADMIN_EMAIL={payload.admin_email}",
             f"DEFAULT_ADMIN_PASSWORD={payload.admin_password}",
+            f"LICENSE_KEY={payload.license_key or ''}",
             "API_TOKEN_PEPPER=change-me-token-pepper",
             "EXPORT_DIR=exports",
             "",
@@ -180,7 +181,7 @@ def initialize_database(payload: SetupInitializeIn, env_path: Path | None = None
         Base.metadata.create_all(engine)
         with Session(engine) as session:
             if not session.query(Organization).first():
-                organization = Organization(name=payload.organization_name, plan="local", license_status="inactive")
+                organization = Organization(name=payload.organization_name, plan="local", license_key=payload.license_key, license_status="active" if payload.license_key else "inactive")
                 user = User(email=payload.admin_email, display_name="Administrator", password_hash=payload.admin_password)
                 session.add_all([organization, user])
                 session.flush()

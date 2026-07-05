@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: learn-assistant-postgres
+    profiles:
+      - postgresql
+      - all
+    environment:
+      POSTGRES_DB: learn_assistant
+      POSTGRES_USER: learn_assistant
+      POSTGRES_PASSWORD: learn_assistant
+    ports:
+      - "5432:5432"
+    volumes:
+      - learn_assistant_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U learn_assistant -d learn_assistant"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.4
+    container_name: learn-assistant-mysql
+    profiles:
+      - mysql
+      - all
+    environment:
+      MYSQL_DATABASE: learn_assistant
+      MYSQL_USER: learn_assistant
+      MYSQL_PASSWORD: learn_assistant
+      MYSQL_ROOT_PASSWORD: learn_assistant_root
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - learn_assistant_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ulearn_assistant", "-plearn_assistant"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  learn_assistant_postgres:
+  learn_assistant_mysql:
