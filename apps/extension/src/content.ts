@@ -9,6 +9,7 @@ console.info("[Learning Assistant] content script loaded", location.href);
 async function boot(): Promise<void> {
   const config = await loadExtensionConfig();
   const adapter = pickAdapter(new URL(location.href), config.enabledAdapters);
+  if (!adapter) return;
   const overlay = shouldMountAssistantOverlay(window.top === window) ? new AssistantOverlay() : undefined;
   overlay?.mount();
 
@@ -49,8 +50,28 @@ async function boot(): Promise<void> {
   }
 
   const video = adapter.findVideo(document);
+  const videoSessionId = `${adapter.id}:${course?.externalCourseId ?? location.href}:${currentChapter?.externalChapterId ?? "unknown"}`;
+  const reportVideoSource = (eventType: "video-source" | "play"): void => {
+    const videoSource = adapter.extractVideoSource(document);
+    if (!videoSource) return;
+    void client.post("/capture/video-event", {
+      session_id: videoSessionId,
+      event_type: eventType,
+      video_time_seconds: video?.currentTime,
+      payload: {
+        course_url: location.href,
+        external_course_id: course?.externalCourseId,
+        external_chapter_id: currentChapter?.externalChapterId,
+        video_source: videoSource,
+      },
+    }).catch(() => undefined);
+  };
   if (video) {
-    video.addEventListener("play", () => overlay?.update({ adapterName: adapter.name, courseTitle: course?.title, status: "正在记录播放" }));
+    reportVideoSource("video-source");
+    video.addEventListener("play", () => {
+      overlay?.update({ adapterName: adapter.name, courseTitle: course?.title, status: "正在记录播放" });
+      reportVideoSource("play");
+    });
     video.addEventListener("ended", () => overlay?.remindManualSave());
   }
 

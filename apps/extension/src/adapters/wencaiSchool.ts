@@ -1,4 +1,5 @@
 import type { ChapterNode, CourseSnapshot, LearningAdapter, PageType, TranscriptSnapshot } from "./types";
+import { extractHtmlVideoSource } from "./videoSource";
 
 function clean(value: string | null | undefined): string {
   return value?.replace(/\s+/g, " ").trim() ?? "";
@@ -40,6 +41,7 @@ export const wencaiSchoolAdapter: LearningAdapter = {
   },
   extractChapters: collectChapters,
   findVideo: (document: Document): HTMLVideoElement | null => document.querySelector("video"),
+  extractVideoSource: extractHtmlVideoSource,
   extractTranscript: (document: Document): TranscriptSnapshot | null => {
     const selectors = ["[aria-live]", ".subtitle", ".caption", ".captions", ".vjs-text-track-display", "[class*='subtitle']"];
     for (const selector of selectors) {

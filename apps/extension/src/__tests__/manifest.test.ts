@@ -26,4 +26,17 @@ describe("extension manifest", () => {
     expect(existsSync(resolve(extensionRoot, "dist", "content.js"))).toBe(true);
     expect(existsSync(resolve(extensionRoot, "dist", "background.js"))).toBe(true);
   });
+
+  it("declares store-ready extension icons", () => {
+    expect(manifest.icons).toEqual({
+      "16": "assets/icon-16.png",
+      "32": "assets/icon-32.png",
+      "48": "assets/icon-48.png",
+      "128": "assets/icon-128.png",
+    });
+
+    for (const iconPath of Object.values<string>(manifest.icons)) {
+      expect(existsSync(resolve(extensionRoot, iconPath))).toBe(true);
+    }
+  });
 });

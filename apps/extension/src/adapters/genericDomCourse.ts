@@ -1,4 +1,5 @@
 import type { ChapterNode, CourseSnapshot, LearningAdapter, PageType, TranscriptSnapshot } from "./types";
+import { extractHtmlVideoSource } from "./videoSource";
 
 function clean(value: string | null | undefined): string {
   return value?.replace(/\s+/g, " ").trim() ?? "";
@@ -32,6 +33,7 @@ export const genericDomCourseAdapter: LearningAdapter = {
   },
   extractChapters: collectListItems,
   findVideo: (document: Document): HTMLVideoElement | null => document.querySelector("video"),
+  extractVideoSource: extractHtmlVideoSource,
   extractTranscript: (document: Document): TranscriptSnapshot | null => {
     const value = clean(document.querySelector("[aria-live], .subtitle, .caption, .captions")?.textContent);
     return value ? { text: value, source: "dom-visible-text" } : null;

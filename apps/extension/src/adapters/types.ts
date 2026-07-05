@@ -19,6 +19,15 @@ export interface TranscriptSnapshot {
   source: "track" | "dom-visible-text" | "aria-live" | "manual";
 }
 
+export interface VideoSourceSnapshot {
+  currentSrc: string | null;
+  sourceUrls: string[];
+  posterUrl: string | null;
+  isBlob: boolean;
+  isLikelySigned: boolean;
+  mediaType: "hls" | "dash" | "file" | "blob" | "unknown";
+}
+
 export interface LearningAdapter {
   id: string;
   name: string;
@@ -27,6 +36,7 @@ export interface LearningAdapter {
   extractCourse(document: Document): CourseSnapshot | null;
   extractChapters(document: Document): ChapterNode[];
   findVideo(document: Document): HTMLVideoElement | null;
+  extractVideoSource(document: Document): VideoSourceSnapshot | null;
   extractTranscript(document: Document): TranscriptSnapshot | null;
   extractCurrentChapter(document: Document): ChapterNode | null;
   getNextChapterHint(document: Document): Element | null;

@@ -9,8 +9,8 @@ export const adapters: LearningAdapter[] = [
   genericVideoAdapter,
 ];
 
-export function pickAdapter(url: URL, enabledAdapterIds?: string[]): LearningAdapter {
+export function pickAdapter(url: URL, enabledAdapterIds?: string[]): LearningAdapter | null {
   const enabled = enabledAdapterIds?.length ? new Set(enabledAdapterIds) : null;
   const candidates = enabled ? adapters.filter((adapter) => enabled.has(adapter.id)) : adapters;
-  return candidates.find((adapter) => adapter.matches(url)) ?? genericVideoAdapter;
+  return candidates.find((adapter) => adapter.matches(url)) ?? null;
 }
