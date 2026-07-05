@@ -26,6 +26,10 @@ def build_extension_zip(root: Path | None = None) -> bytes:
         source_root / "dist" / "content.js",
         source_root / "dist" / "background.js",
         source_root / "dist" / "options.js",
+        source_root / "assets" / "icon-16.png",
+        source_root / "assets" / "icon-32.png",
+        source_root / "assets" / "icon-48.png",
+        source_root / "assets" / "icon-128.png",
     ]
     missing = [str(path.relative_to(source_root)) for path in required_files if not path.exists()]
     if missing:

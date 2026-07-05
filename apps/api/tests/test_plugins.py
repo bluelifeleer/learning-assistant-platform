@@ -66,3 +66,5 @@ def test_plugin_package_exports_loadable_extension_zip(client):
     assert "manifest.json" in names
     assert "options.html" in names
     assert "dist/content.js" in names
+    assert "assets/icon-128.png" in names
+    assert "assets/icon-48.png" in names

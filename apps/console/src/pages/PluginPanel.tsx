@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE_URL, createPluginToken, downloadExtensionPackage, fetchPluginStatus, type PluginClientStatus } from "../api/client";
+import { API_BASE_URL, createPluginToken, downloadExtensionPackage, fetchPluginStatus, fetchVideoEvents, type PluginClientStatus, type VideoEventItem } from "../api/client";
 import { startPluginStatusPolling } from "./pluginPolling";
 
 interface PluginPanelProps {
@@ -8,13 +8,15 @@ interface PluginPanelProps {
 
 export function PluginPanel({ onStatusChange }: PluginPanelProps) {
   const [clients, setClients] = useState<PluginClientStatus[]>([]);
+  const [videoEvents, setVideoEvents] = useState<VideoEventItem[]>([]);
   const [token, setToken] = useState("");
   const [message, setMessage] = useState("插件未绑定时，请先生成 Token 并填入扩展选项页。");
 
   async function refreshStatus() {
     try {
-      const status = await fetchPluginStatus();
+      const [status, events] = await Promise.all([fetchPluginStatus(), fetchVideoEvents()]);
       setClients(status.clients);
+      setVideoEvents(events.items);
       onStatusChange?.(status.clients);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "插件状态读取失败");
@@ -78,6 +80,26 @@ export function PluginPanel({ onStatusChange }: PluginPanelProps) {
           </section>
         ))}
       </div>
+      <section className="video-source-list">
+        <h3>最近视频源</h3>
+        {videoEvents.length === 0 ? <p>暂无视频源采集记录。</p> : videoEvents.slice(0, 5).map((event) => {
+          const source = event.video_source;
+          const currentSrc = typeof source.currentSrc === "string" ? source.currentSrc : "未上报";
+          const mediaType = typeof source.mediaType === "string" ? source.mediaType : "unknown";
+          const isBlob = source.isBlob === true ? "是" : "否";
+          const isLikelySigned = source.isLikelySigned === true ? "是" : "否";
+          return (
+            <section key={event.id} className="plugin-client-row">
+              <strong>{mediaType.toUpperCase()} · {event.event_type}</strong>
+              <span>时间: {event.video_time_seconds ?? "-"}</span>
+              <span>Blob: {isBlob}</span>
+              <span>疑似签名: {isLikelySigned}</span>
+              <span className="breakable">地址: {currentSrc}</span>
+              <span className="breakable">页面: {event.course_url || "-"}</span>
+            </section>
+          );
+        })}
+      </section>
     </article>
   );
 }

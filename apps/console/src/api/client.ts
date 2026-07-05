@@ -115,6 +115,19 @@ export interface TranscriptItem {
   created_at?: string | null;
 }
 
+export interface VideoEventItem {
+  id: string;
+  session_id: string;
+  event_type: string;
+  video_time_seconds?: number | null;
+  course_url?: string | null;
+  external_course_id?: string | null;
+  external_chapter_id?: string | null;
+  video_source: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  created_at?: string | null;
+}
+
 export interface NoteItem {
   id: string;
   course_id: string;
@@ -248,6 +261,10 @@ export async function fetchCourses(): Promise<{ items: CourseItem[] }> {
 
 export async function fetchTranscripts(): Promise<{ items: TranscriptItem[] }> {
   return getJson<{ items: TranscriptItem[] }>("/transcripts");
+}
+
+export async function fetchVideoEvents(): Promise<{ items: VideoEventItem[] }> {
+  return getJson<{ items: VideoEventItem[] }>("/video-events");
 }
 
 export async function fetchNotes(): Promise<{ items: NoteItem[] }> {

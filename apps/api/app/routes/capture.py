@@ -25,10 +25,10 @@ def course_snapshot(
 @router.post("/video-event")
 def video_event(
     payload: VideoEventIn,
-    _token: str = Depends(require_bearer_token),
+    token: str = Depends(require_bearer_token),
     service: CaptureService = Depends(get_capture_service),
 ) -> dict[str, str]:
-    return service.accept_video_event(payload)
+    return service.accept_video_event(token, payload)
 
 
 @router.post("/transcript-segment")

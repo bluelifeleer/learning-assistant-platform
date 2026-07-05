@@ -48,4 +48,12 @@ describe("App", () => {
     expect(settingsHtml).toContain("系统设置");
     expect(settingsHtml).toContain("保存设置");
   });
+
+  it("renders plugin packaging and video source sections", () => {
+    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="插件管理" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+
+    expect(html).toContain("导出插件包");
+    expect(html).toContain("最近视频源");
+    expect(html).toContain("暂无视频源采集记录");
+  });
 });

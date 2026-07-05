@@ -135,6 +135,21 @@ class TimelineEvent(Base, TimestampMixin):
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
+class VideoCaptureEvent(Base, TimestampMixin):
+    __tablename__ = "video_capture_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    video_time_seconds: Mapped[float | None] = mapped_column(Numeric(10, 3))
+    course_url: Mapped[str | None] = mapped_column(Text)
+    external_course_id: Mapped[str | None] = mapped_column(String(255))
+    external_chapter_id: Mapped[str | None] = mapped_column(String(255))
+    video_source: Mapped[dict] = mapped_column(JSON, default=dict)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class TranscriptSegment(Base, TimestampMixin):
     __tablename__ = "transcript_segments"
 

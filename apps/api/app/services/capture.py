@@ -1,7 +1,7 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models.entities import ApiToken, Chapter, Course, Site, TranscriptSegment
+from app.models.entities import ApiToken, Chapter, Course, Site, TranscriptSegment, VideoCaptureEvent
 from app.schemas.capture import ChapterSnapshotIn, CourseSnapshotIn, TranscriptSegmentIn, VideoEventIn
 from app.services.plugins import hash_plugin_token
 
@@ -61,7 +61,22 @@ class CaptureService:
         self.db.commit()
         return {"status": "accepted", "external_course_id": payload.external_course_id, "course_id": course.id}
 
-    def accept_video_event(self, payload: VideoEventIn) -> dict[str, str]:
+    def accept_video_event(self, bearer_token: str, payload: VideoEventIn) -> dict[str, str]:
+        organization_id = self._organization_id_for_plugin_token(bearer_token)
+        event_payload = payload.payload or {}
+        event = VideoCaptureEvent(
+            organization_id=organization_id,
+            session_id=payload.session_id,
+            event_type=payload.event_type,
+            video_time_seconds=payload.video_time_seconds,
+            course_url=event_payload.get("course_url"),
+            external_course_id=event_payload.get("external_course_id"),
+            external_chapter_id=event_payload.get("external_chapter_id"),
+            video_source=event_payload.get("video_source") or {},
+            payload=event_payload,
+        )
+        self.db.add(event)
+        self.db.commit()
         return {"status": "accepted", "session_id": payload.session_id}
 
     def accept_transcript_segment(self, bearer_token: str, payload: TranscriptSegmentIn) -> dict[str, str]:

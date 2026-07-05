@@ -50,6 +50,23 @@ class TranscriptListOut(BaseModel):
     items: list[TranscriptItem]
 
 
+class VideoEventItem(BaseModel):
+    id: str
+    session_id: str
+    event_type: str
+    video_time_seconds: float | None = None
+    course_url: str | None = None
+    external_course_id: str | None = None
+    external_chapter_id: str | None = None
+    video_source: dict
+    payload: dict
+    created_at: datetime | None = None
+
+
+class VideoEventListOut(BaseModel):
+    items: list[VideoEventItem]
+
+
 class NoteCreateIn(BaseModel):
     course_id: str
     chapter_id: str | None = None

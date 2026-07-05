@@ -7,6 +7,7 @@ import {
   fetchCourses,
   fetchNotes,
   fetchPluginStatus,
+  fetchVideoEvents,
   fetchSettings,
   fetchTranscripts,
   initializeSetup,
@@ -137,11 +138,13 @@ describe("workspace client", () => {
 
     await fetchCourses();
     await fetchTranscripts();
+    await fetchVideoEvents();
     await fetchNotes();
     await fetchAdapters();
 
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/courses");
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/transcripts");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/video-events");
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/notes");
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/adapters");
   });
