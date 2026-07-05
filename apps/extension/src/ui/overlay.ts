@@ -7,6 +7,12 @@ export interface OverlayState {
   status: string;
 }
 
+export const ASSISTANT_OVERLAY_ACTIONS = [
+  { label: "添加笔记", status: "已准备添加笔记" },
+  { label: "导出字幕", status: "请到控制台导出字幕" },
+  { label: "标记候选章节", status: "已请求标记候选章节" },
+] as const;
+
 export class AssistantOverlay {
   private readonly root: HTMLDivElement;
   private readonly status: HTMLDivElement;
@@ -31,9 +37,9 @@ export class AssistantOverlay {
 
     this.status = document.createElement("div");
     this.root.appendChild(this.status);
-    this.root.appendChild(this.makeButton("添加笔记", () => this.update({ status: "已准备添加笔记" })));
-    this.root.appendChild(this.makeButton("导出字幕", () => this.update({ status: "请到控制台导出字幕" })));
-    this.root.appendChild(this.makeButton("高亮下一节", () => this.update({ status: "已请求高亮下一节候选" })));
+    for (const action of ASSISTANT_OVERLAY_ACTIONS) {
+      this.root.appendChild(this.makeButton(action.label, () => this.update({ status: action.status })));
+    }
   }
 
   mount(): void {
