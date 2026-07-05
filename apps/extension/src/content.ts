@@ -2,6 +2,8 @@ import { CaptureClient } from "./capture/client";
 import { pickAdapter } from "./adapters/registry";
 import { AssistantOverlay } from "./ui/overlay";
 
+console.info("[Learning Assistant] content script loaded", location.href);
+
 const adapter = pickAdapter(new URL(location.href));
 const overlay = new AssistantOverlay();
 overlay.mount();
