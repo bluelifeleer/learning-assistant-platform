@@ -1,5 +1,7 @@
 import { adapters } from "./adapters/registry";
-import { DEFAULT_EXTENSION_CONFIG, loadExtensionConfig, saveExtensionConfig, type ExtensionConfig } from "./config";
+import { DEFAULT_EXTENSION_CONFIG, loadExtensionConfig, type ExtensionConfig } from "./config";
+import { saveConfigAndReportBinding } from "./optionsActions";
+import { reportOptionsHeartbeat } from "./pluginHeartbeat";
 
 const apiBaseUrlInput = document.querySelector<HTMLInputElement>("#apiBaseUrl");
 const apiTokenInput = document.querySelector<HTMLInputElement>("#apiToken");
@@ -46,20 +48,16 @@ async function init(): Promise<void> {
 
 form?.addEventListener("submit", (event) => {
   event.preventDefault();
-  void saveExtensionConfig(readFormConfig()).then(() => setStatus("配置已保存，请刷新学习页面"));
+  setStatus("正在保存配置...");
+  void saveConfigAndReportBinding(readFormConfig())
+    .then((result) => setStatus(result.message))
+    .catch((error: unknown) => setStatus(error instanceof Error ? error.message : "配置保存失败"));
 });
 
 testButton?.addEventListener("click", () => {
   const config = readFormConfig();
-  void fetch(`${config.apiBaseUrl}/plugin-heartbeat`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${config.apiToken}`,
-    },
-    body: JSON.stringify({ extension_version: chrome.runtime.getManifest().version, enabled_adapters: config.enabledAdapters }),
-  })
-    .then((response) => setStatus(response.ok ? "连接成功" : `连接失败: ${response.status}`))
+  void reportOptionsHeartbeat(config)
+    .then(() => setStatus("连接成功，插件已上报在线"))
     .catch((error: unknown) => setStatus(error instanceof Error ? error.message : "连接失败"));
 });
 

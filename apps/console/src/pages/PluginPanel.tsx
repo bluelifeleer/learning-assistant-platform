@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { API_BASE_URL, createPluginToken, fetchPluginStatus, type PluginClientStatus } from "../api/client";
+import { startPluginStatusPolling } from "./pluginPolling";
 
 export function PluginPanel() {
   const [clients, setClients] = useState<PluginClientStatus[]>([]);
@@ -27,7 +28,7 @@ export function PluginPanel() {
   }
 
   useEffect(() => {
-    void refreshStatus();
+    return startPluginStatusPolling(() => void refreshStatus());
   }, []);
 
   return (
