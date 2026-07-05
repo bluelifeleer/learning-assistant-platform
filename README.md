@@ -11,10 +11,16 @@
 推荐按传统 PHP Web 项目的安装体验来跑：先准备运行环境，启动服务，进入控制台安装器，由安装器检测数据库并写入 `.env`。
 
 1. 安装 Python 3.11+、Node.js、pnpm、Docker Desktop。
-2. 在 `apps/api` 创建虚拟环境并安装依赖：`python -m venv .venv`，然后 `.\.venv\Scripts\python -m pip install -e .[dev]`。
+2. 在 `apps/api` 创建虚拟环境并安装依赖：
+   - Windows: `python -m venv .venv`，然后 `.\.venv\Scripts\python -m pip install -e .[dev]`
+   - macOS / Linux: `python3 -m venv .venv`，然后 `./.venv/bin/python -m pip install -e '.[dev]'`
 3. 在项目根目录运行 `pnpm install`。
-4. 启动一个本地数据库：`scripts\db-docker.ps1 postgresql`，或 `scripts\db-docker.ps1 mysql`。
-5. 运行 `scripts\dev.ps1` 启动 API 和控制台。
+4. 启动一个本地数据库：
+   - Windows: `scripts\db-docker.ps1 postgresql`，或 `scripts\db-docker.ps1 mysql`
+   - macOS / Linux: `./scripts/db-docker.sh postgresql`，或 `./scripts/db-docker.sh mysql`
+5. 启动 API 和控制台：
+   - Windows: `scripts\dev.ps1`
+   - macOS / Linux: `./scripts/dev.sh`
 6. 打开控制台 `http://127.0.0.1:17891`，未安装时会进入“系统安装向导”。
 7. 在安装器里测试数据库连接，填写组织、管理员、License Key，然后初始化。
 8. 在 Chrome 扩展管理页加载 `apps/extension` 构建结果。
@@ -34,6 +40,19 @@ scripts\db-docker.ps1 mysql
 
 # 同时启动两种数据库
 scripts\db-docker.ps1 all
+```
+
+macOS / Linux:
+
+```bash
+# PostgreSQL: 127.0.0.1:5432
+./scripts/db-docker.sh postgresql
+
+# MySQL: 127.0.0.1:3306
+./scripts/db-docker.sh mysql
+
+# 同时启动两种数据库
+./scripts/db-docker.sh all
 ```
 
 默认连接参数：
@@ -130,11 +149,29 @@ scripts\dev.ps1
 # http://127.0.0.1:17891
 ```
 
+macOS / Linux:
+
+```bash
+# 1. 首次使用时赋予执行权限
+chmod +x scripts/*.sh scripts/*.command
+
+# 2. 启动本地 PostgreSQL
+./scripts/db-docker.sh postgresql
+
+# 3. 启动 API 和控制台
+./scripts/dev.sh
+
+# 4. 打开控制台安装器
+# http://127.0.0.1:17891
+```
+
+macOS 也可以双击 `scripts/start-macos.command` 启动；Linux 桌面环境可运行 `./scripts/start-linux.sh`。
+
 安装器中点击“测试数据库连接”，成功后点击“初始化系统”。初始化完成后，刷新控制台会直接进入业务界面。
 
 ## 插件绑定流程
 
-1. 启动 API 和控制台：`scripts\dev.ps1`。
+1. 启动 API 和控制台：Windows 使用 `scripts\dev.ps1`，macOS / Linux 使用 `./scripts/dev.sh`。
 2. 打开控制台 `http://127.0.0.1:17891`，在“插件绑定”面板点击“生成插件 Token”。
 3. 在浏览器扩展管理页找到 `Learning Assistant`，点击“详细信息”或“扩展选项”。
 4. 在 Options 页面填写：
