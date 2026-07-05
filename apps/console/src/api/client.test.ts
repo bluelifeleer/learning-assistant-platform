@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { initializeSetup, testDatabaseConnection, type SetupInitializePayload } from "./client";
+import {
+  createPluginToken,
+  fetchPluginStatus,
+  initializeSetup,
+  testDatabaseConnection,
+  type SetupInitializePayload,
+} from "./client";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -45,5 +51,28 @@ describe("setup client", () => {
       "http://127.0.0.1:17890/api/v1/setup/initialize",
       expect.objectContaining({ method: "POST", body: JSON.stringify(payload) }),
     );
+  });
+});
+
+describe("plugin client", () => {
+  it("creates a plugin token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ token: "lap_test", client: { id: "1", name: "Edge", online: false } }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createPluginToken("Edge");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/plugin-tokens",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "Edge" }) }),
+    );
+  });
+
+  it("fetches plugin status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ clients: [] }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchPluginStatus();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/plugin-status");
   });
 });

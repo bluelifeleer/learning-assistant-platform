@@ -11,4 +11,9 @@ describe("adapter registry", () => {
     const adapter = pickAdapter(new URL("https://example.com/course/video"));
     expect(adapter.id).toBe("generic-video");
   });
+
+  it("respects enabled adapter ids", () => {
+    const adapter = pickAdapter(new URL("https://learning.wencaischool.net/openlearning/console/"), ["generic-video"]);
+    expect(adapter.id).toBe("generic-video");
+  });
 });

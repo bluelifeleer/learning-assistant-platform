@@ -19,4 +19,9 @@ await Promise.all([
     entryPoints: ["src/background.ts"],
     outfile: "dist/background.js",
   }),
+  build({
+    ...sharedOptions,
+    entryPoints: ["src/options.ts"],
+    outfile: "dist/options.js",
+  }),
 ]);

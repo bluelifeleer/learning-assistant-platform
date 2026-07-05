@@ -1,6 +1,9 @@
+import { PluginPanel } from "./PluginPanel";
+
 export function Dashboard() {
   return (
     <section className="dashboard-grid">
+      <PluginPanel />
       <article>
         <h2>最近课程</h2>
         <p>课程采集后会显示在这里。</p>

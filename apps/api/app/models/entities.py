@@ -56,6 +56,21 @@ class ApiToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class PluginClient(Base, TimestampMixin):
+    __tablename__ = "plugin_clients"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    token_id: Mapped[str] = mapped_column(ForeignKey("api_tokens.id"), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    extension_version: Mapped[str | None] = mapped_column(String(40))
+    current_url: Mapped[str | None] = mapped_column(Text)
+    adapter_id: Mapped[str | None] = mapped_column(String(120))
+    adapter_name: Mapped[str | None] = mapped_column(String(200))
+    enabled_adapters: Mapped[list[str]] = mapped_column(JSON, default=list)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Site(Base):
     __tablename__ = "sites"
 
@@ -102,7 +117,7 @@ class VideoSession(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
     chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False)
-    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_watched_seconds: Mapped[int] = mapped_column(Integer, default=0)
@@ -138,7 +153,7 @@ class Note(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
     chapter_id: Mapped[str | None] = mapped_column(ForeignKey("chapters.id"))
-    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     video_time_seconds: Mapped[float | None] = mapped_column(Numeric(10, 3))
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -148,7 +163,7 @@ class Export(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
-    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     course_id: Mapped[str | None] = mapped_column(ForeignKey("courses.id"))
     format: Mapped[str] = mapped_column(String(40), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
@@ -160,7 +175,7 @@ class AuditLog(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"))
-    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     action: Mapped[str] = mapped_column(String(120), nullable=False)
     resource_type: Mapped[str | None] = mapped_column(String(120))
     resource_id: Mapped[str | None] = mapped_column(String(120))

@@ -11,6 +11,7 @@ def test_expected_tables_are_registered() -> None:
         "users",
         "memberships",
         "api_tokens",
+        "plugin_clients",
         "sites",
         "courses",
         "chapters",

@@ -196,3 +196,58 @@ p {
   cursor: pointer;
   padding: 9px 12px;
 }
+
+.plugin-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.plugin-panel code,
+.token-box {
+  display: block;
+  overflow-wrap: anywhere;
+  border: 1px solid #cfdae6;
+  border-radius: 6px;
+  background: #f7fafc;
+  padding: 8px;
+  color: #1c3144;
+  font-size: 12px;
+}
+
+.plugin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plugin-actions button {
+  border: 0;
+  border-radius: 6px;
+  background: #1669b2;
+  color: white;
+  cursor: pointer;
+  padding: 8px 10px;
+}
+
+.plugin-client-list {
+  display: grid;
+  gap: 8px;
+}
+
+.plugin-client-row {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #e0e7ef;
+  border-radius: 6px;
+  padding: 9px;
+  background: #fbfdff;
+  font-size: 13px;
+}
+
+.plugin-client-row span[data-online="yes"] {
+  color: #18713a;
+}
+
+.plugin-client-row span[data-online="no"] {
+  color: #8a4d16;
+}

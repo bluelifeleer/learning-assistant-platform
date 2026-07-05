@@ -14,6 +14,7 @@ REQUIRED_TABLES = {
     "users",
     "memberships",
     "api_tokens",
+    "plugin_clients",
     "sites",
     "courses",
     "chapters",

@@ -41,7 +41,28 @@ export interface SetupInitializePayload {
   initialize_schema: boolean;
 }
 
-const API_BASE_URL = "http://127.0.0.1:17890/api/v1";
+export interface PluginClientStatus {
+  id: string;
+  name: string;
+  online: boolean;
+  extension_version?: string | null;
+  current_url?: string | null;
+  adapter_id?: string | null;
+  adapter_name?: string | null;
+  enabled_adapters: string[];
+  last_seen_at?: string | null;
+}
+
+export interface PluginTokenResponse {
+  token: string;
+  client: PluginClientStatus;
+}
+
+export interface PluginStatusResponse {
+  clients: PluginClientStatus[];
+}
+
+export const API_BASE_URL = "http://127.0.0.1:17890/api/v1";
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -71,4 +92,14 @@ export async function testDatabaseConnection(payload: DatabaseConfigPayload): Pr
 
 export async function initializeSetup(payload: SetupInitializePayload): Promise<SetupStatus> {
   return postJson<SetupStatus>("/setup/initialize", payload);
+}
+
+export async function createPluginToken(name: string): Promise<PluginTokenResponse> {
+  return postJson<PluginTokenResponse>("/plugin-tokens", { name });
+}
+
+export async function fetchPluginStatus(): Promise<PluginStatusResponse> {
+  const response = await fetch(`${API_BASE_URL}/plugin-status`);
+  if (!response.ok) throw new Error(`Plugin status failed: ${response.status}`);
+  return response.json() as Promise<PluginStatusResponse>;
 }
