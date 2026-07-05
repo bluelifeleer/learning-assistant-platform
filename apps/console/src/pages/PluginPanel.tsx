@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { API_BASE_URL, createPluginToken, downloadExtensionPackage, fetchPluginStatus, fetchVideoEvents, type PluginClientStatus, type VideoEventItem } from "../api/client";
+import { getSubtitleDiagnostics } from "./pluginDiagnostics";
 import { startPluginStatusPolling } from "./pluginPolling";
 
 interface PluginPanelProps {
@@ -82,7 +83,7 @@ export function PluginPanel({ onStatusChange }: PluginPanelProps) {
       </div>
       <section className="video-source-list">
         <h3>最近视频源</h3>
-        {videoEvents.length === 0 ? <p>暂无视频源采集记录。</p> : videoEvents.slice(0, 5).map((event) => {
+        {videoEvents.filter((event) => event.event_type !== "subtitle-diagnostic").length === 0 ? <p>暂无视频源采集记录。</p> : videoEvents.filter((event) => event.event_type !== "subtitle-diagnostic").slice(0, 5).map((event) => {
           const source = event.video_source;
           const currentSrc = typeof source.currentSrc === "string" ? source.currentSrc : "未上报";
           const mediaType = typeof source.mediaType === "string" ? source.mediaType : "unknown";
@@ -99,6 +100,16 @@ export function PluginPanel({ onStatusChange }: PluginPanelProps) {
             </section>
           );
         })}
+      </section>
+      <section className="video-source-list">
+        <h3>最近字幕采集</h3>
+        {getSubtitleDiagnostics(videoEvents).length === 0 ? <p>暂无字幕采集诊断。</p> : getSubtitleDiagnostics(videoEvents).slice(0, 5).map((diagnostic) => (
+          <section key={diagnostic.id} className="plugin-client-row">
+            <strong>{diagnostic.status}</strong>
+            <span>{diagnostic.detail}</span>
+            <span className="breakable">字幕: {diagnostic.subtitleUrl}</span>
+          </section>
+        ))}
       </section>
     </article>
   );

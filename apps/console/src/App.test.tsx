@@ -54,6 +54,8 @@ describe("App", () => {
 
     expect(html).toContain("导出插件包");
     expect(html).toContain("最近视频源");
+    expect(html).toContain("最近字幕采集");
+    expect(html).toContain("暂无字幕采集诊断");
     expect(html).toContain("暂无视频源采集记录");
   });
 });

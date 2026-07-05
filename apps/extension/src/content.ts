@@ -1,14 +1,12 @@
 import { CaptureClient } from "./capture/client";
 import { pickAdapter } from "./adapters/registry";
-import { extractSubtitleTrackUrls, parseSubtitleFile } from "./adapters/subtitleFiles";
 import { loadExtensionConfig } from "./config";
 import { shouldMountAssistantOverlay } from "./framePolicy";
 import { fetchSubtitleFileText } from "./subtitleFetchClient";
+import { collectAndReportSubtitleTrackFiles } from "./subtitleTrackReporter";
 import { AssistantOverlay } from "./ui/overlay";
 
 console.info("[Learning Assistant] content script loaded", location.href);
-
-const MAX_TRACK_FILE_SEGMENTS = 1000;
 
 async function boot(): Promise<void> {
   const config = await loadExtensionConfig();
@@ -71,26 +69,15 @@ async function boot(): Promise<void> {
     }).catch(() => undefined);
   };
 
-  const reportSubtitleTrackFiles = async (): Promise<void> => {
-    const subtitleUrls = extractSubtitleTrackUrls(document, location.href);
-    for (const subtitleUrl of subtitleUrls) {
-      const text = await fetchSubtitleFileText(subtitleUrl);
-      const segments = parseSubtitleFile(text, "track-file").slice(0, MAX_TRACK_FILE_SEGMENTS);
-      for (const segment of segments) {
-        await client.post("/capture/transcript-segment", {
-          external_course_id: course?.externalCourseId ?? location.href,
-          external_chapter_id: currentChapter?.externalChapterId ?? "unknown",
-          session_id: videoSessionId,
-          text: segment.text,
-          source: segment.source,
-          start_seconds: segment.startSeconds,
-          end_seconds: segment.endSeconds,
-        });
-      }
-    }
-  };
-
-  void reportSubtitleTrackFiles().catch(() => undefined);
+  void collectAndReportSubtitleTrackFiles({
+    document,
+    locationHref: location.href,
+    client,
+    fetchSubtitleFileText,
+    externalCourseId: course?.externalCourseId ?? location.href,
+    externalChapterId: currentChapter?.externalChapterId ?? "unknown",
+    sessionId: videoSessionId,
+  }).catch(() => undefined);
 
   if (video) {
     reportVideoSource("video-source");
