@@ -3,6 +3,7 @@ import { pickAdapter } from "./adapters/registry";
 import { extractSubtitleTrackUrls, parseSubtitleFile } from "./adapters/subtitleFiles";
 import { loadExtensionConfig } from "./config";
 import { shouldMountAssistantOverlay } from "./framePolicy";
+import { fetchSubtitleFileText } from "./subtitleFetchClient";
 import { AssistantOverlay } from "./ui/overlay";
 
 console.info("[Learning Assistant] content script loaded", location.href);
@@ -73,10 +74,7 @@ async function boot(): Promise<void> {
   const reportSubtitleTrackFiles = async (): Promise<void> => {
     const subtitleUrls = extractSubtitleTrackUrls(document, location.href);
     for (const subtitleUrl of subtitleUrls) {
-      const response = await fetch(subtitleUrl, { credentials: "include" });
-      if (!response.ok) continue;
-
-      const text = await response.text();
+      const text = await fetchSubtitleFileText(subtitleUrl);
       const segments = parseSubtitleFile(text, "track-file").slice(0, MAX_TRACK_FILE_SEGMENTS);
       for (const segment of segments) {
         await client.post("/capture/transcript-segment", {
