@@ -15,10 +15,12 @@ function formatStatus(status: string | null): string {
   if (status === "imported") return "已导入";
   if (status === "fetch-failed") return "读取失败";
   if (status === "parse-empty") return "未解析到字幕";
+  if (status === "no-track") return "未发现字幕文件";
   return "未知状态";
 }
 
 function formatDetail(event: VideoEventItem): string {
+  if (event.payload.status === "no-track") return "页面没有暴露 track 字幕文件";
   const segmentCount = event.payload.segment_count;
   if (typeof segmentCount === "number") return `${segmentCount} 条字幕片段`;
   return textValue(event.payload.error) ?? "等待更多诊断信息";

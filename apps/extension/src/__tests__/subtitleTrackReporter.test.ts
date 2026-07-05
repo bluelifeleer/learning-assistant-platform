@@ -8,6 +8,33 @@ function fakeDocumentWithTracks(tracks: unknown[]): Document {
 }
 
 describe("subtitle track reporter", () => {
+  it("reports a no-track diagnostic when the page has no subtitle track files", async () => {
+    const post = vi.fn().mockResolvedValue(undefined);
+
+    await collectAndReportSubtitleTrackFiles({
+      document: fakeDocumentWithTracks([]),
+      locationHref: "https://learning.example.com/course/1",
+      client: { post },
+      fetchSubtitleFileText: vi.fn(),
+      externalCourseId: "course-1",
+      externalChapterId: "chapter-1",
+      sessionId: "session-1",
+    });
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith("/capture/video-event", {
+      session_id: "session-1",
+      event_type: "subtitle-diagnostic",
+      payload: {
+        course_url: "https://learning.example.com/course/1",
+        external_course_id: "course-1",
+        external_chapter_id: "chapter-1",
+        subtitle_url: null,
+        status: "no-track",
+      },
+    });
+  });
+
   it("reports imported subtitle file diagnostics after posting parsed segments", async () => {
     const post = vi.fn().mockResolvedValue(undefined);
 

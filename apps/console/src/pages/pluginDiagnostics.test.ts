@@ -19,6 +19,15 @@ describe("plugin diagnostics", () => {
       {
         id: "event-2",
         session_id: "session-1",
+        event_type: "subtitle-diagnostic",
+        video_source: {},
+        payload: {
+          status: "no-track",
+        },
+      },
+      {
+        id: "event-3",
+        session_id: "session-1",
         event_type: "video-source",
         video_source: {},
         payload: {},
@@ -31,6 +40,12 @@ describe("plugin diagnostics", () => {
         status: "已导入",
         detail: "12 条字幕片段",
         subtitleUrl: "https://cdn.example.com/lesson.vtt",
+      },
+      {
+        id: "event-2",
+        status: "未发现字幕文件",
+        detail: "页面没有暴露 track 字幕文件",
+        subtitleUrl: "未上报",
       },
     ]);
   });

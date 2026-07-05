@@ -18,7 +18,7 @@ interface SubtitleTrackReporterOptions {
 
 async function reportDiagnostic(
   options: SubtitleTrackReporterOptions,
-  subtitleUrl: string,
+  subtitleUrl: string | null,
   payload: Record<string, unknown>,
 ): Promise<void> {
   await options.client.post("/capture/video-event", {
@@ -36,6 +36,10 @@ async function reportDiagnostic(
 
 export async function collectAndReportSubtitleTrackFiles(options: SubtitleTrackReporterOptions): Promise<void> {
   const subtitleUrls = extractSubtitleTrackUrls(options.document, options.locationHref);
+  if (subtitleUrls.length === 0) {
+    await reportDiagnostic(options, null, { status: "no-track" });
+    return;
+  }
 
   for (const subtitleUrl of subtitleUrls) {
     try {
