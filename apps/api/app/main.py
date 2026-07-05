@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import health
+from app.routes import auth, capture, health
 
 
 def create_app() -> FastAPI:
@@ -14,6 +14,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(health.router, prefix="/api/v1")
+    app.include_router(auth.router, prefix="/api/v1")
+    app.include_router(capture.router, prefix="/api/v1")
     return app
 
 
