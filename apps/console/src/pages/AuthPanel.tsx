@@ -39,6 +39,8 @@ export function AuthPanel({ session, onSessionChange }: AuthPanelProps) {
 
   return (
     <section className="auth-panel">
+      <h1>登录学习助手</h1>
+      <p>登录后进入管理后台，管理课程资料、字幕、笔记和浏览器插件。</p>
       <div className="segmented">
         <button type="button" data-active={mode === "login" ? "yes" : "no"} onClick={() => setMode("login")}>登录</button>
         <button type="button" data-active={mode === "register" ? "yes" : "no"} onClick={() => setMode("register")}>注册</button>

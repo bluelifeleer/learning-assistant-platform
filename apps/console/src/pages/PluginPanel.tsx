@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { API_BASE_URL, createPluginToken, fetchPluginStatus, type PluginClientStatus } from "../api/client";
+import { API_BASE_URL, createPluginToken, downloadExtensionPackage, fetchPluginStatus, type PluginClientStatus } from "../api/client";
 import { startPluginStatusPolling } from "./pluginPolling";
 
 interface PluginPanelProps {
@@ -36,18 +36,35 @@ export function PluginPanel({ onStatusChange }: PluginPanelProps) {
     }
   }
 
+  async function handleDownloadPackage() {
+    try {
+      const blob = await downloadExtensionPackage();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "learning-assistant-extension.zip";
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage("插件包已导出，请在 Edge 扩展页面加载或安装。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "插件包导出失败");
+    }
+  }
+
   useEffect(() => {
     return startPluginStatusPolling(() => void refreshStatus());
   }, []);
 
   return (
     <article className="plugin-panel">
-      <h2>插件绑定</h2>
+      <h2>插件管理</h2>
       <p>API 地址: <code>{API_BASE_URL}</code></p>
       <div className="plugin-actions">
         <button type="button" onClick={handleCreateToken}>生成插件 Token</button>
+        <button type="button" onClick={() => void handleDownloadPackage()}>导出插件包</button>
         <button type="button" onClick={() => void refreshStatus()}>刷新状态</button>
       </div>
+      <p>浏览器不允许网页静默安装扩展。导出 zip 后，在 Edge 扩展管理页开启开发人员模式并加载解压后的插件目录。</p>
       {token ? <pre className="token-box">{token}</pre> : null}
       <p>{message}</p>
       <div className="plugin-client-list">

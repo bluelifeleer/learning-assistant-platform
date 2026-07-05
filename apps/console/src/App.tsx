@@ -4,44 +4,47 @@ import { fetchSetupStatus, type SetupStatus } from "./api/client";
 import { Adapters } from "./pages/Adapters";
 import { AuthPanel } from "./pages/AuthPanel";
 import { Courses } from "./pages/Courses";
-import { Dashboard } from "./pages/Dashboard";
 import { Exports } from "./pages/Exports";
 import { Installer } from "./pages/Installer";
 import { Notes } from "./pages/Notes";
+import { PluginPanel } from "./pages/PluginPanel";
 import { Settings } from "./pages/Settings";
 import { Transcripts } from "./pages/Transcripts";
 import { UsersAuth } from "./pages/UsersAuth";
 import { formatPluginBindingState, getPluginBindingState, type PluginBindingState } from "./pages/pluginStatus";
 import "./styles.css";
 
-const navItems = ["课程", "字幕", "笔记", "导出", "站点适配器", "用户与授权", "设置"] as const;
+const navItems = ["课程", "字幕", "笔记", "导出", "插件管理", "站点适配器", "用户与授权", "设置"] as const;
 type ConsolePage = (typeof navItems)[number];
 
 interface AppProps {
   initialSetupStatus?: SetupStatus;
   initialPage?: ConsolePage;
+  initialSession?: AuthResponse | null;
 }
 
-function WorkspacePage({ page, session }: { page: ConsolePage; session: AuthResponse | null }) {
+function loadSavedSession(): AuthResponse | null {
+  if (typeof localStorage === "undefined") return null;
+  const saved = localStorage.getItem("learn_assistant_session");
+  return saved ? (JSON.parse(saved) as AuthResponse) : null;
+}
+
+function WorkspacePage({ page, session, onPluginStatusChange }: { page: ConsolePage; session: AuthResponse | null; onPluginStatusChange: (clients: PluginClientStatus[]) => void }) {
   if (page === "课程") return <Courses />;
   if (page === "字幕") return <Transcripts />;
   if (page === "笔记") return <Notes token={session?.token} />;
   if (page === "导出") return <Exports token={session?.token} />;
+  if (page === "插件管理") return <PluginPanel onStatusChange={onPluginStatusChange} />;
   if (page === "站点适配器") return <Adapters />;
   if (page === "用户与授权") return <UsersAuth session={session} />;
   return <Settings title="设置" description="配置本地 API、组织信息、数据库连接和系统偏好。" />;
 }
 
-export function App({ initialSetupStatus, initialPage = "课程" }: AppProps) {
+export function App({ initialSetupStatus, initialPage = "课程", initialSession }: AppProps) {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | undefined>(initialSetupStatus);
   const [activePage, setActivePage] = useState<ConsolePage>(initialPage);
   const [pluginState, setPluginState] = useState<PluginBindingState>("unbound");
-  const [session, setSession] = useState<AuthResponse | null>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("learn_assistant_session");
-    if (saved) setSession(JSON.parse(saved) as AuthResponse);
-  }, []);
+  const [session, setSession] = useState<AuthResponse | null>(initialSession === undefined ? loadSavedSession() : initialSession);
 
   useEffect(() => {
     if (initialSetupStatus) return;
@@ -63,6 +66,10 @@ export function App({ initialSetupStatus, initialPage = "课程" }: AppProps) {
     return <Installer status={setupStatus} onInstalled={setSetupStatus} />;
   }
 
+  if (!session) {
+    return <main className="auth-shell"><AuthPanel session={null} onSessionChange={setSession} /></main>;
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -74,19 +81,16 @@ export function App({ initialSetupStatus, initialPage = "课程" }: AppProps) {
             </button>
           ))}
         </nav>
-        <AuthPanel session={session} onSessionChange={setSession} />
       </aside>
       <main className="workspace">
         <section className="status-row">
           <span>API 服务: 已连接</span>
           <span>插件状态: {formatPluginBindingState(pluginState)}</span>
           <span>组织: Local Workspace</span>
+          <span className="user-chip">{session.user.display_name} · {session.user.email}</span>
+          <button type="button" className="text-button" onClick={() => { localStorage.removeItem("learn_assistant_session"); setSession(null); }}>退出</button>
         </section>
-        {activePage === "课程" ? (
-          <Dashboard onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
-        ) : (
-          <WorkspacePage page={activePage} session={session} />
-        )}
+        <WorkspacePage page={activePage} session={session} onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
       </main>
     </div>
   );

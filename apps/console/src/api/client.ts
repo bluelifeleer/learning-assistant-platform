@@ -192,6 +192,12 @@ export async function fetchPluginStatus(): Promise<PluginStatusResponse> {
   return response.json() as Promise<PluginStatusResponse>;
 }
 
+export async function downloadExtensionPackage(): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/plugin-package`);
+  if (!response.ok) throw new Error(`Plugin package failed: ${response.status}`);
+  return response.blob();
+}
+
 export async function register(payload: RegisterPayload): Promise<AuthResponse> {
   return postJson<AuthResponse>("/auth/register", payload);
 }

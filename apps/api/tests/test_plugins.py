@@ -1,3 +1,7 @@
+from io import BytesIO
+from zipfile import ZipFile
+
+
 def test_plugin_token_generation_returns_plain_token_once(client):
     response = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"})
 
@@ -48,3 +52,17 @@ def test_plugin_heartbeat_rejects_invalid_token(client):
     )
 
     assert response.status_code == 401
+
+
+def test_plugin_package_exports_loadable_extension_zip(client):
+    response = client.get("/api/v1/plugin-package")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+
+    with ZipFile(BytesIO(response.content)) as archive:
+        names = set(archive.namelist())
+
+    assert "manifest.json" in names
+    assert "options.html" in names
+    assert "dist/content.js" in names

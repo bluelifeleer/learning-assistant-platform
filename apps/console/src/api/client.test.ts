@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createExport,
   createPluginToken,
+  downloadExtensionPackage,
   fetchAdapters,
   fetchCourses,
   fetchNotes,
@@ -81,6 +82,16 @@ describe("plugin client", () => {
     await fetchPluginStatus();
 
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/plugin-status");
+  });
+
+  it("downloads the packaged extension zip", async () => {
+    const blob = new Blob(["zip"]);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, blob: async () => blob });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await downloadExtensionPackage();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:17890/api/v1/plugin-package");
   });
 });
 

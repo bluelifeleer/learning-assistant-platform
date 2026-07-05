@@ -56,10 +56,18 @@ body {
 .auth-panel {
   display: grid;
   gap: 8px;
-  margin-top: 18px;
-  border-top: 1px solid #274158;
-  padding-top: 14px;
+  width: min(420px, 100%);
+  border: 1px solid #d8e2ec;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 22px;
+  color: #17202a;
   font-size: 12px;
+}
+
+.auth-panel h1 {
+  margin: 0;
+  font-size: 22px;
 }
 
 .auth-panel input,
@@ -90,7 +98,15 @@ body {
 }
 
 .segmented button[data-active="no"] {
-  background: #1c354c;
+  background: #6d7d8d;
+}
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #eef3f8;
+  padding: 24px;
 }
 
 .workspace {
@@ -101,6 +117,7 @@ body {
 .status-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   border-bottom: 1px solid #dde5ee;
   padding-bottom: 12px;
@@ -111,6 +128,19 @@ body {
   border: 1px solid #d2dce8;
   border-radius: 6px;
   background: #ffffff;
+  padding: 7px 10px;
+}
+
+.status-row .user-chip {
+  margin-left: auto;
+}
+
+.text-button {
+  border: 1px solid #d2dce8;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1669b2;
+  cursor: pointer;
   padding: 7px 10px;
 }
 
