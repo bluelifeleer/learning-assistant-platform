@@ -1,9 +1,14 @@
+import type { PluginClientStatus } from "../api/client";
 import { PluginPanel } from "./PluginPanel";
 
-export function Dashboard() {
+interface DashboardProps {
+  onPluginStatusChange?: (clients: PluginClientStatus[]) => void;
+}
+
+export function Dashboard({ onPluginStatusChange }: DashboardProps) {
   return (
     <section className="dashboard-grid">
-      <PluginPanel />
+      <PluginPanel onStatusChange={onPluginStatusChange} />
       <article>
         <h2>最近课程</h2>
         <p>课程采集后会显示在这里。</p>

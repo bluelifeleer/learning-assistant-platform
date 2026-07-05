@@ -19,4 +19,11 @@ describe("App", () => {
     expect(html).toContain("导出");
     expect(html).toContain("站点适配器");
   });
+
+  it("can render a left-navigation workspace page", () => {
+    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="字幕" />);
+
+    expect(html).toContain("字幕");
+    expect(html).toContain("按课程和章节查看字幕片段");
+  });
 });

@@ -12,7 +12,7 @@ body {
 .app-shell {
   display: grid;
   min-height: 100vh;
-  grid-template-columns: 248px 1fr;
+  grid-template-columns: 248px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -48,7 +48,13 @@ body {
   background: #1c354c;
 }
 
+.sidebar button[data-active="yes"] {
+  background: #214361;
+  color: #ffffff;
+}
+
 .workspace {
+  min-width: 0;
   padding: 18px 22px;
 }
 
@@ -77,6 +83,7 @@ body {
 
 .dashboard-grid article,
 .panel {
+  min-width: 0;
   border: 1px solid #dbe3ed;
   border-radius: 8px;
   background: #ffffff;
@@ -205,7 +212,10 @@ p {
 .plugin-panel code,
 .token-box {
   display: block;
+  max-width: 100%;
+  overflow: hidden;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
   border: 1px solid #cfdae6;
   border-radius: 6px;
   background: #f7fafc;
@@ -236,12 +246,17 @@ p {
 
 .plugin-client-row {
   display: grid;
+  min-width: 0;
   gap: 5px;
   border: 1px solid #e0e7ef;
   border-radius: 6px;
   padding: 9px;
   background: #fbfdff;
   font-size: 13px;
+}
+
+.plugin-client-row span {
+  overflow-wrap: anywhere;
 }
 
 .plugin-client-row span[data-online="yes"] {

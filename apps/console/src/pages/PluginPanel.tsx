@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { API_BASE_URL, createPluginToken, fetchPluginStatus, type PluginClientStatus } from "../api/client";
 import { startPluginStatusPolling } from "./pluginPolling";
 
-export function PluginPanel() {
+interface PluginPanelProps {
+  onStatusChange?: (clients: PluginClientStatus[]) => void;
+}
+
+export function PluginPanel({ onStatusChange }: PluginPanelProps) {
   const [clients, setClients] = useState<PluginClientStatus[]>([]);
   const [token, setToken] = useState("");
   const [message, setMessage] = useState("插件未绑定时，请先生成 Token 并填入扩展选项页。");
@@ -11,6 +15,7 @@ export function PluginPanel() {
     try {
       const status = await fetchPluginStatus();
       setClients(status.clients);
+      onStatusChange?.(status.clients);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "插件状态读取失败");
     }
@@ -20,7 +25,11 @@ export function PluginPanel() {
     try {
       const result = await createPluginToken("Edge local");
       setToken(result.token);
-      setClients((current) => [result.client, ...current.filter((client) => client.id !== result.client.id)]);
+      setClients((current) => {
+        const nextClients = [result.client, ...current.filter((client) => client.id !== result.client.id)];
+        onStatusChange?.(nextClients);
+        return nextClients;
+      });
       setMessage("Token 只显示一次，请填入扩展选项页并保存。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Token 生成失败");
