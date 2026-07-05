@@ -16,7 +16,7 @@ export interface CourseSnapshot {
 
 export interface TranscriptSnapshot {
   text: string;
-  source: "track" | "dom-visible-text" | "aria-live" | "manual";
+  source: "track" | "track-file" | "dom-visible-text" | "aria-live" | "manual";
 }
 
 export interface VideoSourceSnapshot {
