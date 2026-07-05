@@ -1,0 +1,14 @@
+{
+  "name": "learning-assistant-platform",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "test": "pnpm --recursive test",
+    "test:extension": "pnpm --filter @learn-assistant/extension test",
+    "test:console": "pnpm --filter @learn-assistant/console test",
+    "build": "pnpm --recursive build",
+    "build:extension": "pnpm --filter @learn-assistant/extension build",
+    "build:console": "pnpm --filter @learn-assistant/console build"
+  },
+  "packageManager": "pnpm@9.12.3"
+}
