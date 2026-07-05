@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Learning Assistant",
+  "version": "0.1.0",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["http://127.0.0.1:17890/*", "https://*/*", "http://*/*"],
+  "background": { "service_worker": "dist/background.js", "type": "module" },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://*/*"],
+      "js": ["dist/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

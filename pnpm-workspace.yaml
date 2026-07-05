@@ -1,3 +1,9 @@
 packages:
   - apps/console
   - apps/extension
+
+allowBuilds:
+  esbuild: true
+
+onlyBuiltDependencies:
+  - esbuild
