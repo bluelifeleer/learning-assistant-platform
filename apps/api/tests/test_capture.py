@@ -91,6 +91,27 @@ def test_video_event_is_persisted_and_listed(client) -> None:
     assert item["video_source"]["isBlob"] is True
 
 
+def test_video_events_can_be_filtered_by_event_type(client) -> None:
+    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}).json()["token"]
+    for event_type in ["video-source", "subtitle-diagnostic"]:
+        response = client.post(
+            "/api/v1/capture/video-event",
+            headers={"authorization": f"Bearer {token}"},
+            json={
+                "session_id": "session-1",
+                "event_type": event_type,
+                "payload": {"status": "imported" if event_type == "subtitle-diagnostic" else "ok"},
+            },
+        )
+        assert response.status_code == 200
+
+    list_response = client.get("/api/v1/video-events?event_type=subtitle-diagnostic")
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["event_type"] == "subtitle-diagnostic"
+
+
 def test_video_event_rejects_invalid_plugin_token(client) -> None:
     response = client.post(
         "/api/v1/capture/video-event",

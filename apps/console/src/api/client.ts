@@ -128,6 +128,11 @@ export interface VideoEventItem {
   created_at?: string | null;
 }
 
+export interface VideoEventQuery {
+  eventType?: string;
+  sessionId?: string;
+}
+
 export interface NoteItem {
   id: string;
   course_id: string;
@@ -263,8 +268,12 @@ export async function fetchTranscripts(): Promise<{ items: TranscriptItem[] }> {
   return getJson<{ items: TranscriptItem[] }>("/transcripts");
 }
 
-export async function fetchVideoEvents(): Promise<{ items: VideoEventItem[] }> {
-  return getJson<{ items: VideoEventItem[] }>("/video-events");
+export async function fetchVideoEvents(query: VideoEventQuery = {}): Promise<{ items: VideoEventItem[] }> {
+  const params = new URLSearchParams();
+  if (query.eventType) params.set("event_type", query.eventType);
+  if (query.sessionId) params.set("session_id", query.sessionId);
+  const suffix = params.toString();
+  return getJson<{ items: VideoEventItem[] }>(`/video-events${suffix ? `?${suffix}` : ""}`);
 }
 
 export async function fetchNotes(): Promise<{ items: NoteItem[] }> {

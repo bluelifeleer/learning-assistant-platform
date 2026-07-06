@@ -9,10 +9,16 @@ router = APIRouter(prefix="/video-events", tags=["video-events"])
 
 
 @router.get("", response_model=VideoEventListOut)
-def list_video_events(session_id: str | None = None, db: Session = Depends(get_db)) -> VideoEventListOut:
+def list_video_events(
+    session_id: str | None = None,
+    event_type: str | None = None,
+    db: Session = Depends(get_db),
+) -> VideoEventListOut:
     query = db.query(VideoCaptureEvent)
     if session_id:
         query = query.filter(VideoCaptureEvent.session_id == session_id)
+    if event_type:
+        query = query.filter(VideoCaptureEvent.event_type == event_type)
     events = query.order_by(VideoCaptureEvent.created_at.desc()).limit(100).all()
     return VideoEventListOut(
         items=[
