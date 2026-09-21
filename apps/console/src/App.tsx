@@ -71,6 +71,24 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
   const [pluginState, setPluginState] = useState<PluginBindingState>("unbound");
   const [session, setSession] = useState<AuthResponse | null>(initialSession === undefined ? loadSavedSession() : initialSession);
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem("la_sidebar_collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  function toggleSidebar() {
+    setSidebarCollapsed((current) => {
+      try {
+        if (typeof localStorage !== "undefined") localStorage.setItem("la_sidebar_collapsed", current ? "0" : "1");
+      } catch {
+        // localStorage 不可用时仅保持当次会话状态
+      }
+      return !current;
+    });
+  }
 
   setSessionToken(session?.token ?? null);
 
@@ -148,16 +166,19 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={sidebarCollapsed ? "app-shell app-shell-collapsed" : "app-shell"}>
+      <aside className={sidebarCollapsed ? "sidebar collapsed" : "sidebar"}>
         <h1>学习助手控制台</h1>
         <nav>
           {navItems.map((item) => (
-            <button key={item} type="button" data-active={activePage === item ? "yes" : "no"} onClick={() => { setActivePage(item); setCourseDetailId(null); }}>
-              {item}
+            <button key={item} type="button" title={item} data-active={activePage === item ? "yes" : "no"} onClick={() => { setActivePage(item); setCourseDetailId(null); }}>
+              {sidebarCollapsed ? item.slice(0, 1) : item}
             </button>
           ))}
         </nav>
+        <button type="button" className="sidebar-toggle" title={sidebarCollapsed ? "展开导航" : "收缩导航"} onClick={toggleSidebar}>
+          {sidebarCollapsed ? "»" : "«"}
+        </button>
       </aside>
       <main className="workspace">
         <section className="status-row">

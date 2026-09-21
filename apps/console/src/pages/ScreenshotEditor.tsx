@@ -90,6 +90,8 @@ export function ScreenshotEditor({ imageUrl, onSave, onClose }: ScreenshotEditor
 
   function handleMouseDown(event: ReactMouseEvent<HTMLCanvasElement>) {
     if (!tool) return;
+    // 阻止 mousedown 默认的焦点转移,否则文本输入框挂载后立刻被夺走焦点,onBlur 直接把它关掉了
+    event.preventDefault();
     const point = canvasPoint(event);
     if (tool === "text") {
       setTextPos(point);

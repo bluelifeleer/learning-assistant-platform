@@ -162,6 +162,36 @@ p {
   font-weight: 600;
 }
 
+.app-shell.app-shell-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.sidebar.collapsed {
+  padding: 22px 8px;
+}
+
+.sidebar.collapsed h1 {
+  justify-content: center;
+  margin: 0 0 16px;
+  font-size: 0;
+  letter-spacing: 0;
+}
+
+.sidebar.collapsed nav button {
+  padding: 10px 0;
+  text-align: center;
+}
+
+.sidebar.collapsed nav button[data-active="yes"] {
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.sidebar-toggle {
+  margin-top: 18px;
+  font-size: 15px;
+  line-height: 1;
+}
+
 .workspace {
   min-width: 0;
   padding: 20px 28px 40px;

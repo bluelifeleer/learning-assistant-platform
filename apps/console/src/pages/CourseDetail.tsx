@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   deleteScreenshot,
   fetchCourseDetail,
@@ -33,7 +33,12 @@ function ChapterScreenshots({ courseId, chapterId, unassignedOnly }: { courseId:
   const [message, setMessage] = useState("");
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const itemsRef = useRef<LoadedScreenshot[]>([]);
   const [viewTransform, setViewTransform] = useState({ scale: 1, rotate: 0 });
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   useEffect(() => {
     setViewTransform({ scale: 1, rotate: 0 });
@@ -109,9 +114,16 @@ function ChapterScreenshots({ courseId, chapterId, unassignedOnly }: { courseId:
         loaded.forEach(({ url }) => URL.revokeObjectURL(url));
         return;
       }
-      owned.forEach((url) => URL.revokeObjectURL(url));
-      owned = loaded.map(({ url }) => url);
-      setItems(loaded);
+      // 截图集合没变化时保留原有 objectURL,避免编辑器/查看器被轮询打断重载
+      const unchanged = itemsRef.current.length === loaded.length
+        && itemsRef.current.every((item, index) => item.shot.id === loaded[index].shot.id);
+      if (unchanged) {
+        loaded.forEach(({ url }) => URL.revokeObjectURL(url));
+      } else {
+        owned.forEach((url) => URL.revokeObjectURL(url));
+        owned = loaded.map(({ url }) => url);
+        setItems(loaded);
+      }
       setMessage("");
     };
     setMessage("");
@@ -289,10 +301,16 @@ function ChapterNoteRow({ note, onCorrected }: { note: CourseChapterNote; onCorr
 
   return (
     <article className="record-row">
-      <strong>{formatTimecode(note.video_time_seconds)}</strong>
-      {(note.tags ?? []).map((tag) => (
-        <span key={tag} style={{ fontSize: 12, padding: "1px 8px", marginLeft: 6, borderRadius: 10, background: "#eaf3ff", color: "#1f8fff" }}>{tag}</span>
-      ))}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+        <strong>{formatTimecode(note.video_time_seconds)}</strong>
+        {(note.tags ?? []).length ? (
+          <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {(note.tags ?? []).map((tag) => (
+              <span key={tag} style={{ fontSize: 12, padding: "1px 10px", borderRadius: 999, background: "#eaf3ff", color: "#1f8fff" }}>{tag}</span>
+            ))}
+          </span>
+        ) : null}
+      </div>
       <p>{hasCorrection ? note.corrected_content : note.content}</p>
       {hasCorrection ? (
         <p style={{ margin: "4px 0 0", fontSize: 12, opacity: 0.75 }}>
