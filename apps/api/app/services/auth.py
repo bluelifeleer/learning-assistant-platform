@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from hashlib import pbkdf2_hmac
+import hmac
 from secrets import token_urlsafe
 
 from fastapi import HTTPException, status
@@ -28,7 +29,7 @@ def verify_password(password: str, stored_hash: str) -> bool:
     if algorithm != "pbkdf2_sha256":
         return False
     digest = pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(iterations)).hex()
-    return digest == expected
+    return hmac.compare_digest(digest, expected)
 
 
 def user_out(user: User) -> UserOut:
@@ -105,3 +106,11 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         self.db.commit()
         return user
+
+    def logout(self, bearer_token: str) -> None:
+        digest = hash_token(bearer_token, get_settings().api_token_pepper)
+        token = self.db.query(ApiToken).filter(ApiToken.token_hash == digest, ApiToken.user_id.is_not(None), ApiToken.revoked_at.is_(None)).first()
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session token")
+        token.revoked_at = datetime.now(UTC)
+        self.db.commit()

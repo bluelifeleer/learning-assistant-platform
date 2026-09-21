@@ -14,7 +14,7 @@ export const genericVideoAdapter: LearningAdapter = {
   extractCourse: (document: Document): CourseSnapshot | null => {
     const title = text("h1", document) ?? document.title?.trim();
     if (!title) return null;
-    return { externalCourseId: location.href, title, chapters: [] };
+    return { externalCourseId: location.origin + location.pathname, title, chapters: [] };
   },
   extractChapters: (): ChapterNode[] => [],
   findVideo: (document: Document): HTMLVideoElement | null => document.querySelector("video"),

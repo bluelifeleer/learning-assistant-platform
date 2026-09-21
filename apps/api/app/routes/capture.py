@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_bearer_token
 from app.db.session import get_db
-from app.schemas.capture import CourseSnapshotIn, TranscriptSegmentIn, VideoEventIn
+from app.schemas.capture import CourseSnapshotIn, NoteCaptureIn, ScreenshotCaptureIn, TranscriptSegmentIn, VideoEventIn
 from app.services.capture import CaptureService
 
 router = APIRouter(prefix="/capture", tags=["capture"])
@@ -38,3 +38,21 @@ def transcript_segment(
     service: CaptureService = Depends(get_capture_service),
 ) -> dict[str, str]:
     return service.accept_transcript_segment(token, payload)
+
+
+@router.post("/note")
+def note(
+    payload: NoteCaptureIn,
+    token: str = Depends(require_bearer_token),
+    service: CaptureService = Depends(get_capture_service),
+) -> dict[str, str]:
+    return service.accept_note(token, payload)
+
+
+@router.post("/screenshot")
+def screenshot(
+    payload: ScreenshotCaptureIn,
+    token: str = Depends(require_bearer_token),
+    service: CaptureService = Depends(get_capture_service),
+) -> dict[str, str]:
+    return service.accept_screenshot(token, payload)

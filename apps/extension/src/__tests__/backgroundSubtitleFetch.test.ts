@@ -38,4 +38,21 @@ describe("background subtitle fetch proxy", () => {
       error: "Subtitle request failed: 403",
     });
   });
+
+  it("rejects non-http(s) subtitle urls without fetching", async () => {
+    const fetchMock = vi.fn();
+
+    for (const url of ["file:///etc/passwd", "chrome://extensions", "javascript:alert(1)", "not a url"]) {
+      const response = await handleSubtitleFetchMessage(
+        { type: "learning-assistant:fetch-subtitle-file", url },
+        { fetch: fetchMock },
+      );
+
+      expect(response).toEqual({
+        ok: false,
+        error: "Unsupported subtitle URL: only http(s) URLs are allowed",
+      });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

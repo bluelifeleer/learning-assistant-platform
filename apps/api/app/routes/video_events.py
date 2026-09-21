@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.deps import require_current_user
 from app.db.session import get_db
-from app.models.entities import VideoCaptureEvent
+from app.models.entities import User, VideoCaptureEvent
 from app.schemas.workspace import VideoEventItem, VideoEventListOut
 
 router = APIRouter(prefix="/video-events", tags=["video-events"])
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/video-events", tags=["video-events"])
 def list_video_events(
     session_id: str | None = None,
     event_type: str | None = None,
+    _: User = Depends(require_current_user),
     db: Session = Depends(get_db),
 ) -> VideoEventListOut:
     query = db.query(VideoCaptureEvent)

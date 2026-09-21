@@ -14,18 +14,19 @@ export function PluginPanel({ onStatusChange }: PluginPanelProps) {
   const [token, setToken] = useState("");
   const [message, setMessage] = useState("插件未绑定时，请先生成 Token 并填入扩展选项页。");
 
-  async function refreshStatus() {
+  async function refreshStatus(signal?: AbortSignal) {
     try {
       const [status, videoSourceEvents, subtitleDiagnosticEvents] = await Promise.all([
-        fetchPluginStatus(),
-        fetchVideoEvents({ eventType: "video-source" }),
-        fetchVideoEvents({ eventType: "subtitle-diagnostic" }),
+        fetchPluginStatus(signal),
+        fetchVideoEvents({ eventType: "video-source" }, signal),
+        fetchVideoEvents({ eventType: "subtitle-diagnostic" }, signal),
       ]);
       setClients(status.clients);
       setVideoEvents(videoSourceEvents.items);
       setSubtitleEvents(subtitleDiagnosticEvents.items);
       onStatusChange?.(status.clients);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setMessage(error instanceof Error ? error.message : "插件状态读取失败");
     }
   }
@@ -61,7 +62,7 @@ export function PluginPanel({ onStatusChange }: PluginPanelProps) {
   }
 
   useEffect(() => {
-    return startPluginStatusPolling(() => void refreshStatus());
+    return startPluginStatusPolling((signal) => refreshStatus(signal));
   }, []);
 
   return (

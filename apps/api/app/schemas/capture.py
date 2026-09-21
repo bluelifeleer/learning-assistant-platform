@@ -6,6 +6,7 @@ class ChapterSnapshotIn(BaseModel):
     title: str
     sort_order: int = 0
     duration_seconds: int | None = None
+    extra: dict | None = None
     children: list["ChapterSnapshotIn"] = Field(default_factory=list)
 
 
@@ -15,6 +16,7 @@ class CourseSnapshotIn(BaseModel):
     external_course_id: str
     course_title: str
     term: str | None = None
+    extra: dict | None = None
     chapters: list[ChapterSnapshotIn] = Field(default_factory=list)
 
 
@@ -33,3 +35,18 @@ class TranscriptSegmentIn(BaseModel):
     end_seconds: float | None = None
     text: str = Field(min_length=1)
     source: str
+
+
+class NoteCaptureIn(BaseModel):
+    external_course_id: str
+    external_chapter_id: str | None = None
+    video_time_seconds: float | None = None
+    content: str = Field(min_length=1)
+    source_text: str | None = None
+
+
+class ScreenshotCaptureIn(BaseModel):
+    external_course_id: str
+    external_chapter_id: str | None = None
+    video_time_seconds: float | None = None
+    image_base64: str = Field(min_length=1)

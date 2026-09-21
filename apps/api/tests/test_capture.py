@@ -52,8 +52,8 @@ def test_transcript_segment_requires_text() -> None:
     assert segment.text == "这是一段字幕"
 
 
-def test_video_event_is_persisted_and_listed(client) -> None:
-    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}).json()["token"]
+def test_video_event_is_persisted_and_listed(client, auth_headers) -> None:
+    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}, headers=auth_headers).json()["token"]
 
     response = client.post(
         "/api/v1/capture/video-event",
@@ -81,7 +81,7 @@ def test_video_event_is_persisted_and_listed(client) -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "accepted"
 
-    list_response = client.get("/api/v1/video-events")
+    list_response = client.get("/api/v1/video-events", headers=auth_headers)
     assert list_response.status_code == 200
     item = list_response.json()["items"][0]
     assert item["session_id"] == "wencai:course-1:chapter-1"
@@ -91,8 +91,8 @@ def test_video_event_is_persisted_and_listed(client) -> None:
     assert item["video_source"]["isBlob"] is True
 
 
-def test_video_events_can_be_filtered_by_event_type(client) -> None:
-    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}).json()["token"]
+def test_video_events_can_be_filtered_by_event_type(client, auth_headers) -> None:
+    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}, headers=auth_headers).json()["token"]
     for event_type in ["video-source", "subtitle-diagnostic"]:
         response = client.post(
             "/api/v1/capture/video-event",
@@ -105,7 +105,7 @@ def test_video_events_can_be_filtered_by_event_type(client) -> None:
         )
         assert response.status_code == 200
 
-    list_response = client.get("/api/v1/video-events?event_type=subtitle-diagnostic")
+    list_response = client.get("/api/v1/video-events?event_type=subtitle-diagnostic", headers=auth_headers)
     assert list_response.status_code == 200
     items = list_response.json()["items"]
     assert len(items) == 1

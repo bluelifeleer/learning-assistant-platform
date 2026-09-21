@@ -10,7 +10,39 @@ function isWencaiHost(url: URL): boolean {
   return url.hostname.endsWith("wencaischool.net");
 }
 
+function wencaiCourseId(): string {
+  const courseId = new URLSearchParams(location.search).get("course_id");
+  return courseId ? `wencai-course:${courseId}` : location.origin + location.pathname;
+}
+
+function wencaiItemId(): string | null {
+  return new URLSearchParams(location.search).get("scorm_item_id");
+}
+
 function collectChapters(document: Document): ChapterNode[] {
+  const chapterElements = Array.from(document.querySelectorAll("li.chapter"));
+  const structured = chapterElements
+    .map((chapterElement, chapterIndex) => {
+      const title = clean(chapterElement.querySelector(".chapterName")?.textContent);
+      if (!title) return null;
+      const children = Array.from(chapterElement.querySelectorAll("li.childSection"))
+        .map((sectionElement, sectionIndex) => ({
+          externalChapterId: `ch${chapterIndex + 1}-sec${sectionElement.getAttribute("sec") ?? `${sectionIndex + 1}`}`,
+          title: clean(sectionElement.textContent),
+          sortOrder: sectionIndex + 1,
+          children: [] as ChapterNode[],
+        }))
+        .filter((section) => section.title.length > 0);
+      return {
+        externalChapterId: `ch${chapterIndex + 1}`,
+        title,
+        sortOrder: chapterIndex + 1,
+        children,
+      };
+    })
+    .filter((chapter): chapter is ChapterNode => chapter !== null);
+  if (structured.length) return structured;
+
   const candidates = Array.from(document.querySelectorAll("li, tr, .panel-heading, .chapter, .item, [class*='chapter']"));
   return candidates
     .map((element, index) => ({
@@ -35,10 +67,11 @@ export const wencaiSchoolAdapter: LearningAdapter = {
   },
   extractCourse: (document: Document): CourseSnapshot | null => {
     const breadcrumb = clean(document.querySelector(".breadcrumb, .nav, body")?.textContent);
+    const courseName = clean(document.querySelector(".courseName")?.textContent);
     const heading = clean(document.querySelector("h1, h2, h3, .course-title")?.textContent);
-    const title = heading || breadcrumb.match(/习近平新时代中国特色社会主义思想概论|供应链管理|物流成本管理|运输管理|采购管理/)?.[0] || clean(document.title);
+    const title = courseName || heading || breadcrumb.match(/习近平新时代中国特色社会主义思想概论|供应链管理|物流成本管理|运输管理|采购管理/)?.[0] || clean(document.title);
     if (!title) return null;
-    return { externalCourseId: location.href, title, chapters: collectChapters(document) };
+    return { externalCourseId: wencaiCourseId(), title, chapters: collectChapters(document) };
   },
   extractChapters: collectChapters,
   findVideo: (document: Document): HTMLVideoElement | null => document.querySelector("video"),
@@ -54,8 +87,26 @@ export const wencaiSchoolAdapter: LearningAdapter = {
     return null;
   },
   extractCurrentChapter: (document: Document): ChapterNode | null => {
+    const activeSection = document.querySelector("li.childSection.active");
+    if (activeSection) {
+      const chapterElement = activeSection.closest("li.chapter");
+      const chapterIndex = chapterElement
+        ? Array.from(document.querySelectorAll("li.chapter")).indexOf(chapterElement)
+        : -1;
+      const sec = activeSection.getAttribute("sec");
+      if (chapterIndex >= 0) {
+        return {
+          externalChapterId: `ch${chapterIndex + 1}-sec${sec ?? "0"}`,
+          title: clean(activeSection.textContent),
+          sortOrder: 0,
+          children: [],
+        };
+      }
+    }
+    const itemId = wencaiItemId();
     const active = document.querySelector(".active, .selected, [aria-selected='true']");
     const title = clean(active?.textContent);
+    if (itemId) return { externalChapterId: `wencai-item:${itemId}`, title: title || `课件 ${itemId}`, sortOrder: 0, children: [] };
     if (title) return { externalChapterId: active?.getAttribute("data-id") || title, title, sortOrder: 0, children: [] };
     return collectChapters(document)[0] ?? null;
   },

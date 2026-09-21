@@ -53,6 +53,10 @@ export function Settings({ title = "系统设置", description = "维护组织�
         {message ? <p>{message}</p> : null}
       </article>
       <article className="panel">
+        <h2>开放注册</h2>
+        <p>注册开关由 API 的 ALLOW_REGISTRATION 环境变量控制，默认关闭。</p>
+      </article>
+      <article className="panel">
         <h2>运行配置</h2>
         <div className="data-table settings-table">
           <div><strong>项目</strong><strong>值</strong></div>

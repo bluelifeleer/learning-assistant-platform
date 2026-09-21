@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { login, register, type AuthResponse, type UserProfile } from "../api/client";
+import { ApiError, login, register, type AuthResponse, type UserProfile } from "../api/client";
 
 interface AuthPanelProps {
   session: AuthResponse | null;
@@ -23,7 +23,11 @@ export function AuthPanel({ session, onSessionChange }: AuthPanelProps) {
       onSessionChange(result);
       setMessage("已登录");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "认证失败");
+      if (mode === "register" && error instanceof ApiError && error.status === 403) {
+        setMessage("注册未开放，请联系管理员开通账号");
+      } else {
+        setMessage(error instanceof Error ? error.message : "认证失败");
+      }
     }
   }
 

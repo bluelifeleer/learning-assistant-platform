@@ -1,5 +1,5 @@
-def create_plugin_token(client) -> str:
-    response = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"})
+def create_plugin_token(client, headers) -> str:
+    response = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}, headers=headers)
     assert response.status_code == 200
     return response.json()["token"]
 
@@ -34,8 +34,8 @@ def capture_sample_course(client, token: str) -> None:
     assert response.status_code == 200
 
 
-def test_capture_persists_course_and_transcript_for_workspace_pages(client):
-    token = create_plugin_token(client)
+def test_capture_persists_course_and_transcript_for_workspace_pages(client, auth_headers):
+    token = create_plugin_token(client, auth_headers)
     capture_sample_course(client, token)
 
     transcript_response = client.post(
@@ -52,47 +52,101 @@ def test_capture_persists_course_and_transcript_for_workspace_pages(client):
     )
     assert transcript_response.status_code == 200
 
-    courses = client.get("/api/v1/courses").json()["items"]
+    courses = client.get("/api/v1/courses", headers=auth_headers).json()["items"]
     assert courses[0]["title"] == "供应链管理"
     assert courses[0]["chapter_count"] == 2
 
-    transcripts = client.get("/api/v1/transcripts").json()["items"]
+    transcripts = client.get("/api/v1/transcripts", headers=auth_headers).json()["items"]
     assert transcripts[0]["text"] == "欢迎学习供应链管理"
     assert transcripts[0]["course_title"] == "供应链管理"
 
-    adapters = client.get("/api/v1/adapters").json()["items"]
+    adapters = client.get("/api/v1/adapters", headers=auth_headers).json()["items"]
     assert adapters[0]["adapter_id"] == "wencai-school"
 
 
-def test_notes_and_exports_have_workspace_lists(client):
-    user = client.post(
-        "/api/v1/auth/register",
-        json={"email": "user@example.com", "password": "secret123", "display_name": "User One"},
-    ).json()
-    plugin_token = create_plugin_token(client)
+def test_duplicate_transcript_segment_is_not_inserted_twice(client, auth_headers):
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    payload = {
+        "external_course_id": "course-1",
+        "external_chapter_id": "1.1",
+        "text": "重复字幕",
+        "source": "dom-visible-text",
+        "start_seconds": 3,
+        "end_seconds": 8,
+    }
+
+    first = client.post("/api/v1/capture/transcript-segment", headers={"Authorization": f"Bearer {token}"}, json=payload)
+    second = client.post("/api/v1/capture/transcript-segment", headers={"Authorization": f"Bearer {token}"}, json=payload)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["segment_id"] == second.json()["segment_id"]
+    transcripts = client.get("/api/v1/transcripts", headers=auth_headers).json()["items"]
+    assert len(transcripts) == 1
+
+
+def test_capture_snapshot_merges_existing_adapter_host_patterns(client, auth_headers):
+    create_response = client.post(
+        "/api/v1/adapters",
+        headers=auth_headers,
+        json={
+            "adapter_id": "wencai-school",
+            "name": "Wencai School",
+            "status": "enabled",
+            "host_patterns": {"hosts": ["learning.wencaischool.net"]},
+        },
+    )
+    assert create_response.status_code == 200
+
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+
+    adapters = client.get("/api/v1/adapters", headers=auth_headers).json()["items"]
+    host_patterns = adapters[0]["host_patterns"]
+    assert host_patterns["hosts"] == ["learning.wencaischool.net"]
+    assert host_patterns["last_seen_url"] == "https://learning.wencaischool.net/openlearning/console/"
+
+
+def test_notes_and_exports_have_workspace_lists(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
     capture_sample_course(client, plugin_token)
-    course_id = client.get("/api/v1/courses").json()["items"][0]["id"]
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
 
     note_response = client.post(
         "/api/v1/notes",
-        headers={"Authorization": f"Bearer {user['token']}"},
+        headers=auth_headers,
         json={"course_id": course_id, "content": "这里需要复习", "video_time_seconds": 12},
     )
     assert note_response.status_code == 200
-    assert client.get("/api/v1/notes").json()["items"][0]["content"] == "这里需要复习"
+    assert client.get("/api/v1/notes", headers=auth_headers).json()["items"][0]["content"] == "这里需要复习"
 
     export_response = client.post(
         "/api/v1/exports",
-        headers={"Authorization": f"Bearer {user['token']}"},
-        json={"course_id": course_id, "format": "markdown"},
+        headers=auth_headers,
+        json={"course_id": course_id, "export_format": "markdown"},
     )
     assert export_response.status_code == 200
-    assert client.get("/api/v1/exports").json()["items"][0]["format"] == "markdown"
+    assert export_response.json()["status"] == "completed"
+    item = client.get("/api/v1/exports", headers=auth_headers).json()["items"][0]
+    assert item["format"] == "markdown"
+    assert item["file_path"]
+
+    download = client.get(f"/api/v1/exports/{item['id']}/download", headers=auth_headers)
+    assert download.status_code == 200
+    assert "供应链管理" in download.text
 
 
-def test_adapter_can_be_created_and_updated(client):
+def test_export_download_missing_returns_404(client, auth_headers):
+    response = client.get("/api/v1/exports/not-a-real-id/download", headers=auth_headers)
+
+    assert response.status_code == 404
+
+
+def test_adapter_can_be_created_and_updated(client, auth_headers):
     create_response = client.post(
         "/api/v1/adapters",
+        headers=auth_headers,
         json={
             "adapter_id": "generic-video",
             "name": "Generic Video",
@@ -106,17 +160,18 @@ def test_adapter_can_be_created_and_updated(client):
 
     update_response = client.put(
         "/api/v1/adapters/generic-video",
+        headers=auth_headers,
         json={"name": "Generic Video Updated", "status": "disabled", "host_patterns": {"hosts": ["learn.example.com"]}},
     )
 
     assert update_response.status_code == 200
     assert update_response.json()["status"] == "disabled"
-    adapters = client.get("/api/v1/adapters").json()["items"]
+    adapters = client.get("/api/v1/adapters", headers=auth_headers).json()["items"]
     assert adapters[0]["name"] == "Generic Video Updated"
 
 
-def test_settings_can_be_read_and_updated(client):
-    initial = client.get("/api/v1/settings")
+def test_settings_can_be_read_and_updated(client, auth_headers):
+    initial = client.get("/api/v1/settings", headers=auth_headers)
 
     assert initial.status_code == 200
     assert "organization_name" in initial.json()
@@ -124,6 +179,7 @@ def test_settings_can_be_read_and_updated(client):
 
     response = client.put(
         "/api/v1/settings",
+        headers=auth_headers,
         json={"organization_name": "Commercial Workspace", "license_key": "LIC-456"},
     )
 

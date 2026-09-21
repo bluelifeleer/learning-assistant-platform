@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import adapters, auth, capture, courses, exports, health, notes, plugins, settings, setup, transcripts, video_events
+from app.routes import adapters, auth, capture, courses, exports, health, note_images, notes, plugins, review, screenshots, search, settings, setup, stats, transcripts, video_events
 
 
 def create_app() -> FastAPI:
@@ -21,10 +21,15 @@ def create_app() -> FastAPI:
     app.include_router(transcripts.router, prefix="/api/v1")
     app.include_router(video_events.router, prefix="/api/v1")
     app.include_router(notes.router, prefix="/api/v1")
+    app.include_router(note_images.router, prefix="/api/v1")
     app.include_router(adapters.router, prefix="/api/v1")
     app.include_router(exports.router, prefix="/api/v1")
     app.include_router(settings.router, prefix="/api/v1")
     app.include_router(setup.router, prefix="/api/v1")
+    app.include_router(search.router, prefix="/api/v1")
+    app.include_router(stats.router, prefix="/api/v1")
+    app.include_router(review.router, prefix="/api/v1")
+    app.include_router(screenshots.router, prefix="/api/v1")
     return app
 
 

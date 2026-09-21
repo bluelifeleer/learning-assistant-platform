@@ -1,48 +1,117 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_bearer_token
+from app.core.config import get_settings
+from app.core.deps import require_current_user
 from app.db.session import get_db
+from app.exporters.anki import render_anki_tsv
 from app.exporters.json_export import render_course_json
 from app.exporters.markdown import render_course_markdown
-from app.models.entities import Course, Export
+from app.models.entities import Chapter, Course, Export, Note, ReviewCard, TranscriptSegment, User
 from app.schemas.workspace import ExportCreateIn, ExportItem, ExportListOut
-from app.services.auth import AuthService
 from app.services.plugins import ensure_default_organization
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 
 
+def export_dir_path() -> Path:
+    configured = Path(get_settings().export_dir)
+    directory = configured if configured.is_absolute() else Path(__file__).resolve().parents[2] / configured
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def course_export_payload(db: Session, course: Course | None) -> dict:
+    if not course:
+        return {"title": "Workspace Export", "chapters": []}
+    chapters = db.query(Chapter).filter(Chapter.course_id == course.id).order_by(Chapter.sort_order.asc(), Chapter.title.asc()).all()
+    return {
+        "title": course.title,
+        "chapters": [
+            {
+                "title": chapter.title,
+                "transcripts": [
+                    {
+                        "start_seconds": float(segment.start_seconds) if segment.start_seconds is not None else None,
+                        "text": segment.text,
+                    }
+                    for segment in db.query(TranscriptSegment)
+                    .filter(TranscriptSegment.chapter_id == chapter.id)
+                    .order_by(TranscriptSegment.start_seconds.asc())
+                    .all()
+                ],
+                "notes": [
+                    {
+                        "video_time_seconds": float(note.video_time_seconds) if note.video_time_seconds is not None else None,
+                        "content": note.content,
+                    }
+                    for note in db.query(Note).filter(Note.chapter_id == chapter.id).order_by(Note.created_at.asc()).all()
+                ],
+            }
+            for chapter in chapters
+        ],
+    }
+
+
 @router.post("")
 def create_export(
     payload: ExportCreateIn | None = Body(default=None),
-    format: str = "markdown",
-    token: str | None = Depends(require_bearer_token),
+    user: User = Depends(require_current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
-    requested = payload or ExportCreateIn(format=format)
-    format = requested.format
-    if format not in {"markdown", "json"}:
+    requested = payload or ExportCreateIn()
+    export_format = requested.export_format
+    if export_format not in {"markdown", "json", "anki"}:
         raise HTTPException(status_code=400, detail="Unsupported export format")
-    user = AuthService(db).current_user(token) if token else None
     course = db.query(Course).filter(Course.id == requested.course_id).first() if requested.course_id else None
+    if requested.course_id and not course:
+        raise HTTPException(status_code=404, detail="Course not found")
     organization_id = course.organization_id if course else ensure_default_organization(db).id
     export = Export(
         organization_id=organization_id,
-        user_id=user.id if user else None,
+        user_id=user.id,
         course_id=requested.course_id,
-        format=format,
+        format=export_format,
         status="queued",
         file_path=None,
     )
     db.add(export)
+    db.flush()
+    try:
+        if export_format == "anki":
+            if not course:
+                raise HTTPException(status_code=400, detail="Anki export requires a course")
+            cards = db.query(ReviewCard).filter(ReviewCard.course_id == course.id).order_by(ReviewCard.created_at.asc()).all()
+            if cards:
+                rows = [{"front": card.front, "back": card.back} for card in cards]
+            else:
+                notes = db.query(Note).filter(Note.course_id == course.id).order_by(Note.created_at.asc()).all()
+                rows = [{"front": note.content, "back": ""} for note in notes]
+            content = render_anki_tsv(rows)
+        else:
+            document = course_export_payload(db, course)
+            content = render_course_markdown(document) if export_format == "markdown" else render_course_json(document)
+        suffix = {"markdown": ".md", "json": ".json", "anki": ".tsv"}[export_format]
+        path = export_dir_path() / f"{export.id}{suffix}"
+        path.write_text(content, encoding="utf-8", newline="")
+        export.file_path = str(path)
+        export.status = "completed"
+    except HTTPException:
+        export.status = "failed"
+        db.commit()
+        raise
+    except Exception:
+        export.status = "failed"
     db.commit()
     db.refresh(export)
     return {"id": export.id, "status": export.status, "format": export.format}
 
 
 @router.get("", response_model=ExportListOut)
-def list_exports(db: Session = Depends(get_db)) -> ExportListOut:
+def list_exports(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ExportListOut:
     exports = db.query(Export).order_by(Export.created_at.desc()).limit(200).all()
     items: list[ExportItem] = []
     for export in exports:
@@ -61,9 +130,13 @@ def list_exports(db: Session = Depends(get_db)) -> ExportListOut:
     return ExportListOut(items=items)
 
 
-def render_export(course: dict, format: str) -> str:
-    if format == "markdown":
-        return render_course_markdown(course)
-    if format == "json":
-        return render_course_json(course)
-    raise ValueError(f"Unsupported export format: {format}")
+@router.get("/{export_id}/download")
+def download_export(export_id: str, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> FileResponse:
+    export = db.query(Export).filter(Export.id == export_id).first()
+    if not export or not export.file_path:
+        raise HTTPException(status_code=404, detail="Export not found")
+    path = Path(export.file_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Export file not found")
+    media_type = {"json": "application/json", "anki": "text/tab-separated-values"}.get(export.format, "text/markdown")
+    return FileResponse(path, media_type=media_type, filename=path.name)

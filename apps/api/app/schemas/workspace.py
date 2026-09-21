@@ -33,6 +33,42 @@ class CourseDetailOut(BaseModel):
     chapters: list[ChapterOut]
 
 
+class ChapterTranscriptOut(BaseModel):
+    id: str
+    start_seconds: float | None = None
+    end_seconds: float | None = None
+    text: str
+    source: str
+
+
+class ChapterNoteOut(BaseModel):
+    id: str
+    user_id: str
+    video_time_seconds: float | None = None
+    content: str
+    created_at: datetime | None = None
+
+
+class ChapterDetailOut(BaseModel):
+    id: str
+    parent_id: str | None = None
+    external_chapter_id: str
+    title: str
+    sort_order: int
+    duration_seconds: int | None = None
+    transcripts: list[ChapterTranscriptOut] = Field(default_factory=list)
+    notes: list[ChapterNoteOut] = Field(default_factory=list)
+    children: list["ChapterDetailOut"] = Field(default_factory=list)
+
+
+class CourseFullDetailOut(BaseModel):
+    id: str
+    title: str
+    term: str | None = None
+    external_course_id: str
+    chapters: list[ChapterDetailOut]
+
+
 class TranscriptItem(BaseModel):
     id: str
     course_id: str
@@ -89,6 +125,25 @@ class NoteListOut(BaseModel):
     items: list[NoteItem]
 
 
+class SearchOut(BaseModel):
+    notes: list[NoteItem]
+    transcripts: list[TranscriptItem]
+
+
+class StatsDailyItem(BaseModel):
+    date: str
+    notes: int
+    play_events: int
+
+
+class StatsSummaryOut(BaseModel):
+    courses: int
+    notes: int
+    transcripts: int
+    play_events: int
+    daily: list[StatsDailyItem]
+
+
 class AdapterItem(BaseModel):
     id: str
     adapter_id: str
@@ -131,7 +186,7 @@ class WorkspaceSettingsUpdateIn(BaseModel):
 
 class ExportCreateIn(BaseModel):
     course_id: str | None = None
-    format: str = "markdown"
+    export_format: str = "markdown"
 
 
 class ExportItem(BaseModel):
@@ -146,3 +201,25 @@ class ExportItem(BaseModel):
 
 class ExportListOut(BaseModel):
     items: list[ExportItem]
+
+
+class ScreenshotItem(BaseModel):
+    id: str
+    course_id: str
+    course_title: str | None = None
+    chapter_id: str | None = None
+    chapter_title: str | None = None
+    video_time_seconds: float | None = None
+    created_at: datetime | None = None
+
+
+class ScreenshotListOut(BaseModel):
+    items: list[ScreenshotItem]
+
+
+class NoteImageUploadIn(BaseModel):
+    image_base64: str = Field(min_length=1)
+
+
+class NoteImageUploadOut(BaseModel):
+    id: str

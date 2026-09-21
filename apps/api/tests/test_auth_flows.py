@@ -1,3 +1,15 @@
+from app.core.config import get_settings
+
+
+def register_user(client, email: str = "user@example.com") -> str:
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "secret123", "display_name": "User One"},
+    )
+    assert response.status_code == 200
+    return response.json()["token"]
+
+
 def test_register_login_and_me(client):
     register_response = client.post(
         "/api/v1/auth/register",
@@ -21,6 +33,43 @@ def test_register_login_and_me(client):
     assert me_response.status_code == 200
     assert me_response.json()["email"] == "user@example.com"
     assert me_response.json()["username"] is None
+
+
+def test_register_rejected_when_registration_disabled(client, monkeypatch):
+    monkeypatch.setenv("ALLOW_REGISTRATION", "false")
+    get_settings.cache_clear()
+    try:
+        response = client.post(
+            "/api/v1/auth/register",
+            json={"email": "blocked@example.com", "password": "secret123", "display_name": "Blocked"},
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 403
+
+
+def test_logout_revokes_session_token(client):
+    token = register_user(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+
+    logout_response = client.post("/api/v1/auth/logout", headers=headers)
+
+    assert logout_response.status_code == 204
+    assert client.get("/api/v1/auth/me", headers=headers).status_code == 401
+
+
+def test_logout_rejects_unknown_token(client):
+    response = client.post("/api/v1/auth/logout", headers={"Authorization": "Bearer not-a-token"})
+
+    assert response.status_code == 401
+
+
+def test_auth_tokens_endpoint_is_removed(client):
+    response = client.post("/api/v1/auth/tokens")
+
+    assert response.status_code in (404, 405)
 
 
 def test_login_rejects_wrong_password(client):

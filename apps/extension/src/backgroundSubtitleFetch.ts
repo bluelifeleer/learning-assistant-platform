@@ -22,12 +22,25 @@ export function isSubtitleFetchRequest(message: unknown): message is SubtitleFet
   );
 }
 
+export function isAllowedSubtitleFetchUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 export async function handleSubtitleFetchMessage(
   message: unknown,
   dependencies: SubtitleFetchDependencies = { fetch },
 ): Promise<SubtitleFetchResponse> {
   if (!isSubtitleFetchRequest(message)) {
     return { ok: false, error: "Unsupported subtitle fetch message" };
+  }
+
+  if (!isAllowedSubtitleFetchUrl(message.url)) {
+    return { ok: false, error: "Unsupported subtitle URL: only http(s) URLs are allowed" };
   }
 
   try {

@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_bearer_token
+from app.core.deps import require_current_user
 from app.db.session import get_db
-from app.models.entities import Chapter, Course, Note
+from app.models.entities import Chapter, Course, Note, User
 from app.schemas.workspace import NoteCreateIn, NoteItem, NoteListOut
-from app.services.auth import AuthService
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -26,14 +25,13 @@ def note_item(db: Session, note: Note) -> NoteItem:
 
 
 @router.get("", response_model=NoteListOut)
-def list_notes(db: Session = Depends(get_db)) -> NoteListOut:
+def list_notes(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteListOut:
     notes = db.query(Note).order_by(Note.created_at.desc()).limit(200).all()
     return NoteListOut(items=[note_item(db, note) for note in notes])
 
 
 @router.post("", response_model=NoteItem)
-def create_note(payload: NoteCreateIn, token: str = Depends(require_bearer_token), db: Session = Depends(get_db)) -> NoteItem:
-    user = AuthService(db).current_user(token)
+def create_note(payload: NoteCreateIn, user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteItem:
     note = Note(
         course_id=payload.course_id,
         chapter_id=payload.chapter_id,

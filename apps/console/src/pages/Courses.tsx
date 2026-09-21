@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { fetchCourses, type CourseItem } from "../api/client";
 
-export function Courses() {
+interface CoursesProps {
+  onOpenDetail?: (courseId: string) => void;
+}
+
+export function Courses({ onOpenDetail }: CoursesProps) {
   const [items, setItems] = useState<CourseItem[]>([]);
   const [message, setMessage] = useState("正在读取课程...");
 
@@ -19,7 +23,7 @@ export function Courses() {
       <h2>课程</h2>
       {message ? <p>{message}</p> : null}
       <div className="data-table">
-        <div><strong>课程</strong><strong>学期</strong><strong>章节</strong><strong>字幕</strong><strong>笔记</strong></div>
+        <div><strong>课程</strong><strong>学期</strong><strong>章节</strong><strong>字幕</strong><strong>笔记</strong><strong>操作</strong></div>
         {items.map((course) => (
           <div key={course.id}>
             <span>{course.title}</span>
@@ -27,6 +31,11 @@ export function Courses() {
             <span>{course.chapter_count}</span>
             <span>{course.transcript_count}</span>
             <span>{course.note_count}</span>
+            <span>
+              {onOpenDetail ? (
+                <button type="button" className="text-button" onClick={() => onOpenDetail(course.id)}>详情</button>
+              ) : null}
+            </span>
           </div>
         ))}
       </div>

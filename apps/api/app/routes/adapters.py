@@ -1,15 +1,16 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.deps import require_current_user
 from app.db.session import get_db
-from app.models.entities import Site
+from app.models.entities import Site, User
 from app.schemas.workspace import AdapterItem, AdapterListOut, AdapterSaveIn, AdapterUpdateIn
 
 router = APIRouter(prefix="/adapters", tags=["adapters"])
 
 
 @router.get("", response_model=AdapterListOut)
-def list_adapters(db: Session = Depends(get_db)) -> AdapterListOut:
+def list_adapters(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> AdapterListOut:
     sites = db.query(Site).order_by(Site.name.asc()).all()
     return AdapterListOut(
         items=[
@@ -24,7 +25,7 @@ def adapter_out(site: Site) -> AdapterItem:
 
 
 @router.post("", response_model=AdapterItem)
-def save_adapter(payload: AdapterSaveIn, db: Session = Depends(get_db)) -> AdapterItem:
+def save_adapter(payload: AdapterSaveIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> AdapterItem:
     site = db.query(Site).filter(Site.adapter_id == payload.adapter_id).first()
     if not site:
         site = Site(adapter_id=payload.adapter_id, name=payload.name, status=payload.status, host_patterns=payload.host_patterns)
@@ -39,7 +40,7 @@ def save_adapter(payload: AdapterSaveIn, db: Session = Depends(get_db)) -> Adapt
 
 
 @router.put("/{adapter_id}", response_model=AdapterItem)
-def update_adapter(adapter_id: str, payload: AdapterUpdateIn, db: Session = Depends(get_db)) -> AdapterItem:
+def update_adapter(adapter_id: str, payload: AdapterUpdateIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> AdapterItem:
     site = db.query(Site).filter(Site.adapter_id == adapter_id).first()
     if not site:
         site = Site(adapter_id=adapter_id, name=payload.name or adapter_id, status=payload.status or "enabled", host_patterns=payload.host_patterns or {})

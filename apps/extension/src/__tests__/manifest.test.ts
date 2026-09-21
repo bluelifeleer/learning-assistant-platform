@@ -22,9 +22,14 @@ describe("extension manifest", () => {
     expect(contentScript.exclude_matches).toContain("http://localhost:17891/*");
   });
 
-  it("points to generated loadable scripts after build", () => {
-    expect(existsSync(resolve(extensionRoot, "dist", "content.js"))).toBe(true);
-    expect(existsSync(resolve(extensionRoot, "dist", "background.js"))).toBe(true);
+  it("points background and content scripts at bundled outputs", () => {
+    expect(manifest.background.service_worker).toBe("dist/background.js");
+    expect(manifest.content_scripts[0].js).toContain("dist/content.js");
+  });
+
+  it("requests the permissions required by captureVisibleTab", () => {
+    expect(manifest.permissions).toContain("activeTab");
+    expect(manifest.host_permissions).toContain("<all_urls>");
   });
 
   it("declares store-ready extension icons", () => {

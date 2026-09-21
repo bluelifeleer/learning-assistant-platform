@@ -144,6 +144,11 @@ export interface NoteItem {
   created_at?: string | null;
 }
 
+export interface NoteCreatePayload {
+  course_id: string;
+  content: string;
+}
+
 export interface AdapterItem {
   id: string;
   adapter_id: string;
@@ -171,7 +176,7 @@ export interface ExportItem {
 
 export interface ExportCreatePayload {
   course_id?: string | null;
-  format: "markdown" | "json";
+  export_format: "markdown" | "json" | "anki";
 }
 
 export interface WorkspaceSettings {
@@ -189,34 +194,82 @@ export interface WorkspaceSettingsUpdatePayload {
   license_key?: string;
 }
 
-export const API_BASE_URL = "http://127.0.0.1:17890/api/v1";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:17890/api/v1";
 
-async function postJson<T>(path: string, body: unknown, token?: string, method = "POST"): Promise<T> {
+export const API_BASE_URL: string =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) || DEFAULT_API_BASE_URL;
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(path: string, status: number) {
+    super(`${path} failed: ${status}`);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+let sessionToken: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setSessionToken(token: string | null): void {
+  sessionToken = token;
+}
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
+function resolveToken(explicitToken?: string): string | undefined {
+  return explicitToken ?? sessionToken ?? undefined;
+}
+
+function authHeaders(token?: string): Record<string, string> {
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+function checkResponse(response: Response, path: string): void {
+  if (response.status === 401) unauthorizedHandler?.();
+  if (!response.ok) throw new ApiError(path, response.status);
+}
+
+async function postJson<T>(path: string, body: unknown, token?: string, method = "POST", signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    signal,
+    headers: { "content-type": "application/json", ...authHeaders(resolveToken(token)) },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`${path} failed: ${response.status}`);
+  checkResponse(response, path);
   return response.json() as Promise<T>;
 }
 
-async function getJson<T>(path: string, token?: string): Promise<T> {
-  const url = `${API_BASE_URL}${path}`;
-  const response = token ? await fetch(url, { headers: { authorization: `Bearer ${token}` } }) : await fetch(url);
-  if (!response.ok) throw new Error(`${path} failed: ${response.status}`);
+async function getJson<T>(path: string, token?: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    signal,
+    headers: authHeaders(resolveToken(token)),
+  });
+  checkResponse(response, path);
   return response.json() as Promise<T>;
+}
+
+async function getBlob(path: string, token?: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: authHeaders(resolveToken(token)),
+  });
+  checkResponse(response, path);
+  return response.blob();
 }
 
 export async function fetchApiStatus(): Promise<ApiStatus> {
   const response = await fetch(`${API_BASE_URL}/health`);
-  if (!response.ok) throw new Error(`API status failed: ${response.status}`);
+  if (!response.ok) throw new ApiError("/health", response.status);
   return response.json() as Promise<ApiStatus>;
 }
 
 export async function fetchSetupStatus(): Promise<SetupStatus> {
   const response = await fetch(`${API_BASE_URL}/setup/status`);
-  if (!response.ok) throw new Error(`Setup status failed: ${response.status}`);
+  if (!response.ok) throw new ApiError("/setup/status", response.status);
   return response.json() as Promise<SetupStatus>;
 }
 
@@ -228,20 +281,16 @@ export async function initializeSetup(payload: SetupInitializePayload): Promise<
   return postJson<SetupStatus>("/setup/initialize", payload);
 }
 
-export async function createPluginToken(name: string): Promise<PluginTokenResponse> {
-  return postJson<PluginTokenResponse>("/plugin-tokens", { name });
+export async function createPluginToken(name: string, token?: string): Promise<PluginTokenResponse> {
+  return postJson<PluginTokenResponse>("/plugin-tokens", { name }, token);
 }
 
-export async function fetchPluginStatus(): Promise<PluginStatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/plugin-status`);
-  if (!response.ok) throw new Error(`Plugin status failed: ${response.status}`);
-  return response.json() as Promise<PluginStatusResponse>;
+export async function fetchPluginStatus(signal?: AbortSignal): Promise<PluginStatusResponse> {
+  return getJson<PluginStatusResponse>("/plugin-status", undefined, signal);
 }
 
-export async function downloadExtensionPackage(): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/plugin-package`);
-  if (!response.ok) throw new Error(`Plugin package failed: ${response.status}`);
-  return response.blob();
+export async function downloadExtensionPackage(token?: string): Promise<Blob> {
+  return getBlob("/plugin-package", token);
 }
 
 export async function register(payload: RegisterPayload): Promise<AuthResponse> {
@@ -260,46 +309,201 @@ export async function updateMe(payload: UserUpdatePayload, token: string): Promi
   return postJson<UserProfile>("/auth/me", payload, token, "PUT");
 }
 
-export async function fetchCourses(): Promise<{ items: CourseItem[] }> {
-  return getJson<{ items: CourseItem[] }>("/courses");
+export async function fetchCourses(token?: string): Promise<{ items: CourseItem[] }> {
+  return getJson<{ items: CourseItem[] }>("/courses", token);
 }
 
-export async function fetchTranscripts(): Promise<{ items: TranscriptItem[] }> {
-  return getJson<{ items: TranscriptItem[] }>("/transcripts");
+export interface CourseChapterNote {
+  id: string;
+  video_time_seconds?: number | null;
+  content: string;
+  created_at?: string | null;
 }
 
-export async function fetchVideoEvents(query: VideoEventQuery = {}): Promise<{ items: VideoEventItem[] }> {
+export interface CourseChapterTranscript {
+  id: string;
+  start_seconds?: number | null;
+  end_seconds?: number | null;
+  text: string;
+  source: string;
+}
+
+export interface CourseChapterNode {
+  id: string;
+  title: string;
+  sort_order: number;
+  duration_seconds?: number | null;
+  children: CourseChapterNode[];
+  transcripts: CourseChapterTranscript[];
+  notes: CourseChapterNote[];
+}
+
+export interface CourseDetail {
+  id: string;
+  title: string;
+  term?: string | null;
+  chapters: CourseChapterNode[];
+}
+
+export async function fetchCourseDetail(id: string, token?: string): Promise<CourseDetail> {
+  return getJson<CourseDetail>(`/courses/${id}/detail`, token);
+}
+
+export interface SearchNoteHit {
+  id: string;
+  course_id: string;
+  course_title: string;
+  chapter_title?: string | null;
+  video_time_seconds?: number | null;
+  content: string;
+  created_at?: string | null;
+}
+
+export interface SearchTranscriptHit {
+  id: string;
+  course_id: string;
+  course_title: string;
+  chapter_id: string;
+  chapter_title: string;
+  start_seconds?: number | null;
+  end_seconds?: number | null;
+  text: string;
+  source: string;
+}
+
+export interface SearchResult {
+  notes: SearchNoteHit[];
+  transcripts: SearchTranscriptHit[];
+}
+
+export async function searchContent(query: string, token?: string): Promise<SearchResult> {
+  return getJson<SearchResult>(`/search?q=${encodeURIComponent(query)}`, token);
+}
+
+export interface DailyActivity {
+  date: string;
+  notes: number;
+  play_events: number;
+}
+
+export interface StatsSummary {
+  courses: number;
+  notes: number;
+  transcripts: number;
+  play_events: number;
+  daily: DailyActivity[];
+}
+
+export async function fetchStatsSummary(token?: string): Promise<StatsSummary> {
+  return getJson<StatsSummary>("/stats/summary", token);
+}
+
+export interface ReviewCard {
+  id: string;
+  front: string;
+  back: string;
+  due_at?: string | null;
+  review_count: number;
+}
+
+export type ReviewAnswerResult = "good" | "again";
+
+export async function createReviewCard(noteId: string, token?: string): Promise<ReviewCard> {
+  return postJson<ReviewCard>("/review/cards", { note_id: noteId }, token);
+}
+
+export async function fetchDueCards(token?: string): Promise<{ items: ReviewCard[] }> {
+  return getJson<{ items: ReviewCard[] }>("/review/due", token);
+}
+
+export async function fetchReviewCards(token?: string): Promise<{ items: ReviewCard[] }> {
+  return getJson<{ items: ReviewCard[] }>("/review/cards", token);
+}
+
+export async function answerReviewCard(id: string, result: ReviewAnswerResult, token?: string): Promise<ReviewCard> {
+  return postJson<ReviewCard>(`/review/cards/${id}/answer`, { result }, token);
+}
+
+export async function fetchTranscripts(token?: string): Promise<{ items: TranscriptItem[] }> {
+  return getJson<{ items: TranscriptItem[] }>("/transcripts", token);
+}
+
+export async function fetchVideoEvents(query: VideoEventQuery = {}, signal?: AbortSignal, token?: string): Promise<{ items: VideoEventItem[] }> {
   const params = new URLSearchParams();
   if (query.eventType) params.set("event_type", query.eventType);
   if (query.sessionId) params.set("session_id", query.sessionId);
   const suffix = params.toString();
-  return getJson<{ items: VideoEventItem[] }>(`/video-events${suffix ? `?${suffix}` : ""}`);
+  return getJson<{ items: VideoEventItem[] }>(`/video-events${suffix ? `?${suffix}` : ""}`, token, signal);
 }
 
-export async function fetchNotes(): Promise<{ items: NoteItem[] }> {
-  return getJson<{ items: NoteItem[] }>("/notes");
+export async function fetchNotes(token?: string): Promise<{ items: NoteItem[] }> {
+  return getJson<{ items: NoteItem[] }>("/notes", token);
 }
 
-export async function fetchAdapters(): Promise<{ items: AdapterItem[] }> {
-  return getJson<{ items: AdapterItem[] }>("/adapters");
+export async function createNote(payload: NoteCreatePayload, token?: string): Promise<NoteItem> {
+  return postJson<NoteItem>("/notes", payload, token);
 }
 
-export async function saveAdapter(payload: AdapterSavePayload): Promise<AdapterItem> {
-  return postJson<AdapterItem>("/adapters", payload);
+export interface NoteImageUploadResponse {
+  id: string;
 }
 
-export async function fetchSettings(): Promise<WorkspaceSettings> {
-  return getJson<WorkspaceSettings>("/settings");
+export async function uploadNoteImage(imageBase64: string, token?: string): Promise<NoteImageUploadResponse> {
+  return postJson<NoteImageUploadResponse>("/notes/images", { image_base64: imageBase64 }, token);
 }
 
-export async function updateSettings(payload: WorkspaceSettingsUpdatePayload): Promise<WorkspaceSettings> {
-  return postJson<WorkspaceSettings>("/settings", payload, undefined, "PUT");
+export async function fetchNoteImageUrl(id: string, token?: string): Promise<string> {
+  const blob = await getBlob(`/notes/images/${id}/image`, token);
+  return URL.createObjectURL(blob);
 }
 
-export async function fetchExports(): Promise<{ items: ExportItem[] }> {
-  return getJson<{ items: ExportItem[] }>("/exports");
+export async function fetchAdapters(token?: string): Promise<{ items: AdapterItem[] }> {
+  return getJson<{ items: AdapterItem[] }>("/adapters", token);
 }
 
-export async function createExport(payload: ExportCreatePayload, token: string): Promise<{ id: string; status: string; format: string }> {
+export async function saveAdapter(payload: AdapterSavePayload, token?: string): Promise<AdapterItem> {
+  return postJson<AdapterItem>("/adapters", payload, token);
+}
+
+export async function fetchSettings(token?: string): Promise<WorkspaceSettings> {
+  return getJson<WorkspaceSettings>("/settings", token);
+}
+
+export async function updateSettings(payload: WorkspaceSettingsUpdatePayload, token?: string): Promise<WorkspaceSettings> {
+  return postJson<WorkspaceSettings>("/settings", payload, token, "PUT");
+}
+
+export async function fetchExports(token?: string): Promise<{ items: ExportItem[] }> {
+  return getJson<{ items: ExportItem[] }>("/exports", token);
+}
+
+export async function createExport(payload: ExportCreatePayload, token?: string): Promise<{ id: string; status: string; format: string }> {
   return postJson<{ id: string; status: string; format: string }>("/exports", payload, token);
+}
+
+export async function downloadExport(id: string, token?: string): Promise<Blob> {
+  return getBlob(`/exports/${id}/download`, token);
+}
+
+export interface ScreenshotItem {
+  id: string;
+  course_id: string;
+  course_title: string;
+  chapter_id: string;
+  chapter_title: string;
+  video_time_seconds?: number | null;
+  created_at?: string | null;
+}
+
+export async function fetchScreenshots(courseId?: string, chapterId?: string, token?: string): Promise<{ items: ScreenshotItem[] }> {
+  const params = new URLSearchParams();
+  if (courseId) params.set("course_id", courseId);
+  if (chapterId) params.set("chapter_id", chapterId);
+  const suffix = params.toString();
+  return getJson<{ items: ScreenshotItem[] }>(`/screenshots${suffix ? `?${suffix}` : ""}`, token);
+}
+
+export async function fetchScreenshotImageUrl(id: string, token?: string): Promise<string> {
+  const blob = await getBlob(`/screenshots/${id}/image`, token);
+  return URL.createObjectURL(blob);
 }

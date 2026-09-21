@@ -30,7 +30,7 @@ export const genericDomCourseAdapter: LearningAdapter = {
   extractCourse: (document: Document): CourseSnapshot | null => {
     const title = clean(document.querySelector("h1, h2, title")?.textContent) || clean(document.title);
     if (!title) return null;
-    return { externalCourseId: location.href, title, chapters: collectListItems(document) };
+    return { externalCourseId: location.origin + location.pathname, title, chapters: collectListItems(document) };
   },
   extractChapters: collectListItems,
   findVideo: (document: Document): HTMLVideoElement | null => document.querySelector("video"),

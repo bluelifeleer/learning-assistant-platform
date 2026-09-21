@@ -62,6 +62,15 @@ export function Installer({ status, onInstalled }: InstallerProps) {
     setForm(next);
   }
 
+  function isValidPort(value: string): boolean {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return false;
+    const port = Number(trimmed);
+    return port >= 1 && port <= 65535;
+  }
+
+  const portValid = isValidPort(form.port);
+
   async function handleTestConnection() {
     setBusy(true);
     try {
@@ -126,6 +135,7 @@ export function Installer({ status, onInstalled }: InstallerProps) {
           <label>
             端口
             <input value={form.port} onChange={(event) => update("port", event.target.value)} placeholder="5432 / 3306" inputMode="numeric" />
+            {portValid ? null : <span>端口需为 1-65535 之间的数字</span>}
           </label>
           <label>
             数据库名
@@ -159,8 +169,8 @@ export function Installer({ status, onInstalled }: InstallerProps) {
 
         <footer className="installer-actions">
           <span>{message}</span>
-          <button type="button" disabled={busy} onClick={handleTestConnection}>测试连接</button>
-          <button type="button" disabled={busy} onClick={handleInitialize}>初始化安装</button>
+          <button type="button" disabled={busy || !portValid} onClick={handleTestConnection}>测试连接</button>
+          <button type="button" disabled={busy || !portValid} onClick={handleInitialize}>初始化安装</button>
         </footer>
       </section>
     </main>

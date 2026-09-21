@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -196,3 +196,50 @@ class AuditLog(Base, TimestampMixin):
     resource_type: Mapped[str | None] = mapped_column(String(120))
     resource_id: Mapped[str | None] = mapped_column(String(120))
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class ReviewCard(Base, TimestampMixin):
+    __tablename__ = "review_cards"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    note_id: Mapped[str | None] = mapped_column(ForeignKey("notes.id"))
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    chapter_id: Mapped[str | None] = mapped_column(ForeignKey("chapters.id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    front: Mapped[str] = mapped_column(Text, nullable=False)
+    back: Mapped[str] = mapped_column(Text, nullable=False)
+    ease_factor: Mapped[float] = mapped_column(Float, default=2.5)
+    interval_days: Mapped[int] = mapped_column(Integer, default=0)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    review_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ReviewLog(Base):
+    __tablename__ = "review_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    card_id: Mapped[str] = mapped_column(ForeignKey("review_cards.id"), nullable=False)
+    result: Mapped[str] = mapped_column(String(20), nullable=False)
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Screenshot(Base, TimestampMixin):
+    __tablename__ = "screenshots"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    chapter_id: Mapped[str | None] = mapped_column(ForeignKey("chapters.id"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    video_time_seconds: Mapped[float | None] = mapped_column(Numeric(10, 3))
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class NoteImage(Base, TimestampMixin):
+    __tablename__ = "note_images"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)

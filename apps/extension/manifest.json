@@ -8,8 +8,8 @@
     "48": "assets/icon-48.png",
     "128": "assets/icon-128.png"
   },
-  "permissions": ["storage", "activeTab"],
-  "host_permissions": ["http://127.0.0.1:17890/*", "https://*/*", "http://*/*"],
+  "permissions": ["storage", "activeTab", "alarms"],
+  "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "dist/background.js", "type": "module" },
   "options_ui": { "page": "options.html", "open_in_tab": true },
   "content_scripts": [

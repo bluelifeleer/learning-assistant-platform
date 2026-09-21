@@ -20,6 +20,15 @@ describe("App", () => {
     expect(html).toContain("User One");
   });
 
+  it("shows the dashboard as the default page with the new navigation entries", () => {
+    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+
+    expect(html).toContain("总览");
+    expect(html).toContain("搜索");
+    expect(html).toContain("复习");
+    expect(html).toContain("正在读取统计");
+  });
+
   it("renders a standalone auth screen before login", () => {
     const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} />);
 
@@ -44,7 +53,7 @@ describe("App", () => {
     const settingsHtml = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="设置" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
 
     expect(adapterHtml).toContain("新增适配器");
-    expect(adapterHtml).toContain("保存适配器");
+    expect(adapterHtml).toContain("适配器列表");
     expect(settingsHtml).toContain("系统设置");
     expect(settingsHtml).toContain("保存设置");
   });

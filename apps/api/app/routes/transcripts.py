@@ -1,15 +1,16 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.deps import require_current_user
 from app.db.session import get_db
-from app.models.entities import Chapter, Course, TranscriptSegment
+from app.models.entities import Chapter, Course, TranscriptSegment, User
 from app.schemas.workspace import TranscriptItem, TranscriptListOut
 
 router = APIRouter(prefix="/transcripts", tags=["transcripts"])
 
 
 @router.get("", response_model=TranscriptListOut)
-def list_transcripts(course_id: str | None = None, db: Session = Depends(get_db)) -> TranscriptListOut:
+def list_transcripts(course_id: str | None = None, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> TranscriptListOut:
     query = db.query(TranscriptSegment, Course, Chapter).join(Course, TranscriptSegment.course_id == Course.id).join(Chapter, TranscriptSegment.chapter_id == Chapter.id)
     if course_id:
         query = query.filter(TranscriptSegment.course_id == course_id)

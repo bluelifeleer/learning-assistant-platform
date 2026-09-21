@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     default_org_name: str = "Local Workspace"
     api_token_pepper: str = "change-me-token-pepper"
     export_dir: str = "exports"
+    screenshots_dir: str = "screenshots"
+    note_images_dir: str = "note_images"
+    allow_registration: bool = False
 
     model_config = SettingsConfigDict(env_file=("../../.env", ".env"), extra="ignore")
 

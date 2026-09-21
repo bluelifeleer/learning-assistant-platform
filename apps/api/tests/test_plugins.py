@@ -2,8 +2,8 @@ from io import BytesIO
 from zipfile import ZipFile
 
 
-def test_plugin_token_generation_returns_plain_token_once(client):
-    response = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"})
+def test_plugin_token_generation_returns_plain_token_once(client, auth_headers):
+    response = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}, headers=auth_headers)
 
     assert response.status_code == 200
     body = response.json()
@@ -11,15 +11,15 @@ def test_plugin_token_generation_returns_plain_token_once(client):
     assert body["client"]["name"] == "Edge local"
     assert "token_hash" not in body
 
-    status_response = client.get("/api/v1/plugin-status")
+    status_response = client.get("/api/v1/plugin-status", headers=auth_headers)
     assert status_response.status_code == 200
     status_body = status_response.json()
     assert status_body["clients"][0]["name"] == "Edge local"
     assert "token" not in status_body["clients"][0]
 
 
-def test_plugin_heartbeat_updates_client_status(client):
-    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}).json()["token"]
+def test_plugin_heartbeat_updates_client_status(client, auth_headers):
+    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}, headers=auth_headers).json()["token"]
 
     response = client.post(
         "/api/v1/plugin-heartbeat",
@@ -36,7 +36,7 @@ def test_plugin_heartbeat_updates_client_status(client):
     assert response.status_code == 200
     assert response.json()["status"] == "online"
 
-    status_body = client.get("/api/v1/plugin-status").json()
+    status_body = client.get("/api/v1/plugin-status", headers=auth_headers).json()
     client_status = status_body["clients"][0]
     assert client_status["online"] is True
     assert client_status["current_url"] == "https://learning.wencaischool.net/openlearning/console/"
@@ -54,8 +54,8 @@ def test_plugin_heartbeat_rejects_invalid_token(client):
     assert response.status_code == 401
 
 
-def test_plugin_package_exports_loadable_extension_zip(client):
-    response = client.get("/api/v1/plugin-package")
+def test_plugin_package_exports_loadable_extension_zip(client, auth_headers):
+    response = client.get("/api/v1/plugin-package", headers=auth_headers)
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
@@ -68,3 +68,14 @@ def test_plugin_package_exports_loadable_extension_zip(client):
     assert "dist/content.js" in names
     assert "assets/icon-128.png" in names
     assert "assets/icon-48.png" in names
+
+
+def test_plugin_package_missing_build_returns_404(client, auth_headers, tmp_path, monkeypatch):
+    from app.routes import plugins
+
+    monkeypatch.setattr(plugins, "extension_root", lambda: tmp_path)
+
+    response = client.get("/api/v1/plugin-package", headers=auth_headers)
+
+    assert response.status_code == 404
+    assert tmp_path.as_posix() not in response.text

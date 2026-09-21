@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { genericDomCourseAdapter } from "../adapters/genericDomCourse";
 import { genericVideoAdapter } from "../adapters/genericVideo";
 import { pickAdapter } from "../adapters/registry";
+import { wencaiSchoolAdapter } from "../adapters/wencaiSchool";
 
 describe("adapter registry", () => {
   it("selects wencai adapter for wencai learning domains", () => {
@@ -77,5 +79,58 @@ describe("adapter registry", () => {
       text: "第一句标准字幕\n第二句标准字幕",
       source: "track",
     });
+  });
+});
+
+describe("stable external course ids", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    ["wencai-school", wencaiSchoolAdapter],
+    ["generic-video", genericVideoAdapter],
+    ["generic-dom-course", genericDomCourseAdapter],
+  ] as const)("ignores query params and hash for %s", (_id, adapter) => {
+    vi.stubGlobal("location", new URL("https://learning.example.com/course/42?from=share#chapter-1"));
+    const fakeDocument = {
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      title: "示例课程",
+    } as unknown as Document;
+
+    const course = adapter.extractCourse(fakeDocument);
+
+    expect(course?.externalCourseId).toBe("https://learning.example.com/course/42");
+  });
+
+  it("uses the course_id query param as wencai course identity across pages", () => {
+    const fakeDocument = {
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      title: "示例课程",
+    } as unknown as Document;
+
+    vi.stubGlobal("location", new URL("https://learning.wencaischool.net/openlearning/course/learning/learn_course.jsp?course_id=123&x=1"));
+    const fromEntryPage = wencaiSchoolAdapter.extractCourse(fakeDocument);
+
+    vi.stubGlobal("location", new URL("https://learning.wencaischool.net/openlearning/separation/courseware/index.html?course_id=123&scorm_item_id=456"));
+    const fromPlayerFrame = wencaiSchoolAdapter.extractCourse(fakeDocument);
+
+    expect(fromEntryPage?.externalCourseId).toBe("wencai-course:123");
+    expect(fromPlayerFrame?.externalCourseId).toBe("wencai-course:123");
+  });
+
+  it("uses the scorm_item_id query param as wencai chapter identity", () => {
+    vi.stubGlobal("location", new URL("https://learning.wencaischool.net/openlearning/separation/courseware/index.html?course_id=123&scorm_item_id=456"));
+    const fakeDocument = {
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      title: "示例课程",
+    } as unknown as Document;
+
+    const chapter = wencaiSchoolAdapter.extractCurrentChapter(fakeDocument);
+
+    expect(chapter?.externalChapterId).toBe("wencai-item:456");
   });
 });

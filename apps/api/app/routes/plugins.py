@@ -2,12 +2,13 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_bearer_token
+from app.core.deps import require_bearer_token, require_current_user
 from app.db.session import get_db
+from app.models.entities import User
 from app.schemas.plugins import PluginHeartbeatIn, PluginHeartbeatOut, PluginStatusOut, PluginTokenCreateIn, PluginTokenCreateOut
 from app.services.plugins import PluginService
 
@@ -47,19 +48,27 @@ def get_plugin_service(db: Session = Depends(get_db)) -> PluginService:
 
 
 @router.post("/plugin-tokens", response_model=PluginTokenCreateOut)
-def create_plugin_token(payload: PluginTokenCreateIn, service: PluginService = Depends(get_plugin_service)) -> PluginTokenCreateOut:
+def create_plugin_token(
+    payload: PluginTokenCreateIn,
+    _: User = Depends(require_current_user),
+    service: PluginService = Depends(get_plugin_service),
+) -> PluginTokenCreateOut:
     return service.create_token(payload.name)
 
 
 @router.get("/plugin-status", response_model=PluginStatusOut)
-def plugin_status(service: PluginService = Depends(get_plugin_service)) -> PluginStatusOut:
+def plugin_status(_: User = Depends(require_current_user), service: PluginService = Depends(get_plugin_service)) -> PluginStatusOut:
     return service.status()
 
 
 @router.get("/plugin-package")
-def plugin_package() -> Response:
+def plugin_package(_: User = Depends(require_current_user)) -> Response:
+    try:
+        content = build_extension_zip()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Extension package is not available") from None
     return Response(
-        content=build_extension_zip(),
+        content=content,
         media_type="application/zip",
         headers={"content-disposition": 'attachment; filename="learning-assistant-extension.zip"'},
     )

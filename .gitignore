@@ -11,3 +11,5 @@ coverage/
 exports/
 *.pyc
 *.egg-info/
+screenshots/
+note_images/

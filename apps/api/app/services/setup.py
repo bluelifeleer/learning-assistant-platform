@@ -1,11 +1,12 @@
 from pathlib import Path
+import secrets
 from urllib.parse import quote
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine, inspect
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.db.base import Base
 from app.models.entities import Membership, Organization, User
 from app.schemas.setup import DatabaseConfigIn, DatabaseTestOut, SetupInitializeIn, SetupStatusOut
 from app.services.auth import hash_password
@@ -21,6 +22,7 @@ REQUIRED_TABLES = {
     "chapters",
     "video_sessions",
     "timeline_events",
+    "video_capture_events",
     "transcript_segments",
     "notes",
     "exports",
@@ -30,6 +32,10 @@ REQUIRED_TABLES = {
 
 def project_root() -> Path:
     return Path(__file__).resolve().parents[4]
+
+
+def api_root() -> Path:
+    return Path(__file__).resolve().parents[2]
 
 
 def default_env_path() -> Path:
@@ -162,10 +168,7 @@ def write_env_file(env_path: Path, payload: SetupInitializeIn) -> None:
             f"DATABASE_TYPE={payload.database.database_type}",
             f"DATABASE_URL={database_url}",
             f"DEFAULT_ORG_NAME={payload.organization_name}",
-            f"DEFAULT_ADMIN_EMAIL={payload.admin_email}",
-            f"DEFAULT_ADMIN_PASSWORD={payload.admin_password}",
-            f"LICENSE_KEY={payload.license_key or ''}",
-            "API_TOKEN_PEPPER=change-me-token-pepper",
+            f"API_TOKEN_PEPPER={secrets.token_hex(32)}",
             "EXPORT_DIR=exports",
             "",
         ]
@@ -174,13 +177,20 @@ def write_env_file(env_path: Path, payload: SetupInitializeIn) -> None:
     env_path.write_text(content, encoding="utf-8")
 
 
+def run_migrations(database_url: str) -> None:
+    alembic_cfg = Config(str(api_root() / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(api_root() / "alembic"))
+    alembic_cfg.attributes["database_url"] = database_url
+    command.upgrade(alembic_cfg, "head")
+
+
 def initialize_database(payload: SetupInitializeIn, env_path: Path | None = None) -> SetupStatusOut:
     path = env_path or default_env_path()
     write_env_file(path, payload)
     database_url = build_database_url(payload.database)
     if payload.initialize_schema:
+        run_migrations(database_url)
         engine = create_engine(database_url, pool_pre_ping=True)
-        Base.metadata.create_all(engine)
         with Session(engine) as session:
             if not session.query(Organization).first():
                 organization = Organization(name=payload.organization_name, plan="local", license_key=payload.license_key, license_status="active" if payload.license_key else "inactive")

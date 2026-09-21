@@ -76,6 +76,35 @@ password=learn_assistant
 - `apps/console`: React 管理控制台和系统安装器。
 - `docs/superpowers`: 设计文档和实施计划。
 
+## 功能特性
+
+- **课程采集**:插件自动上报课程结构、字幕文本(页面字幕 / track 字幕文件)和播放事件。
+- **时间点笔记**:学习页浮层点击"添加笔记",保存时自动带上视频当前时间点;控制台课程详情页按章节查看字幕和笔记。
+- **复习记忆**:笔记可一键生成复习卡片(正面为笔记,背面为该时间点附近字幕),控制台"复习"页按简化 SM-2 间隔重复算法抽认;"导出"页支持 Anki TSV 格式,可直接导入 Anki。
+- **全文搜索**:控制台"搜索"页同时检索笔记和字幕内容,结果带课程/章节/时间点。
+- **学习统计**:控制台"总览"页展示课程、笔记、字幕、播放事件总量和近 7 天每日活动。
+- **导出**:Markdown / JSON / Anki 三种格式,导出任务同步生成文件,可在控制台直接下载。
+
+## 数据库迁移
+
+安装器初始化会自动执行 Alembic 迁移。已有安装升级代码后,需要手动应用新迁移:
+
+```powershell
+Set-Location apps\api
+.\.venv\Scripts\python -m alembic upgrade head
+```
+
+macOS / Linux:
+
+```bash
+cd apps/api
+./.venv/bin/python -m alembic upgrade head
+```
+
+## 开放注册
+
+注册接口默认关闭(`ALLOW_REGISTRATION=false`),账号通过安装器创建的管理员登录。如需开放注册,在 API 环境中设置 `ALLOW_REGISTRATION=true` 后重启 API。
+
 ## 常用命令
 
 ```powershell
@@ -177,8 +206,9 @@ macOS 也可以双击 `scripts/start-macos.command` 启动；Linux 桌面环境�
 4. 在 Options 页面填写：
    - API 地址：`http://127.0.0.1:17890/api/v1`
    - 插件 Token：控制台刚生成的 `lap_...`
-   - 启用的网站 adapter：按需勾选 `wencai-school`、`generic-video`
+   - 启用的网站 adapter：按需勾选 `wencai-school`、`generic-dom-course`、`generic-video`（默认全部启用）
 5. 点击“测试连接”，成功后点击“保存配置”。
 6. 回到学习页面刷新，浮层会读取配置并向 `/api/v1/plugin-heartbeat` 上报在线状态。
+7. 播放视频时点击浮层的“添加笔记”，可保存带当前视频时间点的笔记，稍后在控制台“课程 → 详情”中查看，并可生成复习卡片。
 
 Token 明文只在生成时显示一次；如果丢失，重新生成一个新的 Token 并在扩展选项里覆盖即可。
