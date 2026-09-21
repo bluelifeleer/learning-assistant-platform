@@ -13,3 +13,4 @@ exports/
 *.egg-info/
 screenshots/
 note_images/
+.DS_Store
