@@ -141,12 +141,17 @@ export interface NoteItem {
   chapter_title?: string | null;
   video_time_seconds?: number | null;
   content: string;
+  corrected_content?: string | null;
+  tags?: string[];
   created_at?: string | null;
 }
 
 export interface NoteCreatePayload {
   course_id: string;
+  chapter_id?: string | null;
+  video_time_seconds?: number | null;
   content: string;
+  tags?: string[];
 }
 
 export interface AdapterItem {
@@ -244,6 +249,14 @@ async function postJson<T>(path: string, body: unknown, token?: string, method =
   return response.json() as Promise<T>;
 }
 
+async function deleteResource(path: string, token?: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: authHeaders(resolveToken(token)),
+  });
+  checkResponse(response, path);
+}
+
 async function getJson<T>(path: string, token?: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     signal,
@@ -317,6 +330,8 @@ export interface CourseChapterNote {
   id: string;
   video_time_seconds?: number | null;
   content: string;
+  corrected_content?: string | null;
+  tags?: string[];
   created_at?: string | null;
 }
 
@@ -345,17 +360,47 @@ export interface CourseDetail {
   chapters: CourseChapterNode[];
 }
 
+export async function updateScreenshotImage(screenshotId: string, imageBase64: string, token?: string): Promise<void> {
+  return postJson(`/screenshots/${screenshotId}/image`, { image_base64: imageBase64 }, token, "PUT");
+}
+
+export async function deleteScreenshot(screenshotId: string, token?: string): Promise<void> {
+  return deleteResource(`/screenshots/${screenshotId}`, token);
+}
+
 export async function fetchCourseDetail(id: string, token?: string): Promise<CourseDetail> {
   return getJson<CourseDetail>(`/courses/${id}/detail`, token);
+}
+
+export interface CourseVideoSourceItem {
+  chapter_id?: string | null;
+  chapter_title?: string | null;
+  course_url?: string | null;
+  video_source: {
+    current_src?: string | null;
+    source_urls: string[];
+    poster_url?: string | null;
+    is_blob: boolean;
+    is_likely_signed: boolean;
+    media_type: string;
+  };
+  captured_at?: string | null;
+}
+
+export async function fetchCourseVideoSources(courseId: string, token?: string): Promise<{ items: CourseVideoSourceItem[] }> {
+  return getJson<{ items: CourseVideoSourceItem[] }>(`/courses/${courseId}/video-sources`, token);
 }
 
 export interface SearchNoteHit {
   id: string;
   course_id: string;
   course_title: string;
+  chapter_id?: string | null;
   chapter_title?: string | null;
   video_time_seconds?: number | null;
   content: string;
+  corrected_content?: string | null;
+  tags?: string[];
   created_at?: string | null;
 }
 
@@ -400,6 +445,9 @@ export async function fetchStatsSummary(token?: string): Promise<StatsSummary> {
 
 export interface ReviewCard {
   id: string;
+  note_id?: string | null;
+  course_id?: string | null;
+  chapter_id?: string | null;
   front: string;
   back: string;
   due_at?: string | null;
@@ -442,6 +490,18 @@ export async function fetchNotes(token?: string): Promise<{ items: NoteItem[] }>
 
 export async function createNote(payload: NoteCreatePayload, token?: string): Promise<NoteItem> {
   return postJson<NoteItem>("/notes", payload, token);
+}
+
+export async function saveNoteCorrection(noteId: string, correctedContent: string | null, token?: string): Promise<NoteItem> {
+  return postJson<NoteItem>(`/notes/${noteId}/correction`, { corrected_content: correctedContent }, token, "PATCH");
+}
+
+export async function saveNoteTags(noteId: string, tags: string[], token?: string): Promise<NoteItem> {
+  return postJson<NoteItem>(`/notes/${noteId}/tags`, { tags }, token, "PATCH");
+}
+
+export async function createCourse(title: string, token?: string): Promise<CourseItem> {
+  return postJson<CourseItem>("/courses", { title }, token);
 }
 
 export interface NoteImageUploadResponse {

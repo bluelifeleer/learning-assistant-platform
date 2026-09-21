@@ -159,3 +159,20 @@ def test_database_type_rejects_unknown_value() -> None:
             username="learn",
             password="secret",
         )
+
+
+def test_write_env_file_preserves_existing_pepper_on_reinitialize() -> None:
+    env_path = Path("tests/.setup-pepper-keep.env")
+    if env_path.exists():
+        env_path.unlink()
+    payload = make_initialize_payload()
+
+    write_env_file(env_path, payload)
+    first = env_path.read_text(encoding="utf-8")
+    first_pepper = next(line for line in first.splitlines() if line.startswith("API_TOKEN_PEPPER="))
+
+    write_env_file(env_path, payload)
+    second = env_path.read_text(encoding="utf-8")
+    env_path.unlink()
+    second_pepper = next(line for line in second.splitlines() if line.startswith("API_TOKEN_PEPPER="))
+    assert second_pepper == first_pepper

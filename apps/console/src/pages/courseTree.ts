@@ -1,4 +1,4 @@
-import type { CourseChapterNode, ScreenshotItem } from "../api/client";
+import type { CourseChapterNode, CourseVideoSourceItem, ScreenshotItem } from "../api/client";
 
 export interface FlattenedChapter {
   chapter: CourseChapterNode;
@@ -29,8 +29,53 @@ export function sortScreenshotsByTime(screenshots: ScreenshotItem[]): Screenshot
   );
 }
 
+export function applyNoteCorrection(
+  chapters: CourseChapterNode[],
+  noteId: string,
+  updated: { content: string; corrected_content?: string | null },
+): CourseChapterNode[] {
+  return chapters.map((chapter) => ({
+    ...chapter,
+    notes: chapter.notes.map((note) =>
+      note.id === noteId ? { ...note, content: updated.content, corrected_content: updated.corrected_content } : note,
+    ),
+    children: applyNoteCorrection(chapter.children, noteId, updated),
+  }));
+}
+
 export function formatDateTime(value?: string | null): string {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+}
+
+export interface ResolvedVideoMedia {
+  url: string;
+  mediaType: string;
+  expiryWarning: boolean;
+}
+
+export function resolveVideoMedia(item: CourseVideoSourceItem | undefined): ResolvedVideoMedia | null {
+  if (!item) return null;
+  const source = item.video_source;
+  const url = source.current_src || source.source_urls[0] || "";
+  if (!url) return null;
+  return {
+    url,
+    mediaType: source.media_type || "unknown",
+    expiryWarning: source.is_blob || source.is_likely_signed,
+  };
+}
+
+export function chapterAndDescendantIds(chapters: CourseChapterNode[], id: string): Set<string> {
+  const result = new Set<string>();
+  const walk = (nodes: CourseChapterNode[], inside: boolean): void => {
+    for (const node of nodes) {
+      const active = inside || node.id === id;
+      if (active) result.add(node.id);
+      walk(node.children, active);
+    }
+  };
+  walk(chapters, false);
+  return result;
 }

@@ -172,6 +172,10 @@ class Note(Base, TimestampMixin):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     video_time_seconds: Mapped[float | None] = mapped_column(Numeric(10, 3))
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # 勘误后的内容;原文 content 永不修改,便于比对字幕识别错误
+    corrected_content: Mapped[str | None] = mapped_column(Text)
+    # 学习标签,如 考点/高频/简答,可多选
+    tags: Mapped[list | None] = mapped_column(JSON, default=list)
 
 
 class Export(Base, TimestampMixin):

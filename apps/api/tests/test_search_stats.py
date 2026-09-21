@@ -99,3 +99,28 @@ def test_stats_summary_requires_auth(client):
     response = client.get("/api/v1/stats/summary")
 
     assert response.status_code == 401
+
+
+def test_search_matches_corrected_content_and_returns_tags(client, auth_headers):
+    from tests.test_note_capture import capture_sample_course, create_plugin_token
+
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    note = client.post(
+        "/api/v1/notes",
+        headers=auth_headers,
+        json={"course_id": course_id, "content": "学识名利", "tags": ["高频"]},
+    ).json()
+    client.patch(
+        f"/api/v1/notes/{note['id']}/correction",
+        headers=auth_headers,
+        json={"corrected_content": "学史明理"},
+    )
+
+    result = client.get("/api/v1/search", params={"q": "学史明理"}, headers=auth_headers).json()
+
+    assert len(result["notes"]) == 1
+    assert result["notes"][0]["corrected_content"] == "学史明理"
+    assert result["notes"][0]["tags"] == ["高频"]
+    assert result["notes"][0]["chapter_id"] is None or isinstance(result["notes"][0]["chapter_id"], str)

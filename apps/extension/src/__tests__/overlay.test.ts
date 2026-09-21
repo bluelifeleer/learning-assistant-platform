@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AssistantOverlay, formatVideoTime } from "../ui/overlay";
+import { AssistantOverlay, formatVideoTime, insertSnippetAtCursor, noteImageMarkdown } from "../ui/overlay";
 
-type FakeHandler = () => void;
+type FakeHandler = (...args: unknown[]) => void;
 
 class FakeElement {
   readonly tagName: string;
@@ -14,6 +14,9 @@ class FakeElement {
   disabled = false;
   rows = 0;
   placeholder = "";
+  title = "";
+  accept = "";
+  selectionStart: number | undefined = undefined;
   private readonly listeners = new Map<string, FakeHandler[]>();
 
   constructor(tagName: string) {
@@ -44,6 +47,12 @@ class FakeElement {
     return this.children.find((child) => child.textContent === text)
       ?? this.children.map((child) => child.findByText(text)).find(Boolean);
   }
+
+  findByTag(tag: string): FakeElement | undefined {
+    const upper = tag.toUpperCase();
+    return this.children.find((child) => child.tagName === upper)
+      ?? this.children.map((child) => child.findByTag(upper)).find(Boolean);
+  }
 }
 
 function installFakeDocument(): void {
@@ -59,6 +68,10 @@ function overlayRoot(overlay: AssistantOverlay): FakeElement {
   return (overlay as unknown as { root: FakeElement }).root;
 }
 
+function overlayMini(overlay: AssistantOverlay): FakeElement {
+  return (overlay as unknown as { mini: FakeElement }).mini;
+}
+
 function overlayStatus(overlay: AssistantOverlay): string {
   return (overlay as unknown as { status: FakeElement }).status.textContent;
 }
@@ -72,16 +85,17 @@ describe("assistant overlay", () => {
     installFakeDocument();
   });
 
-  it("expands a note editor with textarea, save and cancel buttons", () => {
+  it("opens a draggable note modal with textarea, image upload, save and cancel buttons", () => {
     const overlay = new AssistantOverlay({ onSaveNote: vi.fn().mockResolvedValue(undefined) });
     const root = overlayRoot(overlay);
 
     root.findByText("添加笔记")?.click();
 
-    const editor = root.children.find((child) => child.tagName === "DIV" && child.children.some((item) => item.tagName === "TEXTAREA"));
-    expect(editor).toBeDefined();
-    expect(editor?.findByText("保存")).toBeDefined();
-    expect(editor?.findByText("取消")).toBeDefined();
+    expect(root.findByTag("TEXTAREA")).toBeDefined();
+    expect(root.findByText("插入图片")).toBeDefined();
+    expect(root.findByText("保存")).toBeDefined();
+    expect(root.findByText("取消")).toBeDefined();
+    expect(root.findByText("添加笔记（按住此栏可拖动）")).toBeDefined();
   });
 
   it("collapses the note editor when cancel is clicked", () => {
@@ -91,8 +105,7 @@ describe("assistant overlay", () => {
     root.findByText("添加笔记")?.click();
     root.findByText("取消")?.click();
 
-    expect(root.findByText("保存")).toBeUndefined();
-    expect(root.children.some((child) => child.children.some((item) => item.tagName === "TEXTAREA"))).toBe(false);
+    expect(root.findByTag("TEXTAREA")).toBeUndefined();
   });
 
   it("disables buttons while saving and shows the saved timestamp on success", async () => {
@@ -102,9 +115,7 @@ describe("assistant overlay", () => {
     const root = overlayRoot(overlay);
 
     root.findByText("添加笔记")?.click();
-    const input = root.children
-      .flatMap((child) => child.children)
-      .find((child) => child.tagName === "TEXTAREA");
+    const input = root.findByTag("TEXTAREA");
     expect(input).toBeDefined();
     if (input) input.value = "  这里是一个时间点笔记  ";
 
@@ -112,7 +123,7 @@ describe("assistant overlay", () => {
     expect(saveButton).toBeDefined();
     saveButton?.click();
 
-    expect(onSaveNote).toHaveBeenCalledWith("这里是一个时间点笔记");
+    expect(onSaveNote).toHaveBeenCalledWith("这里是一个时间点笔记", []);
     expect(saveButton?.disabled).toBe(true);
     expect(saveButton?.textContent).toBe("保存中…");
 
@@ -120,7 +131,24 @@ describe("assistant overlay", () => {
     await flushAsync();
 
     expect(overlayStatus(overlay)).toContain("已保存 12:34");
-    expect(root.findByText("保存")).toBeUndefined();
+    expect(root.findByTag("TEXTAREA")).toBeUndefined();
+  });
+
+  it("passes selected tags when saving a note", async () => {
+    const onSaveNote = vi.fn().mockResolvedValue(undefined);
+    const overlay = new AssistantOverlay({ onSaveNote });
+    const root = overlayRoot(overlay);
+
+    root.findByText("添加笔记")?.click();
+    root.findByText("考点")?.click();
+    root.findByText("单选")?.click();
+    const input = root.findByTag("TEXTAREA");
+    if (input) input.value = "笔记";
+
+    root.findByText("保存")?.click();
+    await flushAsync();
+
+    expect(onSaveNote).toHaveBeenCalledWith("笔记", ["考点", "单选"]);
   });
 
   it("keeps the editor open and shows the error message when saving fails", async () => {
@@ -129,9 +157,7 @@ describe("assistant overlay", () => {
     const root = overlayRoot(overlay);
 
     root.findByText("添加笔记")?.click();
-    const input = root.children
-      .flatMap((child) => child.children)
-      .find((child) => child.tagName === "TEXTAREA");
+    const input = root.findByTag("TEXTAREA");
     if (input) input.value = "笔记";
 
     const saveButton = root.findByText("保存");
@@ -151,7 +177,7 @@ describe("assistant overlay", () => {
     root.findByText("添加笔记")?.click();
 
     expect(overlayStatus(overlay)).toContain("请先在扩展选项中完成插件绑定");
-    expect(root.children.some((child) => child.children.some((item) => item.tagName === "TEXTAREA"))).toBe(false);
+    expect(root.findByTag("TEXTAREA")).toBeUndefined();
   });
 
   it("rejects empty note content without calling onSaveNote", () => {
@@ -164,6 +190,37 @@ describe("assistant overlay", () => {
 
     expect(onSaveNote).not.toHaveBeenCalled();
     expect(overlayStatus(overlay)).toContain("笔记内容不能为空");
+  });
+
+  it("collapses the overlay to a mini icon and expands it back", () => {
+    const overlay = new AssistantOverlay({ onSaveNote: vi.fn() });
+    const root = overlayRoot(overlay);
+    const mini = overlayMini(overlay);
+
+    expect(mini.style.display).toBe("none");
+
+    root.findByText("—")?.click();
+    expect(root.style.display).toBe("none");
+    expect(mini.style.display).toBe("");
+
+    mini.click();
+    expect(root.style.display).toBe("");
+    expect(mini.style.display).toBe("none");
+  });
+
+  it("replaces a stale overlay left behind by a dead extension context on mount", () => {
+    const stale = { remove: vi.fn() };
+    const fakeDocument = (globalThis as Record<string, unknown>).document as Record<string, unknown>;
+    fakeDocument.getElementById = () => stale;
+    const overlay = new AssistantOverlay();
+    const root = overlayRoot(overlay);
+
+    overlay.mount();
+
+    expect(stale.remove).toHaveBeenCalled();
+    const html = fakeDocument.documentElement as FakeElement;
+    expect(html.children).toContain(root);
+    expect(html.children).toContain(overlayMini(overlay));
   });
 
   it("invokes the injected onOpenExports callback from the export button", () => {
@@ -185,14 +242,17 @@ describe("assistant overlay", () => {
     const captureButton = root.findByText("截图存证");
     expect(captureButton).toBeDefined();
     captureButton?.click();
+    await flushAsync();
 
     expect(onCaptureScreenshot).toHaveBeenCalledTimes(1);
     expect(captureButton?.disabled).toBe(true);
     expect(captureButton?.textContent).toBe("截图中…");
+    expect(root.style.display).toBe("none");
 
     resolveCapture(754);
     await flushAsync();
 
+    expect(root.style.display).toBe("");
     expect(overlayStatus(overlay)).toContain("已存证 12:34");
     expect(captureButton?.disabled).toBe(false);
     expect(captureButton?.textContent).toBe("截图存证");
@@ -206,7 +266,9 @@ describe("assistant overlay", () => {
     const captureButton = root.findByText("截图存证");
     captureButton?.click();
     await flushAsync();
+    await flushAsync();
 
+    expect(root.style.display).toBe("");
     expect(overlayStatus(overlay)).toContain("截图存证失败：课程尚未采集，请先在课程页面停留片刻后重试");
     expect(captureButton?.disabled).toBe(false);
     expect(captureButton?.textContent).toBe("截图存证");
@@ -219,6 +281,21 @@ describe("assistant overlay", () => {
     root.findByText("截图存证")?.click();
 
     expect(overlayStatus(overlay)).toContain("请先在扩展选项中完成插件绑定");
+  });
+});
+
+describe("note image snippets", () => {
+  it("builds the markdown snippet understood by the console", () => {
+    expect(noteImageMarkdown("abc-123")).toBe("![图片](note-image:abc-123)");
+  });
+
+  it("inserts at the cursor with newline separation", () => {
+    expect(insertSnippetAtCursor("hello world", 5, "![图片](note-image:abc)")).toBe("hello\n![图片](note-image:abc)\n world");
+  });
+
+  it("appends at the end when the cursor position is unknown", () => {
+    expect(insertSnippetAtCursor("hello", undefined, "X")).toBe("hello\nX");
+    expect(insertSnippetAtCursor("", undefined, "X")).toBe("X");
   });
 });
 

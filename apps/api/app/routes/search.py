@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_current_user
@@ -24,7 +25,7 @@ def search(
     pattern = f"%{escape_like(q)}%"
     notes = (
         db.query(Note)
-        .filter(Note.content.ilike(pattern, escape="\\"))
+        .filter(or_(Note.content.ilike(pattern, escape="\\"), Note.corrected_content.ilike(pattern, escape="\\")))
         .order_by(Note.created_at.desc())
         .limit(RESULT_LIMIT)
         .all()
@@ -59,6 +60,8 @@ def search(
                 chapter_title=chapter_title(note.chapter_id),
                 video_time_seconds=float(note.video_time_seconds) if note.video_time_seconds is not None else None,
                 content=note.content,
+                corrected_content=note.corrected_content,
+                tags=list(note.tags or []),
                 created_at=note.created_at,
             )
             for note in notes

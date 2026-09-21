@@ -46,6 +46,8 @@ class ChapterNoteOut(BaseModel):
     user_id: str
     video_time_seconds: float | None = None
     content: str
+    corrected_content: str | None = None
+    tags: list[str] = []
     created_at: datetime | None = None
 
 
@@ -103,11 +105,33 @@ class VideoEventListOut(BaseModel):
     items: list[VideoEventItem]
 
 
+class VideoSourceOut(BaseModel):
+    current_src: str | None = None
+    source_urls: list[str] = []
+    poster_url: str | None = None
+    is_blob: bool = False
+    is_likely_signed: bool = False
+    media_type: str = "unknown"
+
+
+class ChapterVideoSourceOut(BaseModel):
+    chapter_id: str | None = None
+    chapter_title: str | None = None
+    course_url: str | None = None
+    video_source: VideoSourceOut
+    captured_at: datetime | None = None
+
+
+class CourseVideoSourcesOut(BaseModel):
+    items: list[ChapterVideoSourceOut]
+
+
 class NoteCreateIn(BaseModel):
     course_id: str
     chapter_id: str | None = None
     video_time_seconds: float | None = None
     content: str = Field(min_length=1)
+    tags: list[str] = Field(default_factory=list)
 
 
 class NoteItem(BaseModel):
@@ -118,7 +142,26 @@ class NoteItem(BaseModel):
     chapter_title: str | None = None
     video_time_seconds: float | None = None
     content: str
+    corrected_content: str | None = None
+    tags: list[str] = []
     created_at: datetime | None = None
+
+
+class NoteCorrectionIn(BaseModel):
+    corrected_content: str | None = None
+
+
+class NoteTagsIn(BaseModel):
+    tags: list[str] = Field(default_factory=list)
+
+
+class ScreenshotImageUpdateIn(BaseModel):
+    image_base64: str = Field(min_length=1)
+
+
+class CourseCreateIn(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    term: str | None = None
 
 
 class NoteListOut(BaseModel):

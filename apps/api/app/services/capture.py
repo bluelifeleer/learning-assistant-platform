@@ -6,8 +6,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import ApiToken, Chapter, Course, Membership, Note, Screenshot, Site, TranscriptSegment, User, VideoCaptureEvent, VideoSession
-from app.schemas.capture import ChapterSnapshotIn, CourseSnapshotIn, NoteCaptureIn, ScreenshotCaptureIn, TranscriptSegmentIn, VideoEventIn
+from app.models.entities import ApiToken, Chapter, Course, Membership, Note, NoteImage, Screenshot, Site, TranscriptSegment, User, VideoCaptureEvent, VideoSession
+from app.schemas.capture import ChapterSnapshotIn, CourseSnapshotIn, NoteCaptureIn, NoteImageCaptureIn, ScreenshotCaptureIn, TranscriptSegmentIn, VideoEventIn
 from app.services.plugins import hash_plugin_token
 
 MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
@@ -192,6 +192,7 @@ class CaptureService:
             user_id=user_id,
             video_time_seconds=payload.video_time_seconds,
             content=content,
+            tags=[tag for tag in payload.tags if tag],
         )
         self.db.add(note)
         self.db.commit()
@@ -243,3 +244,20 @@ class CaptureService:
         screenshot.file_path = str(path)
         self.db.commit()
         return {"id": screenshot.id, "status": "ok"}
+
+    def accept_note_image(self, bearer_token: str, payload: NoteImageCaptureIn) -> dict[str, str]:
+        token = self._plugin_token(bearer_token)
+        user_id = self._capture_user_id(token)
+        content, suffix = decode_base64_image(payload.image_base64, too_large_detail="Image too large")
+        note_image = NoteImage(
+            organization_id=token.organization_id,
+            user_id=user_id,
+            file_path="",
+        )
+        self.db.add(note_image)
+        self.db.flush()
+        path = note_images_dir_path() / f"{note_image.id}{suffix}"
+        path.write_bytes(content)
+        note_image.file_path = str(path)
+        self.db.commit()
+        return {"id": note_image.id, "status": "ok"}

@@ -90,3 +90,22 @@ def test_note_capture_rejects_invalid_plugin_token(client):
     )
 
     assert response.status_code == 401
+
+
+def test_note_capture_stores_tags(client, auth_headers):
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+
+    client.post(
+        "/api/v1/capture/note",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "external_course_id": "course-1",
+            "external_chapter_id": "1.1",
+            "content": "学史明理",
+            "tags": ["考点", "单选"],
+        },
+    )
+
+    notes = client.get("/api/v1/notes", headers=auth_headers).json()["items"]
+    assert notes[0]["tags"] == ["考点", "单选"]

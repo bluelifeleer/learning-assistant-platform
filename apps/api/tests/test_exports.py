@@ -119,3 +119,56 @@ def test_export_rejects_unknown_format(client, auth_headers) -> None:
     response = client.post("/api/v1/exports", headers=auth_headers, json={"export_format": "pdf"})
 
     assert response.status_code == 400
+
+
+def test_markdown_export_labels_correction_and_keeps_original() -> None:
+    course = sample_course()
+    course["chapters"][0]["notes"] = [
+        {"video_time_seconds": 220, "content": "学识名利、学识例行", "corrected_content": "学史明理、学史力行"},
+        {"video_time_seconds": 12, "content": "这里要复习", "corrected_content": None},
+    ]
+
+    output = render_course_markdown(course)
+
+    assert "- 03:40 【勘误】学史明理、学史力行" in output
+    assert "  - 原文:学识名利、学识例行" in output
+    assert "- 00:12 这里要复习" in output
+    assert "【勘误】这里要复习" not in output
+
+
+def test_json_export_includes_corrected_content() -> None:
+    course = sample_course()
+    course["chapters"][0]["notes"] = [
+        {"video_time_seconds": 220, "content": "学识名利", "corrected_content": "学史明理"},
+    ]
+
+    output = render_course_json(course)
+
+    assert '"content": "学识名利"' in output
+    assert '"corrected_content": "学史明理"' in output
+
+
+def test_markdown_export_includes_chapter_video_links() -> None:
+    course = sample_course()
+    course["chapters"][0]["video"] = {
+        "page_url": "https://learning.example.com/course/1",
+        "media_url": "https://cdn.example.com/1.1.mp4?sign=abc",
+        "media_type": "file",
+        "is_likely_signed": True,
+    }
+
+    output = render_course_markdown(course)
+
+    assert "- 视频页面:https://learning.example.com/course/1" in output
+    assert "- 媒体地址:https://cdn.example.com/1.1.mp4?sign=abc（签名/临时链接,可能已过期）" in output
+
+
+def test_markdown_export_includes_note_tags() -> None:
+    course = sample_course()
+    course["chapters"][0]["notes"] = [
+        {"video_time_seconds": 12, "content": "这里要复习", "tags": ["考点", "简答"]},
+    ]
+
+    output = render_course_markdown(course)
+
+    assert "- 00:12 【考点】【简答】这里要复习" in output

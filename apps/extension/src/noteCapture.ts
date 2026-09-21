@@ -3,6 +3,7 @@ export interface NoteCaptureInput {
   videoTimeSeconds?: number;
   externalCourseId?: string;
   externalChapterId?: string;
+  tags?: string[];
   pageId: string;
 }
 
@@ -11,6 +12,7 @@ export interface NoteCapturePayload {
   external_chapter_id: string;
   video_time_seconds?: number;
   content: string;
+  tags?: string[];
 }
 
 export function buildNotePayload(input: NoteCaptureInput): NoteCapturePayload {
@@ -19,6 +21,7 @@ export function buildNotePayload(input: NoteCaptureInput): NoteCapturePayload {
     external_chapter_id: input.externalChapterId ?? input.pageId,
     video_time_seconds: input.videoTimeSeconds,
     content: input.content,
+    tags: input.tags?.length ? input.tags : undefined,
   };
 }
 

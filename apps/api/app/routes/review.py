@@ -62,7 +62,7 @@ def create_card(payload: ReviewCardCreateIn, user: User = Depends(require_curren
         course_id=note.course_id,
         chapter_id=note.chapter_id,
         user_id=user.id,
-        front=note.content,
+        front=note.corrected_content or note.content,
         back=back,
         due_at=utc_now(),
     )

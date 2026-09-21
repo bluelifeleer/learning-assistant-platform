@@ -13,6 +13,7 @@ from app.exporters.markdown import render_course_markdown
 from app.models.entities import Chapter, Course, Export, Note, ReviewCard, TranscriptSegment, User
 from app.schemas.workspace import ExportCreateIn, ExportItem, ExportListOut
 from app.services.plugins import ensure_default_organization
+from app.services.video_sources import latest_video_events_by_chapter, video_export_info
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 
@@ -28,11 +29,13 @@ def course_export_payload(db: Session, course: Course | None) -> dict:
     if not course:
         return {"title": "Workspace Export", "chapters": []}
     chapters = db.query(Chapter).filter(Chapter.course_id == course.id).order_by(Chapter.sort_order.asc(), Chapter.title.asc()).all()
+    video_events = latest_video_events_by_chapter(db, course)
     return {
         "title": course.title,
         "chapters": [
             {
                 "title": chapter.title,
+                "video": video_export_info(video_events[chapter.external_chapter_id]) if chapter.external_chapter_id in video_events else None,
                 "transcripts": [
                     {
                         "start_seconds": float(segment.start_seconds) if segment.start_seconds is not None else None,
@@ -47,6 +50,8 @@ def course_export_payload(db: Session, course: Course | None) -> dict:
                     {
                         "video_time_seconds": float(note.video_time_seconds) if note.video_time_seconds is not None else None,
                         "content": note.content,
+                        "corrected_content": note.corrected_content,
+                        "tags": list(note.tags or []),
                     }
                     for note in db.query(Note).filter(Note.chapter_id == chapter.id).order_by(Note.created_at.asc()).all()
                 ],

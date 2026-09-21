@@ -28,4 +28,16 @@ describe("screenshot capture client", () => {
 
     await expect(captureVisibleTabScreenshot({ sendMessage })).rejects.toThrow("截图服务暂不可用");
   });
+
+  it("prompts a page refresh when the extension context was invalidated by a reload", async () => {
+    const runtime = {
+      lastError: undefined as { message: string } | undefined,
+      sendMessage: vi.fn((_message: unknown, callback: (response: unknown) => void) => {
+        runtime.lastError = { message: "Extension context invalidated." };
+        callback(undefined);
+      }),
+    };
+
+    await expect(captureVisibleTabScreenshot(runtime)).rejects.toThrow("请刷新当前页面后重试");
+  });
 });

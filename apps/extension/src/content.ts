@@ -2,6 +2,7 @@ import { CaptureClient } from "./capture/client";
 import { mapChapterForSnapshot } from "./capture/snapshotChapters";
 import { pickAdapter } from "./adapters/registry";
 import { loadExtensionConfig } from "./config";
+import { registerContentScriptPing } from "./contentPing";
 import { overlayMountPlan } from "./framePolicy";
 import { buildNotePayload, consoleUrlFromApiBaseUrl } from "./noteCapture";
 import { buildScreenshotPayload } from "./screenshotCapture";
@@ -9,6 +10,8 @@ import { captureVisibleTabScreenshot } from "./screenshotCaptureClient";
 import { fetchSubtitleFileText } from "./subtitleFetchClient";
 import { collectAndReportSubtitleTrackFiles } from "./subtitleTrackReporter";
 import { AssistantOverlay } from "./ui/overlay";
+
+registerContentScriptPing();
 
 async function boot(): Promise<void> {
   const config = await loadExtensionConfig();
@@ -41,11 +44,12 @@ async function boot(): Promise<void> {
     if (overlay) return;
     overlay = new AssistantOverlay({
       onSaveNote: client
-        ? async (content: string) => {
+        ? async (content: string, tags: string[]) => {
             const videoTimeSeconds = video?.currentTime;
             try {
               await client.post("/capture/note", buildNotePayload({
                 content,
+                tags,
                 videoTimeSeconds,
                 externalCourseId: course?.externalCourseId,
                 externalChapterId: currentChapterId(),
@@ -61,6 +65,12 @@ async function boot(): Promise<void> {
           }
         : undefined,
       onOpenExports: () => window.open(consoleUrlFromApiBaseUrl(config.apiBaseUrl), "_blank"),
+      onUploadNoteImage: client
+        ? async (imageBase64: string) => {
+            const result = await client.postJson<{ id: string }>("/capture/note-image", { image_base64: imageBase64 });
+            return result.id;
+          }
+        : undefined,
       onCaptureScreenshot: client
         ? async () => {
             const videoTimeSeconds = video?.currentTime;
@@ -187,7 +197,8 @@ async function boot(): Promise<void> {
       payload: {
         course_url: location.href,
         external_course_id: course?.externalCourseId,
-        external_chapter_id: currentChapter?.externalChapterId,
+        // 章节树由页面异步渲染,boot 时的提取可能失败退回 item id;上报时实时提取
+        external_chapter_id: currentChapterId(),
         video_source: videoSource,
       },
     }).catch(() => undefined);

@@ -186,3 +186,100 @@ def test_settings_can_be_read_and_updated(client, auth_headers):
     assert response.status_code == 200
     assert response.json()["organization_name"] == "Commercial Workspace"
     assert response.json()["license_status"] == "active"
+
+
+def test_note_correction_keeps_original_and_can_be_cleared(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+
+    detail = client.get(f"/api/v1/courses/{course_id}/detail", headers=auth_headers).json()
+    chapter_id = detail["chapters"][0]["children"][0]["id"]
+
+    note = client.post(
+        "/api/v1/notes",
+        headers=auth_headers,
+        json={"course_id": course_id, "chapter_id": chapter_id, "content": "学识名利、学识例行", "video_time_seconds": 220},
+    ).json()
+
+    corrected = client.patch(
+        f"/api/v1/notes/{note['id']}/correction",
+        headers=auth_headers,
+        json={"corrected_content": "学史明理、学史力行"},
+    )
+    assert corrected.status_code == 200
+    assert corrected.json()["content"] == "学识名利、学识例行"
+    assert corrected.json()["corrected_content"] == "学史明理、学史力行"
+
+    detail = client.get(f"/api/v1/courses/{course_id}/detail", headers=auth_headers).json()
+    detail_note = detail["chapters"][0]["children"][0]["notes"][0]
+    assert detail_note["content"] == "学识名利、学识例行"
+    assert detail_note["corrected_content"] == "学史明理、学史力行"
+
+    cleared = client.patch(
+        f"/api/v1/notes/{note['id']}/correction",
+        headers=auth_headers,
+        json={"corrected_content": ""},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["corrected_content"] is None
+
+
+def test_note_correction_returns_404_for_unknown_note(client, auth_headers):
+    response = client.patch(
+        "/api/v1/notes/no-such-note/correction",
+        headers=auth_headers,
+        json={"corrected_content": "x"},
+    )
+    assert response.status_code == 404
+
+
+def test_manual_course_creation_and_note_with_chapter_and_tags(client, auth_headers):
+    created = client.post("/api/v1/courses", headers=auth_headers, json={"title": "中共党史(手动)"})
+    assert created.status_code == 200
+    course = created.json()
+    assert course["site_name"] == "手动创建"
+    assert course["adapter_id"] == "manual"
+
+    listed = client.get("/api/v1/courses", headers=auth_headers).json()["items"]
+    assert any(item["id"] == course["id"] for item in listed)
+
+    note = client.post(
+        "/api/v1/notes",
+        headers=auth_headers,
+        json={"course_id": course["id"], "content": "党史学习方法", "tags": ["考点", "简答"]},
+    )
+    assert note.status_code == 200
+    assert note.json()["tags"] == ["考点", "简答"]
+
+    updated = client.patch(
+        f"/api/v1/notes/{note.json()['id']}/tags",
+        headers=auth_headers,
+        json={"tags": ["高频"]},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["tags"] == ["高频"]
+
+    assert client.patch(
+        "/api/v1/notes/no-such-note/tags",
+        headers=auth_headers,
+        json={"tags": []},
+    ).status_code == 404
+
+
+def test_note_tags_visible_in_course_detail(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    detail = client.get(f"/api/v1/courses/{course_id}/detail", headers=auth_headers).json()
+    chapter_id = detail["chapters"][0]["children"][0]["id"]
+
+    client.post(
+        "/api/v1/notes",
+        headers=auth_headers,
+        json={"course_id": course_id, "chapter_id": chapter_id, "content": "带标签的笔记", "tags": ["多选"]},
+    )
+
+    detail = client.get(f"/api/v1/courses/{course_id}/detail", headers=auth_headers).json()
+    note = detail["chapters"][0]["children"][0]["notes"][0]
+    assert note["tags"] == ["多选"]

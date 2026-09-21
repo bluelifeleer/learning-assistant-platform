@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_bearer_token
 from app.db.session import get_db
-from app.schemas.capture import CourseSnapshotIn, NoteCaptureIn, ScreenshotCaptureIn, TranscriptSegmentIn, VideoEventIn
+from app.schemas.capture import CourseSnapshotIn, NoteCaptureIn, NoteImageCaptureIn, ScreenshotCaptureIn, TranscriptSegmentIn, VideoEventIn
 from app.services.capture import CaptureService
 
 router = APIRouter(prefix="/capture", tags=["capture"])
@@ -56,3 +56,12 @@ def screenshot(
     service: CaptureService = Depends(get_capture_service),
 ) -> dict[str, str]:
     return service.accept_screenshot(token, payload)
+
+
+@router.post("/note-image")
+def note_image(
+    payload: NoteImageCaptureIn,
+    token: str = Depends(require_bearer_token),
+    service: CaptureService = Depends(get_capture_service),
+) -> dict[str, str]:
+    return service.accept_note_image(token, payload)

@@ -43,10 +43,15 @@ class NoteCaptureIn(BaseModel):
     video_time_seconds: float | None = None
     content: str = Field(min_length=1)
     source_text: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class ScreenshotCaptureIn(BaseModel):
     external_course_id: str
     external_chapter_id: str | None = None
     video_time_seconds: float | None = None
+    image_base64: str = Field(min_length=1)
+
+
+class NoteImageCaptureIn(BaseModel):
     image_base64: str = Field(min_length=1)

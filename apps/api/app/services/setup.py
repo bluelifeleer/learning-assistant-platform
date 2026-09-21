@@ -159,6 +159,9 @@ def read_setup_status(env_path: Path | None = None, required_tables: set[str] | 
 
 def write_env_file(env_path: Path, payload: SetupInitializeIn) -> None:
     database_url = build_database_url(payload.database)
+    # 重复初始化(如服务重启时数据库暂未就绪,用户重走了安装向导)必须保留原 pepper,
+    # 否则所有已签发的插件 Token 和控制台会话会全部失效
+    existing_pepper = parse_env(env_path).get("API_TOKEN_PEPPER")
     content = "\n".join(
         [
             "APP_ENV=development",
@@ -168,7 +171,7 @@ def write_env_file(env_path: Path, payload: SetupInitializeIn) -> None:
             f"DATABASE_TYPE={payload.database.database_type}",
             f"DATABASE_URL={database_url}",
             f"DEFAULT_ORG_NAME={payload.organization_name}",
-            f"API_TOKEN_PEPPER={secrets.token_hex(32)}",
+            f"API_TOKEN_PEPPER={existing_pepper or secrets.token_hex(32)}",
             "EXPORT_DIR=exports",
             "",
         ]

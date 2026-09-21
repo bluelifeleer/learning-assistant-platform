@@ -123,3 +123,56 @@ def test_screenshot_list_filters_by_course(client, auth_headers):
 def test_screenshots_routes_require_authentication(client):
     assert client.get("/api/v1/screenshots").status_code == 401
     assert client.get("/api/v1/screenshots/some-id/image").status_code == 401
+
+
+def test_screenshot_delete_removes_record_and_file(client, auth_headers):
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+
+    created = client.post(
+        "/api/v1/capture/screenshot",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"external_course_id": "course-1", "image_base64": TINY_JPEG_BASE64},
+    ).json()
+
+    deleted = client.delete(f"/api/v1/screenshots/{created['id']}", headers=auth_headers)
+    assert deleted.status_code == 204
+
+    assert client.get(f"/api/v1/screenshots/{created['id']}/image", headers=auth_headers).status_code == 404
+    assert client.get("/api/v1/screenshots", headers=auth_headers).json()["items"] == []
+
+
+def test_screenshot_delete_returns_404_for_unknown_id(client, auth_headers):
+    assert client.delete("/api/v1/screenshots/no-such-id", headers=auth_headers).status_code == 404
+
+
+def test_screenshot_image_can_be_replaced(client, auth_headers):
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+
+    created = client.post(
+        "/api/v1/capture/screenshot",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"external_course_id": "course-1", "image_base64": TINY_JPEG_BASE64},
+    ).json()
+
+    tiny_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    updated = client.put(
+        f"/api/v1/screenshots/{created['id']}/image",
+        headers=auth_headers,
+        json={"image_base64": f"data:image/png;base64,{tiny_png}"},
+    )
+    assert updated.status_code == 200
+
+    fetched = client.get(f"/api/v1/screenshots/{created['id']}/image", headers=auth_headers)
+    assert fetched.status_code == 200
+    assert fetched.headers["content-type"].startswith("image/png")
+
+
+def test_screenshot_image_update_returns_404_for_unknown_id(client, auth_headers):
+    response = client.put(
+        "/api/v1/screenshots/no-such-id/image",
+        headers=auth_headers,
+        json={"image_base64": TINY_JPEG_BASE64},
+    )
+    assert response.status_code == 404

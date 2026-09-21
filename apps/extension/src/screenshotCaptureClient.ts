@@ -14,7 +14,13 @@ export function captureVisibleTabScreenshot(
   return new Promise((resolve, reject) => {
     try {
       runtime.sendMessage({ type: CAPTURE_SCREENSHOT_MESSAGE }, (response: unknown) => {
-        if (!runtime.lastError && isScreenshotCaptureResponse(response)) {
+        if (runtime.lastError) {
+          reject(new Error(runtime.lastError.message?.includes("Extension context invalidated")
+            ? "扩展已更新，请刷新当前页面后重试"
+            : "截图服务暂不可用，请稍后重试"));
+          return;
+        }
+        if (isScreenshotCaptureResponse(response)) {
           resolve(response.dataUrl);
           return;
         }

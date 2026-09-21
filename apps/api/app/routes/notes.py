@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_current_user
 from app.db.session import get_db
 from app.models.entities import Chapter, Course, Note, User
-from app.schemas.workspace import NoteCreateIn, NoteItem, NoteListOut
+from app.schemas.workspace import NoteCorrectionIn, NoteCreateIn, NoteItem, NoteListOut, NoteTagsIn
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -20,6 +20,8 @@ def note_item(db: Session, note: Note) -> NoteItem:
         chapter_title=chapter.title if chapter else None,
         video_time_seconds=float(note.video_time_seconds) if note.video_time_seconds is not None else None,
         content=note.content,
+        corrected_content=note.corrected_content,
+        tags=list(note.tags or []),
         created_at=note.created_at,
     )
 
@@ -38,8 +40,32 @@ def create_note(payload: NoteCreateIn, user: User = Depends(require_current_user
         user_id=user.id,
         video_time_seconds=payload.video_time_seconds,
         content=payload.content,
+        tags=[tag for tag in payload.tags if tag],
     )
     db.add(note)
+    db.commit()
+    db.refresh(note)
+    return note_item(db, note)
+
+
+@router.patch("/{note_id}/correction", response_model=NoteItem)
+def save_note_correction(note_id: str, payload: NoteCorrectionIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteItem:
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    corrected = (payload.corrected_content or "").strip()
+    note.corrected_content = corrected or None
+    db.commit()
+    db.refresh(note)
+    return note_item(db, note)
+
+
+@router.patch("/{note_id}/tags", response_model=NoteItem)
+def save_note_tags(note_id: str, payload: NoteTagsIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteItem:
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    note.tags = [tag for tag in payload.tags if tag]
     db.commit()
     db.refresh(note)
     return note_item(db, note)
