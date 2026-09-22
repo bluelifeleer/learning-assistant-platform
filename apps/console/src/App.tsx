@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { AuthResponse, PluginClientStatus } from "./api/client";
 import { fetchApiStatus, fetchMe, fetchSetupStatus, setSessionToken, setUnauthorizedHandler, type SetupStatus } from "./api/client";
 import { Adapters } from "./pages/Adapters";
-import { Logo, NavIcon } from "./components/icons";
+import { Logo, NavIcon, SidebarToggleIcon } from "./components/icons";
 import { AuthPanel } from "./pages/AuthPanel";
 import { CourseDetailPage } from "./pages/CourseDetail";
 import { Courses } from "./pages/Courses";
@@ -169,7 +169,13 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
   return (
     <div className={sidebarCollapsed ? "app-shell app-shell-collapsed" : "app-shell"}>
       <aside className={sidebarCollapsed ? "sidebar collapsed" : "sidebar"}>
-        <h1><Logo size={26} className="brand-logo" /><span className="brand-text">学习助手控制台</span></h1>
+        {sidebarCollapsed ? (
+          <button type="button" className="brand-expand" title="展开导航" aria-label="展开导航" onClick={toggleSidebar}>
+            <Logo size={26} className="brand-logo" />
+          </button>
+        ) : (
+          <h1><Logo size={26} className="brand-logo" /><span className="brand-text">学习助手控制台</span></h1>
+        )}
         <nav>
           {navItems.map((item) => (
             <button key={item} type="button" title={item} data-active={activePage === item ? "yes" : "no"} onClick={() => { setActivePage(item); setCourseDetailId(null); }}>
@@ -178,12 +184,14 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
             </button>
           ))}
         </nav>
-        <button type="button" className="sidebar-toggle" title={sidebarCollapsed ? "展开导航" : "收缩导航"} onClick={toggleSidebar}>
-          {sidebarCollapsed ? "»" : "«"}
-        </button>
       </aside>
       <main className="workspace">
         <section className="status-row">
+          {sidebarCollapsed ? null : (
+            <button type="button" className="nav-toggle" title="收缩导航" aria-label="收缩导航" onClick={toggleSidebar}>
+              <SidebarToggleIcon />
+            </button>
+          )}
           <span className="status-pill" data-tone={apiOnline === null ? "muted" : apiOnline ? "ok" : "danger"}>API 服务: {apiOnline === null ? "检测中" : apiOnline ? "已连接" : "未连接"}</span>
           <span className="status-pill" data-tone={pluginState === "online" ? "ok" : pluginState === "offline" ? "warn" : "muted"}>插件状态: {formatPluginBindingState(pluginState)}</span>
           <span className="status-pill" data-tone="muted">组织: Local Workspace</span>

@@ -175,11 +175,6 @@ p {
   padding: 22px 10px;
 }
 
-.sidebar.collapsed h1 {
-  justify-content: center;
-  margin: 0 0 20px;
-}
-
 .sidebar.collapsed .brand-text,
 .sidebar.collapsed .nav-label {
   display: none;
@@ -199,13 +194,37 @@ p {
   box-shadow: inset 3px 0 0 var(--primary);
 }
 
-.sidebar-toggle {
+.sidebar button.brand-expand {
+  justify-content: center;
+  margin: 0 0 20px;
+  padding: 3px 0;
+  border-radius: var(--radius-md);
+}
+
+.nav-toggle {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  margin-top: 18px;
-  font-size: 15px;
-  line-height: 1;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+.nav-toggle:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.nav-toggle .nav-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .workspace {
@@ -1215,7 +1234,7 @@ p {
     padding: 10px 0;
   }
 
-  .sidebar .sidebar-toggle {
+  .nav-toggle {
     display: none;
   }
 

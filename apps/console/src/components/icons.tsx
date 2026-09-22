@@ -93,6 +93,25 @@ export function NavIcon({ name, className }: { name: string; className?: string 
   );
 }
 
+export function SidebarToggleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className ? `nav-icon ${className}` : "nav-icon"}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+      <path d="M9.2 4.5v15" />
+      <path d="M14.8 10.2l-2 1.8 2 1.8" />
+    </svg>
+  );
+}
+
 export function Logo({ size = 28, className }: IconProps) {
   return (
     <svg
