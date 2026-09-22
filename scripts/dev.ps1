@@ -1,6 +1,15 @@
 ﻿$ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 
+# 启动前先应用数据库迁移,避免代码与库结构不一致
+Push-Location "$Root\apps\api"
+try {
+    & .\.venv\Scripts\python -m alembic upgrade head 2>&1 | ForEach-Object { Write-Host "[migrate] $_" }
+    if ($LASTEXITCODE -ne 0) { throw "数据库迁移失败,请检查数据库连接" }
+} finally {
+    Pop-Location
+}
+
 # 单窗口模式:API 和控制台以后台作业运行,日志加前缀合并输出到当前窗口
 $api = Start-Job -Name "lap-api" -ScriptBlock {
     param($ApiDir)
