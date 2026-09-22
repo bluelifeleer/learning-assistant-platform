@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { answerReviewCard, fetchCourses, fetchDueCards, type CourseItem, type ReviewAnswerResult, type ReviewCard } from "../api/client";
 import { CourseChapterPicker, EMPTY_COURSE_CHAPTER_FILTER, useCourseChapters, type CourseChapterFilter } from "../components/CourseChapterPicker";
-import { chapterAndDescendantIds } from "./courseTree";
+import { buildRouteHash } from "../navSlug";
+import { chapterAndDescendantIds, flattenChapters } from "./courseTree";
 import { advanceCard, createReviewSession, currentCard, revealAnswer, sessionFinished, type ReviewSessionState } from "./reviewDeck";
 
 interface ReviewProps {
@@ -55,6 +56,16 @@ export function Review({ token }: ReviewProps) {
 
   const card = session ? currentCard(session) : null;
   const dueCount = session?.queue.length ?? 0;
+  const cardCourse = card?.course_id ? courses.find((course) => course.id === card.course_id) : undefined;
+  const cardChapters = useCourseChapters(card?.course_id ?? "");
+  const cardChapterTitle = card?.chapter_id
+    ? flattenChapters(cardChapters).find(({ chapter }) => chapter.id === card.chapter_id)?.chapter.title ?? null
+    : null;
+
+  function openCardSource() {
+    if (typeof window === "undefined" || !card?.course_id) return;
+    window.location.hash = buildRouteHash("课程", { courseId: card.course_id, chapterId: card.chapter_id });
+  }
 
   return (
     <section className="panel">
@@ -67,6 +78,13 @@ export function Review({ token }: ReviewProps) {
       {session ? <p>今日到期：{dueCount} 张</p> : null}
       {session && !sessionFinished(session) && card ? (
         <article className="record-row">
+          {card.course_id ? (
+            <div>
+              <button type="button" className="text-button text-button-sm" onClick={openCardSource}>
+                来源:{cardCourse?.title ?? "未知课程"}{cardChapterTitle ? ` / ${cardChapterTitle}` : ""} ›
+              </button>
+            </div>
+          ) : null}
           <p>{card.front}</p>
           {session.phase === "answer" ? <p>{card.back}</p> : null}
           <div className="inline-form">

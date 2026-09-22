@@ -1,6 +1,10 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
+import { SystemSettings } from "./pages/SystemSettings";
+
+const session = { token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } };
+const installed = { installed: true, next_step: "Open console" };
 
 describe("App", () => {
   it("renders installer when setup is not installed", () => {
@@ -11,26 +15,27 @@ describe("App", () => {
     expect(html).toContain("远端数据库地址");
   });
 
-  it("renders the work console navigation when installed", () => {
-    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+  it("renders the streamlined five-item navigation when installed", () => {
+    const html = renderToString(<App initialSetupStatus={installed} initialSession={session} />);
 
     expect(html).toContain("学习助手控制台");
+    expect(html).toContain("总览");
     expect(html).toContain("课程");
-    expect(html).toContain("插件管理");
+    expect(html).toContain("复习");
+    expect(html).toContain("搜索");
+    expect(html).toContain("系统设置");
     expect(html).toContain("User One");
   });
 
-  it("shows the dashboard as the default page with the new navigation entries", () => {
-    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+  it("shows the dashboard as the default page", () => {
+    const html = renderToString(<App initialSetupStatus={installed} initialSession={session} />);
 
     expect(html).toContain("总览");
-    expect(html).toContain("搜索");
-    expect(html).toContain("复习");
     expect(html).toContain("正在读取统计");
   });
 
   it("renders a standalone auth screen before login", () => {
-    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} />);
+    const html = renderToString(<App initialSetupStatus={installed} />);
 
     expect(html).toContain("登录学习助手");
     expect(html).toContain("机构在线学习数据中台");
@@ -41,30 +46,37 @@ describe("App", () => {
     expect(html).not.toContain("插件状态:");
   });
 
-  it("can render a left-navigation workspace page", () => {
-    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="字幕" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+  it("can render the review workspace page", () => {
+    const html = renderToString(<App initialSetupStatus={installed} initialPage="复习" initialSession={session} />);
 
-    expect(html).toContain("字幕");
-    expect(html).toContain("正在读取字幕");
+    expect(html).toContain("复习");
+    expect(html).toContain("正在读取到期卡片");
   });
 
-  it("renders actionable adapter and settings pages", () => {
-    const adapterHtml = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="站点适配器" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
-    const settingsHtml = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="设置" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+  it("renders system settings with the general tab by default", () => {
+    const html = renderToString(<App initialSetupStatus={installed} initialPage="系统设置" initialSession={session} />);
 
-    expect(adapterHtml).toContain("新增适配器");
-    expect(adapterHtml).toContain("适配器列表");
-    expect(settingsHtml).toContain("系统设置");
-    expect(settingsHtml).toContain("保存设置");
+    expect(html).toContain("系统设置");
+    expect(html).toContain("插件管理");
+    expect(html).toContain("站点适配器");
+    expect(html).toContain("用户与授权");
+    expect(html).toContain("保存设置");
   });
 
-  it("renders plugin packaging and video source sections", () => {
-    const html = renderToString(<App initialSetupStatus={{ installed: true, next_step: "Open console" }} initialPage="插件管理" initialSession={{ token: "la_test", user: { id: "u1", username: "userone", email: "user@example.com", display_name: "User One" } }} />);
+  it("renders plugin packaging inside the plugins settings tab", () => {
+    const html = renderToString(<SystemSettings tab="plugins" onTabChange={() => undefined} session={null} onSessionChange={() => undefined} onPluginStatusChange={() => undefined} />);
 
     expect(html).toContain("导出插件包");
     expect(html).toContain("最近视频源");
     expect(html).toContain("最近字幕采集");
     expect(html).toContain("暂无字幕采集诊断");
     expect(html).toContain("暂无视频源采集记录");
+  });
+
+  it("renders the adapters management inside the adapters settings tab", () => {
+    const html = renderToString(<SystemSettings tab="adapters" onTabChange={() => undefined} session={null} onSessionChange={() => undefined} onPluginStatusChange={() => undefined} />);
+
+    expect(html).toContain("新增适配器");
+    expect(html).toContain("适配器列表");
   });
 });

@@ -1,29 +1,23 @@
 import { useEffect, useState } from "react";
 import type { AuthResponse, PluginClientStatus } from "./api/client";
 import { fetchApiStatus, fetchMe, fetchSetupStatus, setSessionToken, setUnauthorizedHandler, type SetupStatus } from "./api/client";
-import { Adapters } from "./pages/Adapters";
 import { Logo, NavIcon, SidebarToggleIcon } from "./components/icons";
-import { buildRouteHash, navItems, parseRouteHash, type ConsolePage } from "./navSlug";
+import { buildRouteHash, navItems, parseRouteHash, type ConsolePage, type RouteState, type SettingsTab } from "./navSlug";
 import { AuthPanel } from "./pages/AuthPanel";
 import { CourseDetailPage } from "./pages/CourseDetail";
 import { Courses } from "./pages/Courses";
 import { Dashboard } from "./pages/Dashboard";
-import { Exports } from "./pages/Exports";
 import { Installer } from "./pages/Installer";
-import { Notes } from "./pages/Notes";
-import { PluginPanel } from "./pages/PluginPanel";
 import { Review } from "./pages/Review";
 import { Search } from "./pages/Search";
-import { Settings } from "./pages/Settings";
-import { Transcripts } from "./pages/Transcripts";
-import { UsersAuth } from "./pages/UsersAuth";
+import { SystemSettings } from "./pages/SystemSettings";
 import { formatPluginBindingState, getPluginBindingState, type PluginBindingState } from "./pages/pluginStatus";
 import "./styles.css";
 
 const SESSION_STORAGE_KEY = "learn_assistant_session";
 const HEALTH_POLL_INTERVAL_MS = 10000;
 
-function readInitialRoute(): { page: ConsolePage; courseId: string | null } | null {
+function readInitialRoute(): RouteState | null {
   if (typeof window === "undefined") return null;
   return window.location.hash ? parseRouteHash(window.location.hash) : null;
 }
@@ -50,28 +44,24 @@ function clearSavedSession(): void {
   setSessionToken(null);
 }
 
-function WorkspacePage({ page, session, courseDetailId, onOpenCourseDetail, onCloseCourseDetail, onSessionChange, onPluginStatusChange }: { page: ConsolePage; session: AuthResponse | null; courseDetailId: string | null; onOpenCourseDetail: (courseId: string) => void; onCloseCourseDetail: () => void; onSessionChange: (session: AuthResponse | null) => void; onPluginStatusChange: (clients: PluginClientStatus[]) => void }) {
+function WorkspacePage({ page, session, courseDetailId, courseChapterId, settingsTab, onOpenCourseDetail, onCloseCourseDetail, onSelectChapter, onSettingsTabChange, onSessionChange, onPluginStatusChange }: { page: ConsolePage; session: AuthResponse | null; courseDetailId: string | null; courseChapterId: string | null; settingsTab: SettingsTab | null; onOpenCourseDetail: (courseId: string) => void; onCloseCourseDetail: () => void; onSelectChapter: (chapterId: string | null) => void; onSettingsTabChange: (tab: SettingsTab) => void; onSessionChange: (session: AuthResponse | null) => void; onPluginStatusChange: (clients: PluginClientStatus[]) => void }) {
   if (page === "总览") return <Dashboard />;
   if (page === "课程") {
     return courseDetailId
-      ? <CourseDetailPage courseId={courseDetailId} onBack={onCloseCourseDetail} />
+      ? <CourseDetailPage courseId={courseDetailId} initialChapterId={courseChapterId} token={session?.token} onBack={onCloseCourseDetail} onSelectChapter={onSelectChapter} />
       : <Courses onOpenDetail={onOpenCourseDetail} />;
   }
-  if (page === "字幕") return <Transcripts />;
-  if (page === "笔记") return <Notes token={session?.token} />;
-  if (page === "搜索") return <Search />;
   if (page === "复习") return <Review token={session?.token} />;
-  if (page === "导出") return <Exports token={session?.token} />;
-  if (page === "插件管理") return <PluginPanel onStatusChange={onPluginStatusChange} />;
-  if (page === "站点适配器") return <Adapters />;
-  if (page === "用户与授权") return <UsersAuth session={session} onSessionChange={onSessionChange} />;
-  return <Settings title="设置" description="配置本地 API、组织信息、数据库连接和系统偏好。" />;
+  if (page === "搜索") return <Search />;
+  return <SystemSettings tab={settingsTab} onTabChange={onSettingsTabChange} session={session} onSessionChange={onSessionChange} onPluginStatusChange={onPluginStatusChange} />;
 }
 
 export function App({ initialSetupStatus, initialPage = "总览", initialSession }: AppProps) {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | undefined>(initialSetupStatus);
   const [activePage, setActivePage] = useState<ConsolePage>(() => readInitialRoute()?.page ?? initialPage);
   const [courseDetailId, setCourseDetailId] = useState<string | null>(() => readInitialRoute()?.courseId ?? null);
+  const [courseChapterId, setCourseChapterId] = useState<string | null>(() => readInitialRoute()?.chapterId ?? null);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab | null>(() => readInitialRoute()?.settingsTab ?? null);
   const [pluginState, setPluginState] = useState<PluginBindingState>("unbound");
   const [session, setSession] = useState<AuthResponse | null>(initialSession === undefined ? loadSavedSession() : initialSession);
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
@@ -131,6 +121,8 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
       const route = parseRouteHash(window.location.hash);
       setActivePage(route.page);
       setCourseDetailId(route.page === "课程" ? route.courseId : null);
+      setCourseChapterId(route.page === "课程" ? route.chapterId : null);
+      if (route.page === "系统设置") setSettingsTab(route.settingsTab);
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -139,9 +131,13 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!session || !setupStatus?.installed) return;
-    const hash = buildRouteHash(activePage, activePage === "课程" ? courseDetailId : null);
+    const hash = buildRouteHash(activePage, {
+      courseId: activePage === "课程" ? courseDetailId : null,
+      chapterId: activePage === "课程" ? courseChapterId : null,
+      settingsTab: activePage === "系统设置" ? settingsTab : null,
+    });
     if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
-  }, [activePage, courseDetailId, session, setupStatus?.installed]);
+  }, [activePage, courseDetailId, courseChapterId, settingsTab, session, setupStatus?.installed]);
 
   useEffect(() => {
     if (!session) return;
@@ -200,7 +196,7 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
         )}
         <nav>
           {navItems.map((item) => (
-            <button key={item} type="button" title={item} data-active={activePage === item ? "yes" : "no"} onClick={() => { setActivePage(item); setCourseDetailId(null); }}>
+            <button key={item} type="button" title={item} data-active={activePage === item ? "yes" : "no"} onClick={() => { setActivePage(item); setCourseDetailId(null); setCourseChapterId(null); }}>
               <NavIcon name={item} />
               <span className="nav-label">{item}</span>
             </button>
@@ -215,12 +211,12 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
             </button>
           )}
           <span className="status-pill" data-tone={apiOnline === null ? "muted" : apiOnline ? "ok" : "danger"}>API 服务: {apiOnline === null ? "检测中" : apiOnline ? "已连接" : "未连接"}</span>
-          <span className="status-pill" data-tone={pluginState === "online" ? "ok" : pluginState === "offline" ? "warn" : "muted"}>插件状态: {formatPluginBindingState(pluginState)}</span>
+          <button type="button" className="status-pill status-pill-button" data-tone={pluginState === "online" ? "ok" : pluginState === "offline" ? "warn" : "muted"} title="查看插件管理" onClick={() => { setActivePage("系统设置"); setSettingsTab("plugins"); }}>插件状态: {formatPluginBindingState(pluginState)}</button>
           <span className="status-pill" data-tone="muted">组织: Local Workspace</span>
           <span className="user-chip">{session.user.display_name} · {session.user.email}</span>
           <button type="button" className="text-button" onClick={() => handleSessionChange(null)}>退出</button>
         </section>
-        <WorkspacePage page={activePage} session={session} courseDetailId={courseDetailId} onOpenCourseDetail={setCourseDetailId} onCloseCourseDetail={() => setCourseDetailId(null)} onSessionChange={handleSessionChange} onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
+        <WorkspacePage page={activePage} session={session} courseDetailId={courseDetailId} courseChapterId={courseChapterId} settingsTab={settingsTab} onOpenCourseDetail={(id) => { setCourseDetailId(id); setCourseChapterId(null); }} onCloseCourseDetail={() => { setCourseDetailId(null); setCourseChapterId(null); }} onSelectChapter={setCourseChapterId} onSettingsTabChange={setSettingsTab} onSessionChange={handleSessionChange} onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
       </main>
     </div>
   );

@@ -1721,3 +1721,191 @@ p {
     grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   }
 }
+
+/* ============ 系统设置标签页 ============ */
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-tabs button {
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px 14px;
+  font-size: 13.5px;
+  font-weight: 550;
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.settings-tabs button:hover {
+  color: var(--text-primary);
+}
+
+.settings-tabs button[data-active="yes"] {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+  font-weight: 650;
+}
+
+/* ============ 顶栏可点击 pill ============ */
+
+button.status-pill-button {
+  cursor: pointer;
+  font: inherit;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+button.status-pill-button:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+/* ============ 可点击统计卡 ============ */
+
+button.stat-card-link {
+  width: 100%;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+button.stat-card-link:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+
+/* ============ 可跳转记录卡(搜索结果) ============ */
+
+.record-link {
+  cursor: pointer;
+}
+
+.record-link:hover {
+  border-color: var(--primary);
+}
+
+.record-link:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+
+.record-link-hint {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ============ 笔记标签 / 勘误徽标 ============ */
+
+.tag-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-chip {
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 16px;
+  font-size: 13px;
+  transition: border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.tag-chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.tag-chip[data-active="yes"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.note-tag {
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  padding: 1px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.note-corrected {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.note-card-head {
+  flex-wrap: wrap;
+}
+
+.note-card-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.note-original {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.note-original summary {
+  cursor: pointer;
+}
+
+.note-original p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.note-original-text {
+  margin: 4px 0 0;
+  color: var(--text-tertiary);
+  white-space: pre-wrap;
+}
+
+/* ============ 弹窗字段行 / 详情页操作组 ============ */
+
+.modal-field-row {
+  display: flex;
+  gap: 12px;
+}
+
+.modal-field-row .modal-field {
+  margin: 0;
+  min-width: 0;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .modal-field-row {
+    flex-direction: column;
+  }
+
+  .settings-tabs {
+    overflow-x: auto;
+  }
+}

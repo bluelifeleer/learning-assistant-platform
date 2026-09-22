@@ -1,26 +1,88 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  createExport,
   deleteScreenshot,
+  downloadExport,
   fetchCourseDetail,
   updateScreenshotImage,
   fetchCourseVideoSources,
+  fetchExports,
   fetchScreenshotImageUrl,
   fetchScreenshots,
-  saveNoteCorrection,
   type CourseChapterNode,
-  type CourseChapterNote,
   type CourseDetail,
   type CourseVideoSourceItem,
-  type NoteItem,
+  type ExportItem,
   type ScreenshotItem,
 } from "../api/client";
+import { Modal } from "../components/Modal";
+import { NoteCard } from "../components/NoteCard";
+import { NoteEditorModal } from "../components/NoteEditorModal";
 import { applyNoteCorrection, flattenChapters, formatDateTime, formatTimecode, resolveVideoMedia, sortScreenshotsByTime } from "./courseTree";
 import { ScreenshotEditor } from "./ScreenshotEditor";
 import { startPluginStatusPolling } from "./pluginPolling";
 
 interface CourseDetailPageProps {
   courseId: string;
+  initialChapterId?: string | null;
+  token?: string;
   onBack: () => void;
+  onSelectChapter?: (chapterId: string | null) => void;
+}
+
+const EXPORT_FILE_EXTENSIONS: Record<string, string> = { markdown: "md", json: "json", anki: "txt" };
+
+type ExportFormat = "markdown" | "json" | "anki";
+
+async function downloadExportFile(item: ExportItem, token?: string): Promise<void> {
+  const blob = await downloadExport(item.id, token);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = item.file_path?.split(/[\\/]/).pop() || `export-${item.id}.${EXPORT_FILE_EXTENSIONS[item.format] ?? "md"}`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function CourseExports({ courseId, token, refreshKey, onError }: { courseId: string; token?: string; refreshKey: number; onError: (message: string) => void }) {
+  const [items, setItems] = useState<ExportItem[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchExports()
+      .then((result) => {
+        if (!cancelled) setItems(result.items.filter((item) => item.course_id === courseId));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) onError(error instanceof Error ? error.message : "导出记录读取失败");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId, refreshKey]);
+
+  if (!items.length) return null;
+
+  return (
+    <article>
+      <h3>导出记录</h3>
+      <div className="data-table">
+        <div><strong>格式</strong><strong>状态</strong><strong>文件</strong></div>
+        {items.map((item) => (
+          <div key={item.id}>
+            <span>{item.format}</span>
+            <span>{item.status}</span>
+            <span>
+              {item.file_path || "-"}
+              {item.status === "completed" ? (
+                <button type="button" className="text-button text-button-sm" onClick={() => void downloadExportFile(item, token).catch((error: unknown) => onError(error instanceof Error ? error.message : "导出文件下载失败"))}>下载</button>
+              ) : null}
+            </span>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
 }
 
 interface LoadedScreenshot {
@@ -270,93 +332,25 @@ function ChapterVideoSource({ item, courseLevel }: { item: CourseVideoSourceItem
   );
 }
 
-function ChapterNoteRow({ note, onCorrected }: { note: CourseChapterNote; onCorrected: (updated: NoteItem) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [showOriginal, setShowOriginal] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const hasCorrection = Boolean(note.corrected_content);
-
-  function startEditing() {
-    setDraft(note.corrected_content ?? note.content);
-    setEditing(true);
-    setError("");
-  }
-
-  async function save(clear: boolean) {
-    setSaving(true);
-    setError("");
-    try {
-      const updated = await saveNoteCorrection(note.id, clear ? null : draft.trim());
-      onCorrected(updated);
-      setEditing(false);
-      setShowOriginal(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "勘误保存失败");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <article className="record-row">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-        <strong>{formatTimecode(note.video_time_seconds)}</strong>
-        {(note.tags ?? []).length ? (
-          <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {(note.tags ?? []).map((tag) => (
-              <span key={tag} style={{ fontSize: 12, padding: "1px 10px", borderRadius: 999, background: "#eaf3ff", color: "#1f8fff" }}>{tag}</span>
-            ))}
-          </span>
-        ) : null}
-      </div>
-      <p>{hasCorrection ? note.corrected_content : note.content}</p>
-      {hasCorrection ? (
-        <p style={{ margin: "4px 0 0", fontSize: 12, opacity: 0.75 }}>
-          <span style={{ color: "#1f8fff" }}>已勘误</span>
-          {showOriginal ? ` · 原文：${note.content}` : ""}
-        </p>
-      ) : null}
-      {error ? <p className="form-error">{error}</p> : null}
-      {editing ? (
-        <div style={{ marginTop: 8 }}>
-          <textarea
-            rows={4}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            style={{ boxSizing: "border-box", width: "100%" }}
-            placeholder="填写勘误后的正确内容,原文不会被修改"
-          />
-          <div style={{ marginTop: 6 }}>
-            <button type="button" className="text-button text-button-sm" disabled={saving || !draft.trim()} onClick={() => void save(false)}>
-              {saving ? "保存中..." : "保存勘误"}
-            </button>
-            <button type="button" className="text-button text-button-sm" disabled={saving} onClick={() => setEditing(false)}>取消</button>
-            {hasCorrection ? (
-              <button type="button" className="text-button text-button-sm" disabled={saving} onClick={() => void save(true)}>恢复原文</button>
-            ) : null}
-          </div>
-        </div>
-      ) : (
-        <div style={{ marginTop: 4 }}>
-          <button type="button" className="text-button text-button-sm" onClick={startEditing}>勘误</button>
-          {hasCorrection ? (
-            <button type="button" className="text-button text-button-sm" onClick={() => setShowOriginal((value) => !value)}>
-              {showOriginal ? "隐藏原文" : "查看原文"}
-            </button>
-          ) : null}
-        </div>
-      )}
-    </article>
-  );
-}
-
-export function CourseDetailPage({ courseId, onBack }: CourseDetailPageProps) {
+export function CourseDetailPage({ courseId, initialChapterId, token, onBack, onSelectChapter }: CourseDetailPageProps) {
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [videoSources, setVideoSources] = useState<CourseVideoSourceItem[]>([]);
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [message, setMessage] = useState("正在读取课程详情...");
+  const [noteEditorOpen, setNoteEditorOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("markdown");
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const [exportsRefreshKey, setExportsRefreshKey] = useState(0);
+
+  function reloadDetail() {
+    return Promise.all([fetchCourseDetail(courseId), fetchCourseVideoSources(courseId)]).then(([result, sources]) => {
+      setDetail(result);
+      setVideoSources(sources.items);
+      setSelectedChapterId((current) => current ?? flattenChapters(result.chapters)[0]?.chapter.id ?? null);
+    });
+  }
 
   useEffect(() => {
     setDetail(null);
@@ -367,22 +361,55 @@ export function CourseDetailPage({ courseId, onBack }: CourseDetailPageProps) {
       .then((result) => {
         setDetail(result);
         const flattened = flattenChapters(result.chapters);
-        setSelectedChapterId(flattened[0]?.chapter.id ?? null);
+        const fromHash = initialChapterId && flattened.some(({ chapter }) => chapter.id === initialChapterId) ? initialChapterId : null;
+        setSelectedChapterId(fromHash ?? flattened[0]?.chapter.id ?? null);
         setMessage(result.chapters.length ? "" : "该课程暂无章节。");
       })
       .catch((error: unknown) => setMessage(error instanceof Error ? error.message : "课程详情读取失败"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId]);
+
+  // hash 定位章节(如从复习/搜索跳入)时同步章节树选中态
+  useEffect(() => {
+    if (initialChapterId) setSelectedChapterId((current) => (current === initialChapterId ? current : initialChapterId));
+  }, [initialChapterId]);
 
   // 插件添加笔记/采集字幕后自动刷新详情,保留当前选中章节
   useEffect(() => {
-    const stop = startPluginStatusPolling(async () => {
-      const [result, sources] = await Promise.all([fetchCourseDetail(courseId), fetchCourseVideoSources(courseId)]);
-      setDetail(result);
-      setVideoSources(sources.items);
-      setSelectedChapterId((current) => current ?? flattenChapters(result.chapters)[0]?.chapter.id ?? null);
-    }, 8000);
+    const stop = startPluginStatusPolling(() => reloadDetail(), 8000);
     return stop;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId]);
+
+  function selectChapter(chapterId: string) {
+    setSelectedChapterId(chapterId);
+    onSelectChapter?.(chapterId);
+  }
+
+  async function submitExport() {
+    setExportBusy(true);
+    setExportError("");
+    try {
+      const created = await createExport({ course_id: courseId, export_format: exportFormat }, token);
+      // 轮询任务状态,完成后直接触发下载
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const list = await fetchExports();
+        const item = list.items.find((entry) => entry.id === created.id);
+        if (item?.status === "completed") {
+          await downloadExportFile(item, token);
+          break;
+        }
+        if (item?.status === "failed") throw new Error("导出任务失败");
+        await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+      setExportOpen(false);
+      setExportsRefreshKey((key) => key + 1);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "导出任务创建失败");
+    } finally {
+      setExportBusy(false);
+    }
+  }
 
   const selectedChapter = detail && selectedChapterId ? findChapter(detail.chapters, selectedChapterId) : null;
   const selectedVideoSource = videoSources.find((item) => item.chapter_id === selectedChapterId);
@@ -390,10 +417,14 @@ export function CourseDetailPage({ courseId, onBack }: CourseDetailPageProps) {
 
   return (
     <section className="panel">
-      <h2>
-        课程详情
-        <button type="button" className="text-button" onClick={onBack}>返回列表</button>
-      </h2>
+      <div className="panel-header">
+        <h2>课程详情</h2>
+        <div className="panel-actions">
+          <button type="button" className="text-button" onClick={onBack}>返回列表</button>
+          <button type="button" className="text-button" onClick={() => { setExportError(""); setExportOpen(true); }}>导出</button>
+          <button type="button" className="primary-button" onClick={() => setNoteEditorOpen(true)}>添加笔记</button>
+        </div>
+      </div>
       {detail ? <p>{detail.title}{detail.term ? ` · ${detail.term}` : ""}</p> : null}
       {message ? <p>{message}</p> : null}
       {detail && detail.chapters.length ? (
@@ -407,7 +438,7 @@ export function CourseDetailPage({ courseId, onBack }: CourseDetailPageProps) {
                 data-active={selectedChapterId === chapter.id ? "yes" : "no"}
                 data-depth={depth}
                 style={{ paddingLeft: `${depth * 20 + 8}px` }}
-                onClick={() => setSelectedChapterId(chapter.id)}
+                onClick={() => selectChapter(chapter.id)}
               >
                 {chapter.title}
               </button>
@@ -431,10 +462,12 @@ export function CourseDetailPage({ courseId, onBack }: CourseDetailPageProps) {
                 <h3>笔记</h3>
                 <div className="record-list">
                   {selectedChapter.notes.length ? selectedChapter.notes.map((note) => (
-                    <ChapterNoteRow
+                    <NoteCard
                       key={note.id}
                       note={note}
-                      onCorrected={(updated) =>
+                      token={token}
+                      onMessage={setMessage}
+                      onUpdated={(updated) =>
                         setDetail((current) =>
                           current ? { ...current, chapters: applyNoteCorrection(current.chapters, updated.id, updated) } : current,
                         )
@@ -449,6 +482,45 @@ export function CourseDetailPage({ courseId, onBack }: CourseDetailPageProps) {
         </div>
       ) : null}
       {detail ? <ChapterScreenshots courseId={courseId} unassignedOnly={detail.chapters.length > 0} /> : null}
+      {detail ? (
+        <div className="stacked-page" style={{ marginTop: 16 }}>
+          <CourseExports courseId={courseId} token={token} refreshKey={exportsRefreshKey} onError={setMessage} />
+        </div>
+      ) : null}
+      {noteEditorOpen ? (
+        <NoteEditorModal
+          token={token}
+          initialCourseId={courseId}
+          initialChapterId={selectedChapterId}
+          onClose={() => setNoteEditorOpen(false)}
+          onSaved={reloadDetail}
+        />
+      ) : null}
+      {exportOpen ? (
+        <Modal
+          title="导出课程"
+          onClose={() => setExportOpen(false)}
+          footer={(
+            <>
+              {exportError ? <span className="form-error">{exportError}</span> : null}
+              <button type="button" className="text-button" onClick={() => setExportOpen(false)}>取消</button>
+              <button type="button" className="primary-button" disabled={exportBusy} onClick={() => void submitExport()}>
+                {exportBusy ? "导出中..." : "创建导出"}
+              </button>
+            </>
+          )}
+        >
+          <label className="modal-field">
+            <span>导出格式</span>
+            <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}>
+              <option value="markdown">Markdown</option>
+              <option value="json">JSON</option>
+              <option value="anki">Anki 卡片</option>
+            </select>
+          </label>
+          <p>导出完成后会自动下载文件,记录保留在详情页底部。</p>
+        </Modal>
+      ) : null}
     </section>
   );
 }

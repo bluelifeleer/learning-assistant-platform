@@ -32,12 +32,12 @@ export function sortScreenshotsByTime(screenshots: ScreenshotItem[]): Screenshot
 export function applyNoteCorrection(
   chapters: CourseChapterNode[],
   noteId: string,
-  updated: { content: string; corrected_content?: string | null },
+  updated: Partial<CourseChapterNode["notes"][number]>,
 ): CourseChapterNode[] {
   return chapters.map((chapter) => ({
     ...chapter,
     notes: chapter.notes.map((note) =>
-      note.id === noteId ? { ...note, content: updated.content, corrected_content: updated.corrected_content } : note,
+      note.id === noteId ? { ...note, ...updated } : note,
     ),
     children: applyNoteCorrection(chapter.children, noteId, updated),
   }));

@@ -1,8 +1,23 @@
 import { useEffect, useState } from "react";
-import { fetchStatsSummary, type StatsSummary } from "../api/client";
+import { fetchDueCards, fetchStatsSummary, type StatsSummary } from "../api/client";
+import { buildRouteHash } from "../navSlug";
+
+function navigate(hash: string) {
+  if (typeof window !== "undefined") window.location.hash = hash;
+}
+
+function StatCard({ label, value, hash }: { label: string; value: number | string; hash: string }) {
+  return (
+    <button type="button" className="stat-card stat-card-link" onClick={() => navigate(hash)}>
+      <span className="stat-label">{label}</span>
+      <strong className="stat-value">{value}</strong>
+    </button>
+  );
+}
 
 export function Dashboard() {
   const [summary, setSummary] = useState<StatsSummary | null>(null);
+  const [dueCount, setDueCount] = useState<number | null>(null);
   const [message, setMessage] = useState("正在读取统计...");
 
   useEffect(() => {
@@ -12,6 +27,9 @@ export function Dashboard() {
         setMessage("");
       })
       .catch((error: unknown) => setMessage(error instanceof Error ? error.message : "统计读取失败"));
+    void fetchDueCards()
+      .then((result) => setDueCount(result.items.length))
+      .catch(() => setDueCount(null));
   }, []);
 
   return (
@@ -21,10 +39,11 @@ export function Dashboard() {
         {message ? <p>{message}</p> : null}
         {summary ? (
           <div className="stat-grid">
-            <article className="stat-card"><span className="stat-label">课程</span><strong className="stat-value">{summary.courses}</strong></article>
-            <article className="stat-card"><span className="stat-label">笔记</span><strong className="stat-value">{summary.notes}</strong></article>
-            <article className="stat-card"><span className="stat-label">字幕</span><strong className="stat-value">{summary.transcripts}</strong></article>
-            <article className="stat-card"><span className="stat-label">播放事件</span><strong className="stat-value">{summary.play_events}</strong></article>
+            <StatCard label="课程" value={summary.courses} hash={buildRouteHash("课程")} />
+            <StatCard label="笔记" value={summary.notes} hash={buildRouteHash("课程")} />
+            <StatCard label="字幕" value={summary.transcripts} hash={buildRouteHash("课程")} />
+            <StatCard label="播放事件" value={summary.play_events} hash={buildRouteHash("搜索")} />
+            <StatCard label="今日待复习" value={dueCount ?? "-"} hash={buildRouteHash("复习")} />
           </div>
         ) : null}
       </article>

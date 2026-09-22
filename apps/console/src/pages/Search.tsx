@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchCourses, searchContent, type CourseItem, type SearchResult } from "../api/client";
 import { CourseChapterPicker, EMPTY_COURSE_CHAPTER_FILTER, useCourseChapters, type CourseChapterFilter } from "../components/CourseChapterPicker";
+import { buildRouteHash } from "../navSlug";
 import { chapterAndDescendantIds, formatTimecode } from "./courseTree";
+
+function openCourse(courseId: string, chapterId?: string | null) {
+  if (typeof window === "undefined") return;
+  window.location.hash = buildRouteHash("课程", { courseId, chapterId });
+}
 
 export function Search() {
   const [query, setQuery] = useState("");
@@ -70,12 +76,16 @@ export function Search() {
             <h3>笔记 ({filtered.notes.length})</h3>
             <div className="record-list">
               {filtered.notes.map((note) => (
-                <article key={note.id} className="record-row">
+                <article key={note.id} className="record-row record-link" role="link" tabIndex={0}
+                  onClick={() => openCourse(note.course_id, note.chapter_id)}
+                  onKeyDown={(event) => { if (event.key === "Enter") openCourse(note.course_id, note.chapter_id); }}
+                >
                   <strong>{note.course_title}{note.chapter_title ? ` / ${note.chapter_title}` : ""} · {formatTimecode(note.video_time_seconds)}</strong>
                   {(note.tags ?? []).map((tag) => (
-                    <span key={tag} style={{ fontSize: 12, padding: "1px 8px", marginLeft: 6, borderRadius: 10, background: "#eaf3ff", color: "#1f8fff" }}>{tag}</span>
+                    <span key={tag} className="note-tag">{tag}</span>
                   ))}
                   <p>{note.corrected_content ?? note.content}</p>
+                  <span className="record-link-hint">定位到课程章节 ›</span>
                 </article>
               ))}
             </div>
@@ -84,9 +94,13 @@ export function Search() {
             <h3>字幕 ({filtered.transcripts.length})</h3>
             <div className="record-list">
               {filtered.transcripts.map((transcript) => (
-                <article key={transcript.id} className="record-row">
+                <article key={transcript.id} className="record-row record-link" role="link" tabIndex={0}
+                  onClick={() => openCourse(transcript.course_id, transcript.chapter_id)}
+                  onKeyDown={(event) => { if (event.key === "Enter") openCourse(transcript.course_id, transcript.chapter_id); }}
+                >
                   <strong>{transcript.course_title} / {transcript.chapter_title} · {formatTimecode(transcript.start_seconds)}</strong>
                   <p>{transcript.text}</p>
+                  <span className="record-link-hint">定位到课程章节 ›</span>
                 </article>
               ))}
             </div>
