@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ApiError, login, register, type AuthResponse, type UserProfile } from "../api/client";
+import { Logo } from "../components/icons";
 
 interface AuthPanelProps {
   session: AuthResponse | null;
@@ -45,6 +46,7 @@ export function AuthPanel({ session, onSessionChange }: AuthPanelProps) {
   return (
     <section className="auth-landing">
       <div className="auth-commercial">
+        <Logo size={44} className="auth-logo" />
         <p className="eyebrow">Learning Assistant Platform</p>
         <h1>机构在线学习数据中台</h1>
         <p className="auth-lead">

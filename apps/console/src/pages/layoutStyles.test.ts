@@ -11,6 +11,13 @@ describe("console layout styles", () => {
     expect(css).toContain(".workspace");
   });
 
+  it("keeps sidebar labels on one line and collapses to a proper icon rail", () => {
+    expect(css).toContain("white-space: nowrap");
+    expect(css).toContain(".app-shell.app-shell-collapsed");
+    expect(css).toContain("grid-template-columns: 68px minmax(0, 1fr)");
+    expect(css).toContain(".nav-icon");
+  });
+
   it("defines the design token palette", () => {
     expect(css).toContain("--primary: #2563eb");
     expect(css).toContain("--bg: #f4f6fa");

@@ -6,6 +6,7 @@ import {
   type DatabaseType,
   type SetupStatus,
 } from "../api/client";
+import { Logo } from "../components/icons";
 
 interface InstallerProps {
   status: SetupStatus;
@@ -107,6 +108,7 @@ export function Installer({ status, onInstalled }: InstallerProps) {
     <main className="installer-shell">
       <section className="installer-panel">
         <header>
+          <Logo size={40} className="installer-logo" />
           <p className="eyebrow">Learning Assistant</p>
           <h1>系统安装向导</h1>
           <p>启动服务后先检查环境；未安装时在这里配置远端或本机数据库，再初始化业务表。</p>

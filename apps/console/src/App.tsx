@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AuthResponse, PluginClientStatus } from "./api/client";
 import { fetchApiStatus, fetchMe, fetchSetupStatus, setSessionToken, setUnauthorizedHandler, type SetupStatus } from "./api/client";
 import { Adapters } from "./pages/Adapters";
+import { Logo, NavIcon } from "./components/icons";
 import { AuthPanel } from "./pages/AuthPanel";
 import { CourseDetailPage } from "./pages/CourseDetail";
 import { Courses } from "./pages/Courses";
@@ -168,11 +169,12 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
   return (
     <div className={sidebarCollapsed ? "app-shell app-shell-collapsed" : "app-shell"}>
       <aside className={sidebarCollapsed ? "sidebar collapsed" : "sidebar"}>
-        <h1>学习助手控制台</h1>
+        <h1><Logo size={26} className="brand-logo" /><span className="brand-text">学习助手控制台</span></h1>
         <nav>
           {navItems.map((item) => (
             <button key={item} type="button" title={item} data-active={activePage === item ? "yes" : "no"} onClick={() => { setActivePage(item); setCourseDetailId(null); }}>
-              {sidebarCollapsed ? item.slice(0, 1) : item}
+              <NavIcon name={item} />
+              <span className="nav-label">{item}</span>
             </button>
           ))}
         </nav>
