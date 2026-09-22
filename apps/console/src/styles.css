@@ -196,9 +196,27 @@ p {
 
 .sidebar button.brand-expand {
   justify-content: center;
+  gap: 5px;
   margin: 0 0 20px;
-  padding: 3px 0;
+  padding: 8px 4px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: var(--radius-md);
+  color: var(--sidebar-text);
+  transition: background var(--transition), border-color var(--transition), color var(--transition), transform var(--transition);
+}
+
+.sidebar button.brand-expand:hover {
+  border-color: rgba(148, 163, 184, 0.55);
+  background: var(--sidebar-bg-hover);
+  color: #ffffff;
+  transform: translateX(2px);
+}
+
+.brand-expand-chevron {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -1.5px;
+  line-height: 1;
 }
 
 .nav-toggle {

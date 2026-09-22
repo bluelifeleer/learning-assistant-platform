@@ -3,6 +3,7 @@ import type { AuthResponse, PluginClientStatus } from "./api/client";
 import { fetchApiStatus, fetchMe, fetchSetupStatus, setSessionToken, setUnauthorizedHandler, type SetupStatus } from "./api/client";
 import { Adapters } from "./pages/Adapters";
 import { Logo, NavIcon, SidebarToggleIcon } from "./components/icons";
+import { buildRouteHash, navItems, parseRouteHash, type ConsolePage } from "./navSlug";
 import { AuthPanel } from "./pages/AuthPanel";
 import { CourseDetailPage } from "./pages/CourseDetail";
 import { Courses } from "./pages/Courses";
@@ -19,11 +20,13 @@ import { UsersAuth } from "./pages/UsersAuth";
 import { formatPluginBindingState, getPluginBindingState, type PluginBindingState } from "./pages/pluginStatus";
 import "./styles.css";
 
-const navItems = ["总览", "课程", "字幕", "笔记", "搜索", "复习", "导出", "插件管理", "站点适配器", "用户与授权", "设置"] as const;
-type ConsolePage = (typeof navItems)[number];
-
 const SESSION_STORAGE_KEY = "learn_assistant_session";
 const HEALTH_POLL_INTERVAL_MS = 10000;
+
+function readInitialRoute(): { page: ConsolePage; courseId: string | null } | null {
+  if (typeof window === "undefined") return null;
+  return window.location.hash ? parseRouteHash(window.location.hash) : null;
+}
 
 interface AppProps {
   initialSetupStatus?: SetupStatus;
@@ -67,8 +70,8 @@ function WorkspacePage({ page, session, courseDetailId, onOpenCourseDetail, onCl
 
 export function App({ initialSetupStatus, initialPage = "总览", initialSession }: AppProps) {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | undefined>(initialSetupStatus);
-  const [activePage, setActivePage] = useState<ConsolePage>(initialPage);
-  const [courseDetailId, setCourseDetailId] = useState<string | null>(null);
+  const [activePage, setActivePage] = useState<ConsolePage>(() => readInitialRoute()?.page ?? initialPage);
+  const [courseDetailId, setCourseDetailId] = useState<string | null>(() => readInitialRoute()?.courseId ?? null);
   const [pluginState, setPluginState] = useState<PluginBindingState>("unbound");
   const [session, setSession] = useState<AuthResponse | null>(initialSession === undefined ? loadSavedSession() : initialSession);
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
@@ -123,6 +126,24 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onHashChange = () => {
+      const route = parseRouteHash(window.location.hash);
+      setActivePage(route.page);
+      setCourseDetailId(route.page === "课程" ? route.courseId : null);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!session || !setupStatus?.installed) return;
+    const hash = buildRouteHash(activePage, activePage === "课程" ? courseDetailId : null);
+    if (window.location.hash !== hash) window.history.replaceState(null, "", hash);
+  }, [activePage, courseDetailId, session, setupStatus?.installed]);
+
+  useEffect(() => {
     if (!session) return;
     let cancelled = false;
     void fetchMe(session.token).catch(() => {
@@ -171,7 +192,8 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
       <aside className={sidebarCollapsed ? "sidebar collapsed" : "sidebar"}>
         {sidebarCollapsed ? (
           <button type="button" className="brand-expand" title="展开导航" aria-label="展开导航" onClick={toggleSidebar}>
-            <Logo size={26} className="brand-logo" />
+            <Logo size={20} className="brand-logo" />
+            <span className="brand-expand-chevron" aria-hidden="true">››</span>
           </button>
         ) : (
           <h1><Logo size={26} className="brand-logo" /><span className="brand-text">学习助手控制台</span></h1>
