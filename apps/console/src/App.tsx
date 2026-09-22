@@ -188,8 +188,10 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
       <aside className={sidebarCollapsed ? "sidebar collapsed" : "sidebar"}>
         {sidebarCollapsed ? (
           <button type="button" className="brand-expand" title="展开导航" aria-label="展开导航" onClick={toggleSidebar}>
-            <Logo size={20} className="brand-logo" />
-            <span className="brand-expand-chevron" aria-hidden="true">››</span>
+            <span className="brand-expand-logo">
+              <Logo size={26} className="brand-logo" />
+              <span className="brand-expand-chevron" aria-hidden="true">›</span>
+            </span>
           </button>
         ) : (
           <h1><Logo size={26} className="brand-logo" /><span className="brand-text">学习助手控制台</span></h1>

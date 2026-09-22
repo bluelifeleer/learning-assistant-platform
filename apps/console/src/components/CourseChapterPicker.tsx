@@ -39,8 +39,8 @@ export function CourseChapterPicker({ courses, value, onChange, allLabels }: Cou
   const sections = chapters.find((chapter) => chapter.id === value.chapterId)?.children ?? [];
   const labels = allLabels ?? { course: "全部课程", chapter: "全部章", section: "全部节" };
   return (
-    <div style={{ display: "flex", gap: 12 }}>
-      <label className="modal-field" style={{ flex: 1, margin: 0 }}>
+    <div className="filter-bar">
+      <label className="filter-item">
         <span>课程</span>
         <select
           value={value.courseId}
@@ -50,7 +50,7 @@ export function CourseChapterPicker({ courses, value, onChange, allLabels }: Cou
           {courses.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
         </select>
       </label>
-      <label className="modal-field" style={{ flex: 1, margin: 0 }}>
+      <label className="filter-item">
         <span>章</span>
         <select
           value={value.chapterId}
@@ -61,7 +61,7 @@ export function CourseChapterPicker({ courses, value, onChange, allLabels }: Cou
           {chapters.map((chapter) => <option key={chapter.id} value={chapter.id}>{chapter.title}</option>)}
         </select>
       </label>
-      <label className="modal-field" style={{ flex: 1, margin: 0 }}>
+      <label className="filter-item">
         <span>节</span>
         <select
           value={value.sectionId}

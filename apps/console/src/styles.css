@@ -196,27 +196,40 @@ p {
 
 .sidebar button.brand-expand {
   justify-content: center;
-  gap: 5px;
   margin: 0 0 20px;
-  padding: 8px 4px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  padding: 8px 0;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  color: var(--sidebar-text);
-  transition: background var(--transition), border-color var(--transition), color var(--transition), transform var(--transition);
+  transition: background var(--transition), border-color var(--transition), transform var(--transition);
 }
 
 .sidebar button.brand-expand:hover {
-  border-color: rgba(148, 163, 184, 0.55);
+  border-color: rgba(148, 163, 184, 0.4);
   background: var(--sidebar-bg-hover);
-  color: #ffffff;
   transform: translateX(2px);
 }
 
+.brand-expand-logo {
+  position: relative;
+  display: inline-flex;
+}
+
 .brand-expand-chevron {
-  font-size: 14px;
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 2px var(--sidebar-bg);
+  color: #ffffff;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: -1.5px;
   line-height: 1;
+  text-indent: 1px;
 }
 
 .nav-toggle {
@@ -1908,4 +1921,71 @@ button.stat-card-link:focus-visible {
   .settings-tabs {
     overflow-x: auto;
   }
+}
+
+/* ============ 紧凑筛选条(搜索/复习) ============ */
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-item > span {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.filter-item select {
+  width: auto;
+  min-width: 148px;
+  height: 32px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  padding: 4px 26px 4px 10px;
+  font: inherit;
+  font-size: 13px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.filter-item select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+
+.filter-item select:disabled {
+  background: var(--surface-sunken);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.page-filter {
+  margin-bottom: 12px;
+}
+
+.search-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-subtle);
+  padding: 12px 14px;
+}
+
+.search-controls .search-form {
+  margin: 0;
 }

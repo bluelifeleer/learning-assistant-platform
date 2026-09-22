@@ -55,19 +55,19 @@ export function Search() {
   return (
     <section className="panel">
       <h2>搜索</h2>
-      <div style={{ marginBottom: 12 }}>
+      <div className="search-controls">
         <CourseChapterPicker courses={courses} value={filter} onChange={setFilter} />
-      </div>
-      <div className="inline-form search-form">
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void submitSearch();
-          }}
-          placeholder="搜索笔记与字幕"
-        />
-        <button type="button" onClick={() => void submitSearch()}>搜索</button>
+        <div className="inline-form search-form">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void submitSearch();
+            }}
+            placeholder="搜索笔记与字幕"
+          />
+          <button type="button" onClick={() => void submitSearch()}>搜索</button>
+        </div>
       </div>
       {message ? <p>{message}</p> : null}
       {filtered ? (

@@ -70,7 +70,7 @@ export function Review({ token }: ReviewProps) {
   return (
     <section className="panel">
       <h2>复习</h2>
-      <div style={{ marginBottom: 12 }}>
+      <div className="page-filter">
         <CourseChapterPicker courses={courses} value={filter} onChange={setFilter} />
       </div>
       {message ? <p>{message}</p> : null}
