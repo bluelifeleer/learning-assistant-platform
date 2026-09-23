@@ -2,17 +2,25 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   answerReviewCard,
+  askCourseQuestion,
   createExport,
   createPluginToken,
   createReviewCard,
   downloadExport,
   downloadExtensionPackage,
   fetchAdapters,
+  fetchAiSettings,
+  fetchAiTask,
+  fetchChapterSummary,
   fetchCourseDetail,
+  fetchCourseSummary,
   fetchCourses,
   fetchDueCards,
+  fetchEmailSettings,
+  fetchMastery,
   fetchNotes,
   fetchPluginStatus,
+  fetchQuizQuestions,
   fetchReviewCards,
   fetchScreenshots,
   fetchScreenshotImageUrl,
@@ -23,10 +31,21 @@ import {
   initializeSetup,
   login,
   register,
+  requestChapterSummary,
+  requestCourseSummary,
+  requestFlashcards,
+  requestQuiz,
   saveAdapter,
   searchContent,
+  sendDigestEmail,
+  sendNoteEmail,
   setSessionToken,
   setUnauthorizedHandler,
+  submitQuizAttempts,
+  testAiConnection,
+  testEmailSettings,
+  updateAiSettings,
+  updateEmailSettings,
   updateSettings,
   testDatabaseConnection,
   updateMe,
@@ -350,6 +369,310 @@ describe("learning client", () => {
     } finally {
       delete (URL as unknown as Record<string, unknown>).createObjectURL;
     }
+  });
+});
+
+describe("ai client", () => {
+  it("reads and updates ai settings with PUT", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ llm_base_url: null, llm_model: null, api_key_masked: null, configured: false, ai_auto_generate: false }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchAiSettings("la_session");
+    await updateAiSettings({ llm_base_url: "https://api.deepseek.com/v1", llm_model: "deepseek-chat", llm_api_key: "sk-test", ai_auto_generate: true }, "la_session");
+    await updateAiSettings({ llm_api_key: "" }, "la_session");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:17890/api/v1/ai/settings",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:17890/api/v1/ai/settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ llm_base_url: "https://api.deepseek.com/v1", llm_model: "deepseek-chat", llm_api_key: "sk-test", ai_auto_generate: true }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:17890/api/v1/ai/settings",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ llm_api_key: "" }) }),
+    );
+  });
+
+  it("posts to the ai connection test endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await testAiConnection("la_session");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/ai/settings/test",
+      expect.objectContaining({ method: "POST", headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+  });
+
+  it("requests and fetches chapter and course summaries", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ task_id: "task-1", status: "pending" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestChapterSummary("ch-1");
+    await requestCourseSummary("course-1");
+    await fetchChapterSummary("ch-1");
+    await fetchCourseSummary("course-1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:17890/api/v1/ai/summary/chapter/ch-1",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:17890/api/v1/ai/summary/course/course-1",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://127.0.0.1:17890/api/v1/ai/summary/chapter/ch-1", expect.anything());
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "http://127.0.0.1:17890/api/v1/ai/summary/course/course-1", expect.anything());
+  });
+
+  it("creates quiz and flashcard tasks and lists quiz questions by chapter", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ task_id: "task-2", status: "pending" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await requestQuiz({ chapter_id: "ch-1", count: 5, types: ["choice"] }, "la_session");
+    await requestFlashcards({ chapter_id: "ch-1", count: 10 }, "la_session");
+    await fetchQuizQuestions("ch-1", "la_session");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:17890/api/v1/ai/quiz",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ chapter_id: "ch-1", count: 5, types: ["choice"] }),
+        headers: expect.objectContaining({ authorization: "Bearer la_session" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:17890/api/v1/ai/flashcards",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ chapter_id: "ch-1", count: 10 }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:17890/api/v1/ai/quiz?chapter_id=ch-1",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+  });
+
+  it("polls ai task status by id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "task-1", task_type: "quiz", status: "done", result_count: 5 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const task = await fetchAiTask("task-1", "la_session");
+
+    expect(task).toMatchObject({ id: "task-1", status: "done", result_count: 5 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/ai/tasks/task-1",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+  });
+
+  it("asks a course question with scope, question and history", async () => {
+    const answer = {
+      answer_md: "递归是函数调用自身。",
+      citations: [{ chapter_id: "ch-1", chapter_title: "第一章", start_seconds: 65, excerpt: "递归..." }],
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => answer });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await askCourseQuestion(
+      {
+        course_id: "course-1",
+        chapter_id: "ch-1",
+        question: "什么是递归?",
+        history: [
+          { role: "user", content: "之前的问题" },
+          { role: "assistant", content: "之前的回答" },
+        ],
+      },
+      "la_session",
+    );
+
+    expect(result).toEqual(answer);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/ai/ask",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          course_id: "course-1",
+          chapter_id: "ch-1",
+          question: "什么是递归?",
+          history: [
+            { role: "user", content: "之前的问题" },
+            { role: "assistant", content: "之前的回答" },
+          ],
+        }),
+        headers: expect.objectContaining({ authorization: "Bearer la_session" }),
+      }),
+    );
+  });
+
+  it("asks a whole-course question with a null chapter scope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ answer_md: "", citations: [] }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await askCourseQuestion({ course_id: "course-1", chapter_id: null, question: "课程讲了什么?" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/ai/ask",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ course_id: "course-1", chapter_id: null, question: "课程讲了什么?" }),
+      }),
+    );
+  });
+});
+
+describe("quiz attempts and mastery client", () => {
+  it("submits quiz attempts with the items payload", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ recorded: 2 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await submitQuizAttempts(
+      [
+        { question_id: "q-1", chosen: "乙", correct: true },
+        { question_id: "q-2", chosen: "甲", correct: false },
+      ],
+      "la_session",
+    );
+
+    expect(result).toEqual({ recorded: 2 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/quiz/attempts",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          items: [
+            { question_id: "q-1", chosen: "乙", correct: true },
+            { question_id: "q-2", chosen: "甲", correct: false },
+          ],
+        }),
+        headers: expect.objectContaining({ authorization: "Bearer la_session" }),
+      }),
+    );
+  });
+
+  it("fetches mastery with an optional course filter", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchMastery("course 1", "la_session");
+    await fetchMastery();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `http://127.0.0.1:17890/api/v1/stats/mastery?course_id=${encodeURIComponent("course 1")}`,
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://127.0.0.1:17890/api/v1/stats/mastery", expect.anything());
+  });
+
+  it("creates report_pdf exports with a nullable course_id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "exp", status: "queued", format: "report_pdf" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createExport({ course_id: null, export_format: "report_pdf" }, "la_session");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/exports",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ course_id: null, export_format: "report_pdf" }),
+        headers: expect.objectContaining({ authorization: "Bearer la_session" }),
+      }),
+    );
+  });
+});
+
+describe("email client", () => {
+  const settings = {
+    smtp_host: "smtp.qq.com",
+    smtp_port: 465,
+    smtp_username: "user@qq.com",
+    password_masked: "****",
+    email_from: "user@qq.com",
+    email_to: "me@example.com",
+    configured: true,
+    digest_auto: true,
+    digest_frequency: "daily",
+    digest_hour: 8,
+    last_digest_at: null,
+  };
+
+  it("reads and updates email settings with PUT", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => settings });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchEmailSettings("la_session");
+    await updateEmailSettings({ smtp_host: "smtp.qq.com", smtp_port: 465, smtp_password: "secret", digest_auto: true, digest_frequency: "weekly", digest_hour: 20 }, "la_session");
+    await updateEmailSettings({ smtp_password: "" }, "la_session");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:17890/api/v1/email/settings",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:17890/api/v1/email/settings",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ smtp_host: "smtp.qq.com", smtp_port: 465, smtp_password: "secret", digest_auto: true, digest_frequency: "weekly", digest_hour: 20 }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:17890/api/v1/email/settings",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ smtp_password: "" }) }),
+    );
+  });
+
+  it("posts to the email settings test endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, detail: null }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await testEmailSettings("la_session");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/email/settings/test",
+      expect.objectContaining({ method: "POST", headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+  });
+
+  it("sends a note by email", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, detail: null }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendNoteEmail("note-1", "la_session");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/email/notes/note-1/send",
+      expect.objectContaining({ method: "POST", headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+  });
+
+  it("starts a digest email task", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ task_id: "task-9", status: "pending" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await sendDigestEmail("la_session");
+
+    expect(result).toEqual({ task_id: "task-9", status: "pending" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/email/digest/send",
+      expect.objectContaining({ method: "POST", headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
   });
 });
 

@@ -179,9 +179,11 @@ export interface ExportItem {
   created_at?: string | null;
 }
 
+export type ExportFormat = "markdown" | "json" | "anki" | "report_pdf";
+
 export interface ExportCreatePayload {
   course_id?: string | null;
-  export_format: "markdown" | "json" | "anki";
+  export_format: ExportFormat;
 }
 
 export interface WorkspaceSettings {
@@ -566,4 +568,234 @@ export async function fetchScreenshots(courseId?: string, chapterId?: string, to
 export async function fetchScreenshotImageUrl(id: string, token?: string): Promise<string> {
   const blob = await getBlob(`/screenshots/${id}/image`, token);
   return URL.createObjectURL(blob);
+}
+
+export interface AISettings {
+  llm_base_url: string | null;
+  llm_model: string | null;
+  api_key_masked: string | null;
+  configured: boolean;
+  ai_auto_generate: boolean;
+}
+
+export interface AISettingsUpdatePayload {
+  llm_base_url?: string;
+  llm_model?: string;
+  llm_api_key?: string;
+  ai_auto_generate?: boolean;
+}
+
+export interface AITestResult {
+  ok: boolean;
+  detail?: string | null;
+}
+
+export type AITaskType = "chapter_summary" | "course_summary" | "quiz" | "flashcards" | "email_digest";
+
+export type AITaskStatus = "pending" | "running" | "done" | "failed";
+
+export interface AITaskCreateResponse {
+  task_id: string;
+  status: "pending" | "running";
+}
+
+export interface AITask {
+  id: string;
+  task_type: AITaskType;
+  status: AITaskStatus;
+  result_count: number;
+  error?: string | null;
+}
+
+export interface AISummaryOutlineItem {
+  title: string;
+  start_mmss: string;
+}
+
+export type AISummaryStatus = "none" | "pending" | "running" | "done" | "failed";
+
+export interface AISummary {
+  status: AISummaryStatus;
+  summary_md?: string;
+  outline?: AISummaryOutlineItem[];
+  key_points?: string[];
+  error?: string | null;
+  updated_at?: string;
+}
+
+export interface QuizQuestion {
+  id: string;
+  course_id: string;
+  chapter_id: string;
+  question_type: "choice" | "truefalse";
+  question: string;
+  options: string[];
+  answer: string;
+  explanation?: string | null;
+}
+
+export interface QuizGeneratePayload {
+  chapter_id: string;
+  count?: number;
+  types?: string[];
+}
+
+export interface FlashcardsGeneratePayload {
+  chapter_id: string;
+  count?: number;
+}
+
+export async function fetchAiSettings(token?: string): Promise<AISettings> {
+  return getJson<AISettings>("/ai/settings", token);
+}
+
+export async function updateAiSettings(payload: AISettingsUpdatePayload, token?: string): Promise<AISettings> {
+  return postJson<AISettings>("/ai/settings", payload, token, "PUT");
+}
+
+export async function testAiConnection(token?: string): Promise<AITestResult> {
+  return postJson<AITestResult>("/ai/settings/test", {}, token);
+}
+
+export async function requestChapterSummary(chapterId: string, token?: string): Promise<AITaskCreateResponse> {
+  return postJson<AITaskCreateResponse>(`/ai/summary/chapter/${chapterId}`, {}, token);
+}
+
+export async function requestCourseSummary(courseId: string, token?: string): Promise<AITaskCreateResponse> {
+  return postJson<AITaskCreateResponse>(`/ai/summary/course/${courseId}`, {}, token);
+}
+
+export async function fetchChapterSummary(chapterId: string, token?: string): Promise<AISummary> {
+  return getJson<AISummary>(`/ai/summary/chapter/${chapterId}`, token);
+}
+
+export async function fetchCourseSummary(courseId: string, token?: string): Promise<AISummary> {
+  return getJson<AISummary>(`/ai/summary/course/${courseId}`, token);
+}
+
+export async function requestQuiz(payload: QuizGeneratePayload, token?: string): Promise<AITaskCreateResponse> {
+  return postJson<AITaskCreateResponse>("/ai/quiz", payload, token);
+}
+
+export async function fetchQuizQuestions(chapterId: string, token?: string): Promise<{ items: QuizQuestion[] }> {
+  return getJson<{ items: QuizQuestion[] }>(`/ai/quiz?chapter_id=${encodeURIComponent(chapterId)}`, token);
+}
+
+export async function requestFlashcards(payload: FlashcardsGeneratePayload, token?: string): Promise<AITaskCreateResponse> {
+  return postJson<AITaskCreateResponse>("/ai/flashcards", payload, token);
+}
+
+export async function fetchAiTask(taskId: string, token?: string): Promise<AITask> {
+  return getJson<AITask>(`/ai/tasks/${taskId}`, token);
+}
+
+export interface AskCitation {
+  chapter_id: string;
+  chapter_title: string;
+  start_seconds: number | null;
+  excerpt: string;
+}
+
+export interface AskHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface AskPayload {
+  course_id: string;
+  chapter_id: string | null;
+  question: string;
+  history?: AskHistoryMessage[];
+}
+
+export interface AskAnswer {
+  answer_md: string;
+  citations: AskCitation[];
+}
+
+export async function askCourseQuestion(payload: AskPayload, token?: string): Promise<AskAnswer> {
+  return postJson<AskAnswer>("/ai/ask", payload, token);
+}
+
+export interface QuizAttemptItem {
+  question_id: string;
+  chosen: string;
+  correct: boolean;
+}
+
+export interface QuizAttemptsResponse {
+  recorded: number;
+}
+
+export async function submitQuizAttempts(items: QuizAttemptItem[], token?: string): Promise<QuizAttemptsResponse> {
+  return postJson<QuizAttemptsResponse>("/quiz/attempts", { items }, token);
+}
+
+export interface MasteryItem {
+  course_id: string;
+  course_title: string;
+  chapter_id: string;
+  chapter_title: string;
+  total: number;
+  correct: number;
+  accuracy: number;
+  last_attempt_at: string | null;
+}
+
+export async function fetchMastery(courseId?: string, token?: string): Promise<{ items: MasteryItem[] }> {
+  const suffix = courseId ? `?course_id=${encodeURIComponent(courseId)}` : "";
+  return getJson<{ items: MasteryItem[] }>(`/stats/mastery${suffix}`, token);
+}
+
+export type DigestFrequency = "daily" | "weekly";
+
+export interface EmailSettings {
+  smtp_host: string | null;
+  smtp_port: number;
+  smtp_username: string | null;
+  password_masked: string | null;
+  email_from: string | null;
+  email_to: string | null;
+  configured: boolean;
+  digest_auto: boolean;
+  digest_frequency: DigestFrequency;
+  digest_hour: number;
+  last_digest_at: string | null;
+}
+
+export interface EmailSettingsUpdatePayload {
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_username?: string;
+  smtp_password?: string;
+  email_from?: string;
+  email_to?: string;
+  digest_auto?: boolean;
+  digest_frequency?: DigestFrequency;
+  digest_hour?: number;
+}
+
+export interface EmailSendResult {
+  ok: boolean;
+  detail: string | null;
+}
+
+export async function fetchEmailSettings(token?: string): Promise<EmailSettings> {
+  return getJson<EmailSettings>("/email/settings", token);
+}
+
+export async function updateEmailSettings(payload: EmailSettingsUpdatePayload, token?: string): Promise<EmailSettings> {
+  return postJson<EmailSettings>("/email/settings", payload, token, "PUT");
+}
+
+export async function testEmailSettings(token?: string): Promise<EmailSendResult> {
+  return postJson<EmailSendResult>("/email/settings/test", {}, token);
+}
+
+export async function sendNoteEmail(noteId: string, token?: string): Promise<EmailSendResult> {
+  return postJson<EmailSendResult>(`/email/notes/${encodeURIComponent(noteId)}/send`, {}, token);
+}
+
+export async function sendDigestEmail(token?: string): Promise<AITaskCreateResponse> {
+  return postJson<AITaskCreateResponse>("/email/digest/send", {}, token);
 }

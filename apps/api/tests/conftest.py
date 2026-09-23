@@ -3,6 +3,7 @@ from collections.abc import Generator
 from uuid import uuid4
 
 os.environ.setdefault("ALLOW_REGISTRATION", "true")
+os.environ.setdefault("DIGEST_SCHEDULER_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient

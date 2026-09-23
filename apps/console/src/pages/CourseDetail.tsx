@@ -3,22 +3,36 @@ import {
   createExport,
   deleteScreenshot,
   downloadExport,
+  fetchChapterSummary,
   fetchCourseDetail,
+  fetchCourseSummary,
+  requestChapterSummary,
+  requestCourseSummary,
+  requestFlashcards,
+  requestQuiz,
   updateScreenshotImage,
   fetchCourseVideoSources,
   fetchExports,
   fetchScreenshotImageUrl,
   fetchScreenshots,
+  type AISummary,
+  type AITask,
+  type AITaskCreateResponse,
   type CourseChapterNode,
   type CourseDetail,
   type CourseVideoSourceItem,
+  type ExportFormat,
   type ExportItem,
   type ScreenshotItem,
 } from "../api/client";
 import { Modal } from "../components/Modal";
 import { NoteCard } from "../components/NoteCard";
 import { NoteEditorModal } from "../components/NoteEditorModal";
+import { QaWidget } from "../components/QaWidget";
+import { toast } from "../components/toast";
+import { aiActionErrorMessage, startAiTaskPolling } from "./aiTasks";
 import { applyNoteCorrection, flattenChapters, formatDateTime, formatTimecode, resolveVideoMedia, sortScreenshotsByTime } from "./courseTree";
+import { NoteMarkdown } from "./NoteMarkdown";
 import { ScreenshotEditor } from "./ScreenshotEditor";
 import { startPluginStatusPolling } from "./pluginPolling";
 
@@ -30,9 +44,7 @@ interface CourseDetailPageProps {
   onSelectChapter?: (chapterId: string | null) => void;
 }
 
-const EXPORT_FILE_EXTENSIONS: Record<string, string> = { markdown: "md", json: "json", anki: "txt" };
-
-type ExportFormat = "markdown" | "json" | "anki";
+const EXPORT_FILE_EXTENSIONS: Record<string, string> = { markdown: "md", json: "json", anki: "txt", report_pdf: "pdf" };
 
 async function downloadExportFile(item: ExportItem, token?: string): Promise<void> {
   const blob = await downloadExport(item.id, token);
@@ -332,6 +344,86 @@ function ChapterVideoSource({ item, courseLevel }: { item: CourseVideoSourceItem
   );
 }
 
+function SummaryArticle({ title, summary }: { title: string; summary: AISummary }) {
+  if (summary.status === "pending" || summary.status === "running") {
+    return (
+      <article>
+        <h3>{title}</h3>
+        <p>摘要生成中...</p>
+      </article>
+    );
+  }
+  if (summary.status === "failed") {
+    return (
+      <article>
+        <h3>{title}</h3>
+        <p>摘要生成失败：{summary.error || "未知原因"}</p>
+      </article>
+    );
+  }
+  return (
+    <article>
+      <details open>
+        <summary><h3 style={{ display: "inline" }}>{title}</h3></summary>
+        {summary.summary_md ? <NoteMarkdown content={summary.summary_md} /> : null}
+        {summary.outline?.length ? (
+          <ol>
+            {summary.outline.map((item, index) => (
+              <li key={index}><strong>{item.start_mmss}</strong> {item.title}</li>
+            ))}
+          </ol>
+        ) : null}
+        {summary.key_points?.length ? (
+          <p>
+            {summary.key_points.map((point, index) => (
+              <span key={index} className="note-tag" style={{ marginRight: 6 }}>{point}</span>
+            ))}
+          </p>
+        ) : null}
+        {summary.updated_at ? <p style={{ fontSize: 12, opacity: 0.7 }}>更新于 {formatDateTime(summary.updated_at)}</p> : null}
+      </details>
+    </article>
+  );
+}
+
+function ChapterSummaryPanel({ chapterId, refreshKey }: { chapterId: string; refreshKey: number }) {
+  const [summary, setSummary] = useState<AISummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchChapterSummary(chapterId)
+      .then((result) => {
+        if (!cancelled) setSummary(result);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [chapterId, refreshKey]);
+
+  if (!summary || summary.status === "none") return null;
+  return <SummaryArticle title="AI 摘要" summary={summary} />;
+}
+
+function CourseSummaryPanel({ courseId, refreshKey }: { courseId: string; refreshKey: number }) {
+  const [summary, setSummary] = useState<AISummary | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchCourseSummary(courseId)
+      .then((result) => {
+        if (!cancelled) setSummary(result);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId, refreshKey]);
+
+  if (!summary || summary.status === "none") return null;
+  return <SummaryArticle title="课程摘要" summary={summary} />;
+}
+
 export function CourseDetailPage({ courseId, initialChapterId, token, onBack, onSelectChapter }: CourseDetailPageProps) {
   const [detail, setDetail] = useState<CourseDetail | null>(null);
   const [videoSources, setVideoSources] = useState<CourseVideoSourceItem[]>([]);
@@ -343,6 +435,103 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportsRefreshKey, setExportsRefreshKey] = useState(0);
+  const [aiBusy, setAiBusy] = useState<Record<string, boolean>>({});
+  const [chapterSummaryRefresh, setChapterSummaryRefresh] = useState<Record<string, number>>({});
+  const [courseSummaryRefresh, setCourseSummaryRefresh] = useState(0);
+  const aiPollStops = useRef<Record<string, () => void>>({});
+
+  useEffect(() => {
+    const stops = aiPollStops.current;
+    return () => {
+      Object.values(stops).forEach((stop) => stop());
+    };
+  }, []);
+
+  function runAiTask(key: string, start: () => Promise<AITaskCreateResponse>, onDone: (task: AITask) => void) {
+    setAiBusy((current) => ({ ...current, [key]: true }));
+    void start()
+      .then((created) => {
+        aiPollStops.current[key]?.();
+        aiPollStops.current[key] = startAiTaskPolling(created.task_id, {
+          onSettled: (task) => {
+            delete aiPollStops.current[key];
+            setAiBusy((current) => ({ ...current, [key]: false }));
+            if (task.status === "failed") {
+              toast.error(task.error || "生成任务失败");
+              return;
+            }
+            onDone(task);
+          },
+          onError: (error) => {
+            delete aiPollStops.current[key];
+            setAiBusy((current) => ({ ...current, [key]: false }));
+            toast.error(aiActionErrorMessage(error, "任务状态查询失败"));
+          },
+        });
+      })
+      .catch((error: unknown) => {
+        setAiBusy((current) => ({ ...current, [key]: false }));
+        toast.error(aiActionErrorMessage(error, "生成任务创建失败"));
+      });
+  }
+
+  function generateChapterSummary(chapterId: string) {
+    runAiTask(
+      `summary:${chapterId}`,
+      () => requestChapterSummary(chapterId),
+      () => {
+        setChapterSummaryRefresh((current) => ({ ...current, [chapterId]: (current[chapterId] ?? 0) + 1 }));
+        toast.success("摘要已生成");
+      },
+    );
+  }
+
+  function generateCourseSummary() {
+    runAiTask(
+      "summary:course",
+      () => requestCourseSummary(courseId),
+      () => {
+        setCourseSummaryRefresh((key) => key + 1);
+        toast.success("摘要已生成");
+      },
+    );
+  }
+
+  function runAiTaskOnce(key: string, start: () => Promise<AITaskCreateResponse>): Promise<AITask> {
+    return new Promise((resolve, reject) => {
+      void start()
+        .then((created) => {
+          aiPollStops.current[key]?.();
+          aiPollStops.current[key] = startAiTaskPolling(created.task_id, {
+            onSettled: (task) => {
+              delete aiPollStops.current[key];
+              if (task.status === "failed") {
+                reject(new Error(task.error || "生成任务失败"));
+              } else {
+                resolve(task);
+              }
+            },
+            onError: (error) => {
+              delete aiPollStops.current[key];
+              reject(error instanceof Error ? error : new Error("任务状态查询失败"));
+            },
+          });
+        })
+        .catch(reject);
+    });
+  }
+
+  function generateQuiz(chapterId: string) {
+    const key = `quiz:${chapterId}`;
+    setAiBusy((current) => ({ ...current, [key]: true }));
+    void (async () => {
+      const quizTask = await runAiTaskOnce(key, () => requestQuiz({ chapter_id: chapterId }));
+      const flashcardTask = await runAiTaskOnce(key, () => requestFlashcards({ chapter_id: chapterId }));
+      toast.success(`出题完成：新增 ${quizTask.result_count} 道测验题（「测验」页作答）、${flashcardTask.result_count} 张闪卡（已加入复习队列）。`);
+    })()
+      .catch((error: unknown) => toast.error(aiActionErrorMessage(error, "生成任务失败")))
+      .finally(() => setAiBusy((current) => ({ ...current, [key]: false })));
+  }
 
   function reloadDetail() {
     return Promise.all([fetchCourseDetail(courseId), fetchCourseVideoSources(courseId)]).then(([result, sources]) => {
@@ -421,31 +610,58 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
         <h2>课程详情</h2>
         <div className="panel-actions">
           <button type="button" className="text-button" onClick={onBack}>返回列表</button>
+          <button type="button" className="text-button" disabled={aiBusy["summary:course"]} onClick={generateCourseSummary}>
+            {aiBusy["summary:course"] ? "生成中..." : "课程摘要"}
+          </button>
           <button type="button" className="text-button" onClick={() => { setExportError(""); setExportOpen(true); }}>导出</button>
           <button type="button" className="primary-button" onClick={() => setNoteEditorOpen(true)}>添加笔记</button>
         </div>
       </div>
       {detail ? <p>{detail.title}{detail.term ? ` · ${detail.term}` : ""}</p> : null}
       {message ? <p>{message}</p> : null}
+      {detail ? <CourseSummaryPanel courseId={courseId} refreshKey={courseSummaryRefresh} /> : null}
+      {detail ? <QaWidget courseId={courseId} selectedChapterId={selectedChapterId} onSelectChapter={selectChapter} /> : null}
       {detail && detail.chapters.length ? (
         <div className="course-detail-layout">
           <div className="record-list course-detail-tree">
             {flattenChapters(detail.chapters).map(({ chapter, depth }) => (
-              <button
-                key={chapter.id}
-                type="button"
-                className="text-button chapter-tree-button"
-                data-active={selectedChapterId === chapter.id ? "yes" : "no"}
-                data-depth={depth}
-                style={{ paddingLeft: `${depth * 20 + 8}px` }}
-                onClick={() => selectChapter(chapter.id)}
-              >
-                {chapter.title}
-              </button>
+              <div key={chapter.id} className="chapter-tree-row">
+                <button
+                  type="button"
+                  className="text-button chapter-tree-button"
+                  data-active={selectedChapterId === chapter.id ? "yes" : "no"}
+                  data-depth={depth}
+                  style={{ paddingLeft: `${depth * 20 + 8}px` }}
+                  onClick={() => selectChapter(chapter.id)}
+                >
+                  {chapter.title}
+                </button>
+                {chapter.transcripts.length ? (
+                  <span className="chapter-tree-actions">
+                    <button
+                      type="button"
+                      className="text-button text-button-sm"
+                      disabled={aiBusy[`summary:${chapter.id}`]}
+                      onClick={() => generateChapterSummary(chapter.id)}
+                    >
+                      {aiBusy[`summary:${chapter.id}`] ? "生成中..." : "生成摘要"}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button text-button-sm"
+                      disabled={aiBusy[`quiz:${chapter.id}`]}
+                      onClick={() => generateQuiz(chapter.id)}
+                    >
+                      {aiBusy[`quiz:${chapter.id}`] ? "生成中..." : "AI 出题"}
+                    </button>
+                  </span>
+                ) : null}
+              </div>
             ))}
           </div>
           {selectedChapter ? (
             <div className="stacked-page">
+              <ChapterSummaryPanel chapterId={selectedChapter.id} refreshKey={chapterSummaryRefresh[selectedChapter.id] ?? 0} />
               <ChapterVideoSource item={selectedVideoSource ?? courseLevelVideoSource} courseLevel={!selectedVideoSource && Boolean(courseLevelVideoSource)} />
               <article>
                 <h3>字幕</h3>
@@ -516,8 +732,12 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
               <option value="markdown">Markdown</option>
               <option value="json">JSON</option>
               <option value="anki">Anki 卡片</option>
+              <option value="report_pdf">学习档案 PDF</option>
             </select>
           </label>
+          {exportFormat === "report_pdf" ? (
+            <p>学习档案 PDF 包含学习时长、笔记、截图、测验正确率和章节学习重点。</p>
+          ) : null}
           <p>导出完成后会自动下载文件,记录保留在详情页底部。</p>
         </Modal>
       ) : null}

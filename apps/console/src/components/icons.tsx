@@ -45,6 +45,13 @@ const NAV_ICON_PATHS: Record<string, ReactElement> = {
       <path d="M20.5 3.5v4.7h-4.7" />
     </>
   ),
+  测验: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.6 9.4a2.4 2.4 0 1 1 3.3 2.2c-.8.4-.9 1-.9 1.7" />
+      <path d="M12 16.4v.2" />
+    </>
+  ),
   导出: (
     <>
       <path d="M12 3.5v10.5" />

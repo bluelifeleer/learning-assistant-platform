@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { buildRouteHash, navItems, parseRouteHash } from "./navSlug";
 
 describe("nav slug mapping", () => {
-  it("maps the five navigation items to unique slugs", () => {
+  it("maps the six navigation items to unique slugs", () => {
     const hashes = navItems.map((page) => buildRouteHash(page));
     expect(new Set(hashes).size).toBe(navItems.length);
-    expect(navItems).toEqual(["总览", "课程", "复习", "搜索", "系统设置"]);
+    expect(navItems).toEqual(["总览", "课程", "复习", "测验", "搜索", "系统设置"]);
     expect(buildRouteHash("总览")).toBe("#/dashboard");
     expect(buildRouteHash("课程")).toBe("#/courses");
     expect(buildRouteHash("复习")).toBe("#/review");
+    expect(buildRouteHash("测验")).toBe("#/quiz");
     expect(buildRouteHash("搜索")).toBe("#/search");
     expect(buildRouteHash("系统设置")).toBe("#/settings");
   });

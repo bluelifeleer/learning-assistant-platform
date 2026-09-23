@@ -266,3 +266,63 @@ class NoteImageUploadIn(BaseModel):
 
 class NoteImageUploadOut(BaseModel):
     id: str
+
+
+class QuizAttemptItemIn(BaseModel):
+    question_id: str = Field(min_length=1)
+    chosen: str = Field(default="")
+    correct: bool = False
+
+
+class QuizAttemptsIn(BaseModel):
+    items: list[QuizAttemptItemIn] = Field(min_length=1, max_length=100)
+
+
+class QuizAttemptsOut(BaseModel):
+    recorded: int
+
+
+class MasteryItem(BaseModel):
+    course_id: str
+    course_title: str | None = None
+    chapter_id: str
+    chapter_title: str | None = None
+    total: int
+    correct: int
+    accuracy: float
+    last_attempt_at: datetime | None = None
+
+
+class MasteryOut(BaseModel):
+    items: list[MasteryItem]
+
+
+class EmailSettingsOut(BaseModel):
+    smtp_host: str | None = None
+    smtp_port: int
+    smtp_username: str | None = None
+    password_masked: str | None = None
+    email_from: str | None = None
+    email_to: str | None = None
+    configured: bool
+    digest_auto: bool
+    digest_frequency: str
+    digest_hour: int
+    last_digest_at: datetime | None = None
+
+
+class EmailSettingsUpdateIn(BaseModel):
+    smtp_host: str | None = Field(default=None, max_length=200)
+    smtp_port: int | None = Field(default=None, ge=1, le=65535)
+    smtp_username: str | None = Field(default=None, max_length=200)
+    smtp_password: str | None = Field(default=None, max_length=500)
+    email_from: str | None = Field(default=None, max_length=320)
+    email_to: str | None = Field(default=None, max_length=320)
+    digest_auto: bool | None = None
+    digest_frequency: str | None = None
+    digest_hour: int | None = Field(default=None, ge=0, le=23)
+
+
+class EmailActionOut(BaseModel):
+    ok: bool
+    detail: str | None = None

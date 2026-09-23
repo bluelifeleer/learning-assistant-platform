@@ -14,3 +14,4 @@ exports/
 screenshots/
 note_images/
 .DS_Store
+.pytest-tmp/

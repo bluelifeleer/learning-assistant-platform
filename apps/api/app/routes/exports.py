@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -10,7 +11,8 @@ from app.db.session import get_db
 from app.exporters.anki import render_anki_tsv
 from app.exporters.json_export import render_course_json
 from app.exporters.markdown import render_course_markdown
-from app.models.entities import Chapter, Course, Export, Note, ReviewCard, TranscriptSegment, User
+from app.exporters.study_report import build_study_report
+from app.models.entities import Chapter, Course, Export, Note, Organization, ReviewCard, TranscriptSegment, User
 from app.schemas.workspace import ExportCreateIn, ExportItem, ExportListOut
 from app.services.plugins import ensure_default_organization
 from app.services.video_sources import latest_video_events_by_chapter, video_export_info
@@ -69,7 +71,7 @@ def create_export(
 ) -> dict[str, str]:
     requested = payload or ExportCreateIn()
     export_format = requested.export_format
-    if export_format not in {"markdown", "json", "anki"}:
+    if export_format not in {"markdown", "json", "anki", "report_pdf"}:
         raise HTTPException(status_code=400, detail="Unsupported export format")
     course = db.query(Course).filter(Course.id == requested.course_id).first() if requested.course_id else None
     if requested.course_id and not course:
@@ -86,7 +88,14 @@ def create_export(
     db.add(export)
     db.flush()
     try:
-        if export_format == "anki":
+        if export_format == "report_pdf":
+            organization = db.get(Organization, organization_id)
+            content = build_study_report(db, organization, user, course)
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            scope = course.id if course else "all"
+            path = export_dir_path() / f"study-report-{scope}-{timestamp}.pdf"
+            path.write_bytes(content)
+        elif export_format == "anki":
             if not course:
                 raise HTTPException(status_code=400, detail="Anki export requires a course")
             cards = db.query(ReviewCard).filter(ReviewCard.course_id == course.id).order_by(ReviewCard.created_at.asc()).all()
@@ -96,12 +105,14 @@ def create_export(
                 notes = db.query(Note).filter(Note.course_id == course.id).order_by(Note.created_at.asc()).all()
                 rows = [{"front": note.content, "back": ""} for note in notes]
             content = render_anki_tsv(rows)
+            path = export_dir_path() / f"{export.id}.tsv"
+            path.write_text(content, encoding="utf-8", newline="")
         else:
             document = course_export_payload(db, course)
             content = render_course_markdown(document) if export_format == "markdown" else render_course_json(document)
-        suffix = {"markdown": ".md", "json": ".json", "anki": ".tsv"}[export_format]
-        path = export_dir_path() / f"{export.id}{suffix}"
-        path.write_text(content, encoding="utf-8", newline="")
+            suffix = ".md" if export_format == "markdown" else ".json"
+            path = export_dir_path() / f"{export.id}{suffix}"
+            path.write_text(content, encoding="utf-8", newline="")
         export.file_path = str(path)
         export.status = "completed"
     except HTTPException:
@@ -143,5 +154,5 @@ def download_export(export_id: str, _: User = Depends(require_current_user), db:
     path = Path(export.file_path)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Export file not found")
-    media_type = {"json": "application/json", "anki": "text/tab-separated-values"}.get(export.format, "text/markdown")
+    media_type = {"json": "application/json", "anki": "text/tab-separated-values", "report_pdf": "application/pdf"}.get(export.format, "text/markdown")
     return FileResponse(path, media_type=media_type, filename=path.name)

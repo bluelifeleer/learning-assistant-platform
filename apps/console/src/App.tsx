@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import type { AuthResponse, PluginClientStatus } from "./api/client";
 import { fetchApiStatus, fetchMe, fetchSetupStatus, setSessionToken, setUnauthorizedHandler, type SetupStatus } from "./api/client";
 import { Logo, NavIcon, SidebarToggleIcon } from "./components/icons";
+import { ToastHost } from "./components/toast";
 import { buildRouteHash, navItems, parseRouteHash, type ConsolePage, type RouteState, type SettingsTab } from "./navSlug";
 import { AuthPanel } from "./pages/AuthPanel";
 import { CourseDetailPage } from "./pages/CourseDetail";
 import { Courses } from "./pages/Courses";
 import { Dashboard } from "./pages/Dashboard";
 import { Installer } from "./pages/Installer";
+import { Quiz } from "./pages/Quiz";
 import { Review } from "./pages/Review";
 import { Search } from "./pages/Search";
 import { SystemSettings } from "./pages/SystemSettings";
@@ -52,6 +54,7 @@ function WorkspacePage({ page, session, courseDetailId, courseChapterId, setting
       : <Courses onOpenDetail={onOpenCourseDetail} />;
   }
   if (page === "复习") return <Review token={session?.token} />;
+  if (page === "测验") return <Quiz token={session?.token} />;
   if (page === "搜索") return <Search />;
   return <SystemSettings tab={settingsTab} onTabChange={onSettingsTabChange} session={session} onSessionChange={onSessionChange} onPluginStatusChange={onPluginStatusChange} />;
 }
@@ -220,6 +223,7 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
         </section>
         <WorkspacePage page={activePage} session={session} courseDetailId={courseDetailId} courseChapterId={courseChapterId} settingsTab={settingsTab} onOpenCourseDetail={(id) => { setCourseDetailId(id); setCourseChapterId(null); }} onCloseCourseDetail={() => { setCourseDetailId(null); setCourseChapterId(null); }} onSelectChapter={setCourseChapterId} onSettingsTabChange={setSettingsTab} onSessionChange={handleSessionChange} onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
       </main>
+      <ToastHost />
     </div>
   );
 }

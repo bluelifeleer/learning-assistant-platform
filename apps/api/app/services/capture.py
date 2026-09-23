@@ -2,12 +2,13 @@ import base64
 import binascii
 from pathlib import Path
 
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.entities import ApiToken, Chapter, Course, Membership, Note, NoteImage, Screenshot, Site, TranscriptSegment, User, VideoCaptureEvent, VideoSession
 from app.schemas.capture import ChapterSnapshotIn, CourseSnapshotIn, NoteCaptureIn, NoteImageCaptureIn, ScreenshotCaptureIn, TranscriptSegmentIn, VideoEventIn
+from app.services import ai_tasks
 from app.services.plugins import hash_plugin_token
 
 MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
@@ -121,7 +122,7 @@ class CaptureService:
         self.db.commit()
         return {"status": "accepted", "session_id": payload.session_id}
 
-    def accept_transcript_segment(self, bearer_token: str, payload: TranscriptSegmentIn) -> dict[str, str]:
+    def accept_transcript_segment(self, bearer_token: str, payload: TranscriptSegmentIn, background_tasks: BackgroundTasks | None = None) -> dict[str, str]:
         organization_id = self._organization_id_for_plugin_token(bearer_token)
         course = self.db.query(Course).filter(Course.organization_id == organization_id, Course.external_course_id == payload.external_course_id).first()
         if not course:
@@ -157,6 +158,8 @@ class CaptureService:
         )
         self.db.add(segment)
         self.db.commit()
+        if background_tasks is not None:
+            ai_tasks.maybe_auto_generate_chapter_summary(self.db, background_tasks, course, chapter)
         return {"status": "accepted", "external_course_id": payload.external_course_id, "segment_id": segment.id}
 
     def accept_note(self, bearer_token: str, payload: NoteCaptureIn) -> dict[str, str]:

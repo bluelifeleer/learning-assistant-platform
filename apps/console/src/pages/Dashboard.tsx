@@ -1,9 +1,28 @@
 import { useEffect, useState } from "react";
-import { fetchDueCards, fetchStatsSummary, type StatsSummary } from "../api/client";
+import { fetchDueCards, fetchMastery, fetchStatsSummary, type MasteryItem, type StatsSummary } from "../api/client";
 import { buildRouteHash } from "../navSlug";
 
 function navigate(hash: string) {
   if (typeof window !== "undefined") window.location.hash = hash;
+}
+
+function masteryBarColor(accuracy: number): string {
+  if (accuracy < 60) return "#e5534b";
+  if (accuracy <= 85) return "#d4a72c";
+  return "#2da44e";
+}
+
+function groupMasteryByCourse(items: MasteryItem[]): Array<{ course_id: string; course_title: string; chapters: MasteryItem[] }> {
+  const groups: Array<{ course_id: string; course_title: string; chapters: MasteryItem[] }> = [];
+  for (const item of items) {
+    let group = groups.find((entry) => entry.course_id === item.course_id);
+    if (!group) {
+      group = { course_id: item.course_id, course_title: item.course_title, chapters: [] };
+      groups.push(group);
+    }
+    group.chapters.push(item);
+  }
+  return groups;
 }
 
 function StatCard({ label, value, hash }: { label: string; value: number | string; hash: string }) {
@@ -18,6 +37,7 @@ function StatCard({ label, value, hash }: { label: string; value: number | strin
 export function Dashboard() {
   const [summary, setSummary] = useState<StatsSummary | null>(null);
   const [dueCount, setDueCount] = useState<number | null>(null);
+  const [mastery, setMastery] = useState<MasteryItem[] | null>(null);
   const [message, setMessage] = useState("正在读取统计...");
 
   useEffect(() => {
@@ -30,6 +50,9 @@ export function Dashboard() {
     void fetchDueCards()
       .then((result) => setDueCount(result.items.length))
       .catch(() => setDueCount(null));
+    void fetchMastery()
+      .then((result) => setMastery(result.items))
+      .catch(() => setMastery(null));
   }, []);
 
   return (
@@ -62,6 +85,40 @@ export function Dashboard() {
           </div>
         ) : (
           <p>暂无近 7 天活动数据。</p>
+        )}
+      </article>
+      <article className="panel">
+        <h2>学习掌握度</h2>
+        {mastery && mastery.length ? (
+          <div className="stacked-page">
+            {groupMasteryByCourse(mastery).map((course) => (
+              <article key={course.course_id}>
+                <h3>{course.course_title}</h3>
+                <div className="record-list">
+                  {course.chapters.map((chapter) => (
+                    <div key={chapter.chapter_id} className="record-row" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ flex: 1 }}>{chapter.chapter_title}</span>
+                      <span style={{ whiteSpace: "nowrap" }}>
+                        {chapter.correct}/{chapter.total} · {Math.round(chapter.accuracy)}%
+                      </span>
+                      <span style={{ flex: 2, height: 8, borderRadius: 999, background: "rgba(127,127,127,0.25)", overflow: "hidden" }}>
+                        <span
+                          style={{
+                            display: "block",
+                            height: "100%",
+                            width: `${Math.min(100, Math.max(0, chapter.accuracy))}%`,
+                            background: masteryBarColor(chapter.accuracy),
+                          }}
+                        />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p>完成测验后这里会显示掌握度。</p>
         )}
       </article>
     </section>

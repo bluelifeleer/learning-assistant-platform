@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { createReviewCard, saveNoteCorrection, saveNoteTags, type CourseChapterNote, type NoteItem } from "../api/client";
+import { createReviewCard, saveNoteCorrection, saveNoteTags, sendNoteEmail, type CourseChapterNote, type NoteItem } from "../api/client";
 import { Modal } from "./Modal";
+import { toast, goToSettings } from "./toast";
 import { NoteMarkdown } from "../pages/NoteMarkdown";
+import { isNotConfiguredError } from "../pages/aiTasks";
 import { formatTimecode } from "../pages/courseTree";
 
 export const NOTE_TAGS = ["考点", "高频", "普通", "简答", "多选", "单选"];
@@ -102,6 +104,25 @@ export function NoteCard({ note, token, showSource, onUpdated, onMessage }: Note
     }
   }
 
+  async function sendToEmail() {
+    try {
+      const result = await sendNoteEmail(note.id, token);
+      if (result.ok) {
+        toast.success("已发送到邮箱");
+      } else {
+        toast.error(`发送失败：${result.detail ?? "未知原因"}`);
+      }
+    } catch (error) {
+      if (isNotConfiguredError(error)) {
+        toast.error("SMTP 未配置，请先在设置页配置邮箱", {
+          action: { label: "去配置", onClick: () => goToSettings("general") },
+        });
+      } else {
+        toast.error(error instanceof Error ? error.message : "发送失败");
+      }
+    }
+  }
+
   return (
     <article className="record-row note-card">
       <div className="note-card-head">
@@ -118,6 +139,7 @@ export function NoteCard({ note, token, showSource, onUpdated, onMessage }: Note
           <button type="button" className="text-button text-button-sm" onClick={openTagEditor}>标签</button>
           <button type="button" className="text-button text-button-sm" onClick={openCorrection}>勘误</button>
           <button type="button" className="text-button text-button-sm" onClick={() => void generateCard()}>生成卡片</button>
+          <button type="button" className="text-button text-button-sm" onClick={() => void sendToEmail()}>发送</button>
         </span>
       </div>
       <NoteMarkdown content={note.corrected_content ?? note.content} token={token} className="markdown-preview note-card-content" />

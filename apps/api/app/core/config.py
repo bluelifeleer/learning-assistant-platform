@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     screenshots_dir: str = "screenshots"
     note_images_dir: str = "note_images"
     allow_registration: bool = False
+    digest_scheduler_enabled: bool = True
+    digest_scheduler_interval_seconds: int = 900
 
     model_config = SettingsConfigDict(env_file=("../../.env", ".env"), extra="ignore")
 

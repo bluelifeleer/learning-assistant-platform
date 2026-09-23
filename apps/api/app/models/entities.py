@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -23,6 +23,20 @@ class Organization(Base, TimestampMixin):
     plan: Mapped[str] = mapped_column(String(50), default="local")
     license_key: Mapped[str | None] = mapped_column(String(200))
     license_status: Mapped[str] = mapped_column(String(50), default="inactive")
+    llm_base_url: Mapped[str | None] = mapped_column(String(500))
+    llm_api_key: Mapped[str | None] = mapped_column(String(500))
+    llm_model: Mapped[str | None] = mapped_column(String(120))
+    ai_auto_generate: Mapped[bool] = mapped_column(Boolean, default=False)
+    smtp_host: Mapped[str | None] = mapped_column(String(200))
+    smtp_port: Mapped[int] = mapped_column(Integer, default=465)
+    smtp_username: Mapped[str | None] = mapped_column(String(200))
+    smtp_password: Mapped[str | None] = mapped_column(String(500))
+    email_from: Mapped[str | None] = mapped_column(String(320))
+    email_to: Mapped[str | None] = mapped_column(String(320))
+    digest_auto: Mapped[bool] = mapped_column(Boolean, default=False)
+    digest_frequency: Mapped[str] = mapped_column(String(20), default="daily")
+    digest_hour: Mapped[int] = mapped_column(Integer, default=8)
+    last_digest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class User(Base, TimestampMixin):
@@ -247,3 +261,74 @@ class NoteImage(Base, TimestampMixin):
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ChapterSummary(Base, TimestampMixin):
+    __tablename__ = "chapter_summaries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False, unique=True)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    summary_md: Mapped[str] = mapped_column(Text, nullable=False)
+    outline: Mapped[list] = mapped_column(JSON, default=list)
+    key_points: Mapped[list] = mapped_column(JSON, default=list)
+    model: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="done")
+    error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class CourseSummary(Base, TimestampMixin):
+    __tablename__ = "course_summaries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False, unique=True)
+    summary_md: Mapped[str] = mapped_column(Text, nullable=False)
+    outline: Mapped[list] = mapped_column(JSON, default=list)
+    key_points: Mapped[list] = mapped_column(JSON, default=list)
+    model: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="done")
+    error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class QuizQuestion(Base, TimestampMixin):
+    __tablename__ = "quiz_questions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False)
+    question_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[list] = mapped_column(JSON, default=list)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    explanation: Mapped[str | None] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(String(120), nullable=False)
+
+
+class QuizAttempt(Base, TimestampMixin):
+    __tablename__ = "quiz_attempts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    question_id: Mapped[str] = mapped_column(ForeignKey("quiz_questions.id"), nullable=False)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False)
+    chosen: Mapped[str] = mapped_column(Text, nullable=False)
+    correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+
+class AiTask(Base, TimestampMixin):
+    __tablename__ = "ai_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    task_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    # email_digest 等组织级任务没有课程上下文,course_id 可空
+    course_id: Mapped[str | None] = mapped_column(ForeignKey("courses.id"))
+    chapter_id: Mapped[str | None] = mapped_column(ForeignKey("chapters.id"))
+    status: Mapped[str] = mapped_column(String(40), default="pending")
+    result_count: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

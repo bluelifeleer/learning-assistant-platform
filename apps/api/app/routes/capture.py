@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_bearer_token
@@ -34,10 +34,11 @@ def video_event(
 @router.post("/transcript-segment")
 def transcript_segment(
     payload: TranscriptSegmentIn,
+    background_tasks: BackgroundTasks,
     token: str = Depends(require_bearer_token),
     service: CaptureService = Depends(get_capture_service),
 ) -> dict[str, str]:
-    return service.accept_transcript_segment(token, payload)
+    return service.accept_transcript_segment(token, payload, background_tasks=background_tasks)
 
 
 @router.post("/note")
