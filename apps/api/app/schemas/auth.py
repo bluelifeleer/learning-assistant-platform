@@ -36,3 +36,8 @@ class AuthTokenOut(BaseModel):
 class UserUpdateIn(BaseModel):
     username: str | None = Field(default=None, max_length=50)
     display_name: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=6)

@@ -316,6 +316,10 @@ export async function login(payload: LoginPayload): Promise<AuthResponse> {
   return postJson<AuthResponse>("/auth/login", payload);
 }
 
+export async function changePassword(currentPassword: string, newPassword: string, token?: string): Promise<void> {
+  await postJson("/auth/change-password", { current_password: currentPassword, new_password: newPassword }, token);
+}
+
 export async function fetchMe(token: string): Promise<UserProfile> {
   return getJson<UserProfile>("/auth/me", token);
 }

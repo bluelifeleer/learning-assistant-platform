@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from app.core.config import get_settings
 
 
@@ -144,3 +146,34 @@ def test_update_profile_rejects_duplicate_username(client):
     )
 
     assert response.status_code == 409
+
+
+def test_change_password_flow(client):
+    email = f"user-{uuid4().hex[:8]}@example.com"
+    registered = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "secret123", "display_name": "User One"},
+    )
+    assert registered.status_code == 200
+    headers = {"Authorization": f"Bearer {registered.json()['token']}"}
+
+    wrong = client.post(
+        "/api/v1/auth/change-password",
+        headers=headers,
+        json={"current_password": "wrong", "new_password": "newpass123"},
+    )
+    assert wrong.status_code == 400
+
+    ok = client.post(
+        "/api/v1/auth/change-password",
+        headers=headers,
+        json={"current_password": "secret123", "new_password": "newpass123"},
+    )
+    assert ok.status_code == 200
+
+    relogin = client.post("/api/v1/auth/login", json={"email": email, "password": "newpass123"})
+    assert relogin.status_code == 200
+
+
+def test_change_password_requires_auth(client):
+    assert client.post("/api/v1/auth/change-password", json={"current_password": "a", "new_password": "bbbbbb"}).status_code == 401

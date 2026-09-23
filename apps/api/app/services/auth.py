@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.entities import ApiToken, Membership, User
-from app.schemas.auth import AuthTokenOut, LoginIn, RegisterIn, UserOut, UserUpdateIn
+from app.schemas.auth import AuthTokenOut, LoginIn, PasswordChangeIn, RegisterIn, UserOut, UserUpdateIn
 from app.services.auth_tokens import create_plain_token, hash_token
 from app.services.plugins import ensure_default_organization
 
@@ -79,6 +79,15 @@ class AuthService:
                 if existing:
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already registered")
             user.username = username or None
+        self.db.commit()
+        self.db.refresh(user)
+        return user_out(user)
+
+    def change_password(self, bearer_token: str, payload: PasswordChangeIn) -> UserOut:
+        user = self.current_user(bearer_token)
+        if not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
+        user.password_hash = hash_password(payload.new_password)
         self.db.commit()
         self.db.refresh(user)
         return user_out(user)

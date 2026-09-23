@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.deps import require_bearer_token
 from app.db.session import get_db
-from app.schemas.auth import AuthTokenOut, LoginIn, RegisterIn, UserOut, UserUpdateIn
+from app.schemas.auth import AuthTokenOut, LoginIn, PasswordChangeIn, RegisterIn, UserOut, UserUpdateIn
 from app.services.auth import AuthService, user_out
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -40,3 +40,8 @@ def me(token: str = Depends(require_bearer_token), service: AuthService = Depend
 @router.put("/me", response_model=UserOut)
 def update_me(payload: UserUpdateIn, token: str = Depends(require_bearer_token), service: AuthService = Depends(get_auth_service)) -> UserOut:
     return service.update_current_user(token, payload)
+
+
+@router.post("/change-password", response_model=UserOut)
+def change_password(payload: PasswordChangeIn, token: str = Depends(require_bearer_token), service: AuthService = Depends(get_auth_service)) -> UserOut:
+    return service.change_password(token, payload)
