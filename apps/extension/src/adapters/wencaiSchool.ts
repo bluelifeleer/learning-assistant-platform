@@ -7,7 +7,9 @@ function clean(value: string | null | undefined): string {
 }
 
 function isWencaiHost(url: URL): boolean {
-  return url.hostname.endsWith("wencaischool.net");
+  if (!url.hostname.endsWith("wencaischool.net")) return false;
+  // 只接管学习/课程页面;学生平台首页、成绩查询等管理页不挂载浮层、不做采集
+  return /openlearning|courseware|course/i.test(url.pathname + url.search);
 }
 
 function wencaiCourseId(): string {

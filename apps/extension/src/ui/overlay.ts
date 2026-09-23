@@ -111,7 +111,8 @@ export class AssistantOverlay {
     header.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:10px 12px 0";
     const title = document.createElement("span");
     title.textContent = "学习助手";
-    title.style.fontWeight = "600";
+    // 页面全局 CSS 可能直接重置 span/button 的字号和颜色,关键文字全部内联显式声明
+    title.style.cssText = "font-size:13px;font-weight:600;color:#f4f7fb;line-height:1.4";
     const collapseButton = this.makeButton("—", () => this.setCollapsed(true), "#31465c");
     collapseButton.title = "收缩为图标";
     collapseButton.style.margin = "0";
@@ -123,7 +124,7 @@ export class AssistantOverlay {
     this.body = document.createElement("div");
     this.body.style.cssText = "padding:0 12px";
     this.status = document.createElement("div");
-    this.status.style.marginTop = "6px";
+    this.status.style.cssText = "margin-top:6px;font-size:13px;color:#f4f7fb;line-height:1.4";
     this.body.appendChild(this.status);
     this.body.appendChild(this.makeButton("添加笔记", () => this.toggleNoteEditor()));
     this.body.appendChild(this.makeButton("导出字幕", () => this.openExports()));
@@ -448,7 +449,7 @@ export class AssistantOverlay {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = label;
-    button.style.cssText = `margin:8px 6px 0 0;padding:6px 8px;border-radius:6px;border:0;background:${background};color:white;cursor:pointer`;
+    button.style.cssText = `margin:8px 6px 0 0;padding:6px 8px;border-radius:6px;border:0;background:${background};color:#ffffff;font-size:13px;font-weight:500;line-height:1.4;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;cursor:pointer`;
     assertAssistantOnlyElement(button);
     button.addEventListener("click", onClick);
     return button;

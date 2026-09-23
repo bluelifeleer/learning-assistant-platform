@@ -134,3 +134,11 @@ describe("stable external course ids", () => {
     expect(chapter?.externalChapterId).toBe("wencai-item:456");
   });
 });
+
+describe("wencai adapter page scoping", () => {
+  it("ignores the student console homepage and other non-learning pages", () => {
+    expect(wencaiSchoolAdapter.matches(new URL("https://edu.wencaischool.net/dzkjzs_student/console/templates/normal/"))).toBe(false);
+    expect(wencaiSchoolAdapter.matches(new URL("https://learning.wencaischool.net/openlearning/separation/courseware/index.html?course_id=1"))).toBe(true);
+    expect(wencaiSchoolAdapter.matches(new URL("https://learning.wencaischool.net/openlearning/console/?urltoken=x"))).toBe(true);
+  });
+});
