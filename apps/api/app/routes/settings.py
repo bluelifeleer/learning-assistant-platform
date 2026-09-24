@@ -22,6 +22,7 @@ def settings_out(db: Session) -> WorkspaceSettingsOut:
         api_base_url=f"http://{config.api_host}:{config.api_port}/api/v1",
         database_type=config.database_type,
         export_dir=config.export_dir,
+        weekly_goal_minutes=organization.weekly_goal_minutes,
     )
 
 
@@ -38,5 +39,7 @@ def update_settings(payload: WorkspaceSettingsUpdateIn, _: User = Depends(requir
     if payload.license_key is not None:
         organization.license_key = payload.license_key or None
         organization.license_status = "active" if organization.license_key else "inactive"
+    if payload.weekly_goal_minutes is not None:
+        organization.weekly_goal_minutes = payload.weekly_goal_minutes
     db.commit()
     return settings_out(db)

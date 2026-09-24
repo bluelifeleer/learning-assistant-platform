@@ -4,8 +4,15 @@ $Root = Split-Path -Parent $PSScriptRoot
 # 启动前先应用数据库迁移,避免代码与库结构不一致
 Push-Location "$Root\apps\api"
 try {
+    # alembic 把 INFO 日志写到 stderr。在 $ErrorActionPreference = "Stop" 下,
+    # 原生命令被 2>&1 重定向的 stderr 会变成 ErrorRecord,直接导致管道抛出
+    # NativeCommandError(即使迁移本身成功)。这里在调用期间临时放宽该偏好,
+    # 只依据真实退出码判断成败。
+    $ErrorActionPreference = "Continue"
     & .\.venv\Scripts\python -m alembic upgrade head 2>&1 | ForEach-Object { Write-Host "[migrate] $_" }
-    if ($LASTEXITCODE -ne 0) { throw "数据库迁移失败,请检查数据库连接" }
+    $migrateExitCode = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($migrateExitCode -ne 0) { throw "数据库迁移失败,请检查数据库连接 (exit code $migrateExitCode)" }
 } finally {
     Pop-Location
 }

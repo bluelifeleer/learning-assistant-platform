@@ -26,6 +26,7 @@ function AiSettingsPanel() {
   const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
+  const [visionModel, setVisionModel] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [autoGenerate, setAutoGenerate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -37,6 +38,7 @@ function AiSettingsPanel() {
     setAiSettings(next);
     setBaseUrl(next.llm_base_url ?? "");
     setModel(next.llm_model ?? "");
+    setVisionModel(next.llm_vision_model ?? "");
     setAutoGenerate(next.ai_auto_generate);
     setApiKey("");
   }
@@ -57,6 +59,7 @@ function AiSettingsPanel() {
       const result = await updateAiSettings({
         llm_base_url: baseUrl,
         llm_model: model,
+        llm_vision_model: visionModel,
         ai_auto_generate: autoGenerate,
         ...(apiKey ? { llm_api_key: apiKey } : {}),
       });
@@ -103,6 +106,11 @@ function AiSettingsPanel() {
       <form className="inline-form">
         <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.deepseek.com/v1" />
         <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="模型名，如 deepseek-chat" />
+        <input
+          value={visionModel}
+          onChange={(event) => setVisionModel(event.target.value)}
+          placeholder="视觉模型（可选，用于截图 OCR），默认同对话模型"
+        />
       </form>
       <form className="inline-form">
         <input
@@ -317,12 +325,14 @@ export function Settings({ title = "系统设置", description = "维护组织�
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [organizationName, setOrganizationName] = useState("");
   const [licenseKey, setLicenseKey] = useState("");
+  const [weeklyGoal, setWeeklyGoal] = useState("300");
   const [message, setMessage] = useState("正在读取系统设置...");
 
   function applySettings(next: WorkspaceSettings) {
     setSettings(next);
     setOrganizationName(next.organization_name);
     setLicenseKey(next.license_key ?? "");
+    setWeeklyGoal(String(next.weekly_goal_minutes ?? 300));
   }
 
   useEffect(() => {
@@ -335,8 +345,13 @@ export function Settings({ title = "系统设置", description = "维护组织�
   }, []);
 
   async function save() {
+    const goal = Number(weeklyGoal);
+    if (!Number.isFinite(goal) || goal < 10 || goal > 10080) {
+      setMessage("每周学习目标需在 10~10080 分钟之间");
+      return;
+    }
     try {
-      const result = await updateSettings({ organization_name: organizationName, license_key: licenseKey });
+      const result = await updateSettings({ organization_name: organizationName, license_key: licenseKey, weekly_goal_minutes: Math.round(goal) });
       applySettings(result);
       setMessage("设置已保存");
     } catch (error) {
@@ -355,6 +370,15 @@ export function Settings({ title = "系统设置", description = "维护组织�
         <form className="inline-form">
           <input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="组织名称" />
           <input value={licenseKey} onChange={(event) => setLicenseKey(event.target.value)} placeholder="License Key" />
+          <input
+            type="number"
+            value={weeklyGoal}
+            min={10}
+            max={10080}
+            onChange={(event) => setWeeklyGoal(event.target.value)}
+            placeholder="每周学习目标（分钟）"
+            title="每周学习目标（分钟）"
+          />
           <button type="button" onClick={() => void save()}>保存设置</button>
         </form>
         {message ? <p>{message}</p> : null}

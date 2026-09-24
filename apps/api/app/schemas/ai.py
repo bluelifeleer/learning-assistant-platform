@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class AiSettingsOut(BaseModel):
     llm_base_url: str | None = None
     llm_model: str | None = None
+    llm_vision_model: str | None = None
     api_key_masked: str | None = None
     configured: bool
     ai_auto_generate: bool
@@ -16,6 +17,7 @@ class AiSettingsUpdateIn(BaseModel):
     llm_base_url: str | None = None
     llm_api_key: str | None = None
     llm_model: str | None = None
+    llm_vision_model: str | None = None
     ai_auto_generate: bool | None = None
 
 
@@ -90,6 +92,12 @@ class QuizQuestionListOut(BaseModel):
 class FlashcardsRequestIn(BaseModel):
     chapter_id: str = Field(min_length=1)
     count: int = Field(default=10, ge=1, le=50)
+
+
+class ScreenshotOcrOut(BaseModel):
+    ok: bool
+    ocr_text: str
+    cached: bool = False
 
 
 class AskHistoryMessage(BaseModel):

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_current_user
 from app.db.session import get_db
-from app.models.entities import AiTask, Chapter, ChapterSummary, Course, CourseSummary, QuizQuestion, TranscriptSegment, User
+from app.models.entities import AiTask, Chapter, ChapterSummary, Course, CourseSummary, QuizQuestion, Screenshot, TranscriptSegment, User
 from app.schemas.ai import (
     AiSettingsOut,
     AiSettingsTestOut,
@@ -18,8 +18,9 @@ from app.schemas.ai import (
     QuizQuestionListOut,
     QuizQuestionOut,
     QuizRequestIn,
+    ScreenshotOcrOut,
 )
-from app.services import ai_qa, ai_tasks, llm
+from app.services import ai_ocr, ai_qa, ai_tasks, llm
 from app.services.plugins import ensure_default_organization
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -39,6 +40,7 @@ def settings_out(db: Session) -> AiSettingsOut:
     return AiSettingsOut(
         llm_base_url=organization.llm_base_url,
         llm_model=organization.llm_model,
+        llm_vision_model=organization.llm_vision_model,
         api_key_masked=mask_api_key(organization.llm_api_key),
         configured=configured,
         ai_auto_generate=bool(organization.ai_auto_generate),
@@ -85,6 +87,8 @@ def update_ai_settings(payload: AiSettingsUpdateIn, _: User = Depends(require_cu
         organization.llm_base_url = payload.llm_base_url.rstrip("/") or None
     if payload.llm_model is not None:
         organization.llm_model = payload.llm_model or None
+    if payload.llm_vision_model is not None:
+        organization.llm_vision_model = payload.llm_vision_model or None
     if payload.llm_api_key is not None:
         organization.llm_api_key = payload.llm_api_key or None
     if payload.ai_auto_generate is not None:
@@ -264,3 +268,49 @@ def ask_question(payload: AskRequestIn, _: User = Depends(require_current_user),
         return ai_qa.answer_question(db, organization, payload)
     except llm.LLMRequestError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
+
+
+@router.post("/ocr/chapter/{chapter_id}", response_model=AiTaskCreatedOut)
+def request_chapter_ocr(
+    chapter_id: str,
+    background_tasks: BackgroundTasks,
+    _: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> AiTaskCreatedOut:
+    chapter = get_chapter_or_404(db, chapter_id)
+    course = get_course_or_404(db, chapter.course_id)
+    organization = ensure_default_organization(db)
+    try:
+        llm.llm_config_for_organization(organization)
+    except llm.LLMNotConfiguredError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    has_screenshot = db.query(Screenshot.id).filter(Screenshot.chapter_id == chapter.id).first()
+    if not has_screenshot:
+        raise HTTPException(status_code=422, detail="该章节没有截图,请先在学习页截图")
+    task, created = ai_tasks.create_task(db, course.organization_id, ai_tasks.TASK_CHAPTER_OCR, course.id, chapter.id)
+    if created:
+        background_tasks.add_task(ai_tasks.run_ai_task, task.id)
+    return AiTaskCreatedOut(task_id=task.id, status=task.status)
+
+
+@router.post("/ocr/screenshot/{screenshot_id}", response_model=ScreenshotOcrOut)
+def request_screenshot_ocr(
+    screenshot_id: str,
+    _: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> ScreenshotOcrOut:
+    # 单张识别足够快,同步返回
+    screenshot = db.get(Screenshot, screenshot_id)
+    if not screenshot:
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    organization = ensure_default_organization(db)
+    try:
+        config = llm.llm_config_for_organization(organization)
+    except llm.LLMNotConfiguredError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    cached = bool(screenshot.ocr_text)
+    try:
+        text = ai_ocr.ocr_screenshot(db, screenshot, config, organization.llm_vision_model or None)
+    except llm.LLMRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    return ScreenshotOcrOut(ok=True, ocr_text=text, cached=cached)

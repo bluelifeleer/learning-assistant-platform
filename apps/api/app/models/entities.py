@@ -26,6 +26,7 @@ class Organization(Base, TimestampMixin):
     llm_base_url: Mapped[str | None] = mapped_column(String(500))
     llm_api_key: Mapped[str | None] = mapped_column(String(500))
     llm_model: Mapped[str | None] = mapped_column(String(120))
+    llm_vision_model: Mapped[str | None] = mapped_column(String(120))
     ai_auto_generate: Mapped[bool] = mapped_column(Boolean, default=False)
     smtp_host: Mapped[str | None] = mapped_column(String(200))
     smtp_port: Mapped[int] = mapped_column(Integer, default=465)
@@ -37,6 +38,7 @@ class Organization(Base, TimestampMixin):
     digest_frequency: Mapped[str] = mapped_column(String(20), default="daily")
     digest_hour: Mapped[int] = mapped_column(Integer, default=8)
     last_digest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    weekly_goal_minutes: Mapped[int] = mapped_column(Integer, default=300)
 
 
 class User(Base, TimestampMixin):
@@ -252,6 +254,7 @@ class Screenshot(Base, TimestampMixin):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     video_time_seconds: Mapped[float | None] = mapped_column(Numeric(10, 3))
     file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    ocr_text: Mapped[str | None] = mapped_column(Text)
 
 
 class NoteImage(Base, TimestampMixin):

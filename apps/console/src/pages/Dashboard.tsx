@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { fetchDueCards, fetchMastery, fetchStatsSummary, type MasteryItem, type StatsSummary } from "../api/client";
+import {
+  fetchDueCards,
+  fetchLearningProgress,
+  fetchMastery,
+  fetchStatsSummary,
+  type LearningProgress,
+  type MasteryItem,
+  type StatsSummary,
+} from "../api/client";
 import { buildRouteHash } from "../navSlug";
 
 function navigate(hash: string) {
@@ -38,6 +46,7 @@ export function Dashboard() {
   const [summary, setSummary] = useState<StatsSummary | null>(null);
   const [dueCount, setDueCount] = useState<number | null>(null);
   const [mastery, setMastery] = useState<MasteryItem[] | null>(null);
+  const [progress, setProgress] = useState<LearningProgress | null>(null);
   const [message, setMessage] = useState("正在读取统计...");
 
   useEffect(() => {
@@ -53,6 +62,9 @@ export function Dashboard() {
     void fetchMastery()
       .then((result) => setMastery(result.items))
       .catch(() => setMastery(null));
+    void fetchLearningProgress()
+      .then((result) => setProgress(result))
+      .catch(() => setProgress(null));
   }, []);
 
   return (
@@ -70,6 +82,62 @@ export function Dashboard() {
           </div>
         ) : null}
       </article>
+      {progress ? (
+        <article className="panel">
+          <h2>学习进度</h2>
+          <div className="stat-grid">
+            <div className="stat-card">
+              <span className="stat-label">连续学习</span>
+              <strong className="stat-value">{progress.streak_days} 天</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">本周学习</span>
+              <strong className="stat-value">
+                {progress.week_minutes}/{progress.weekly_goal_minutes} 分钟
+              </strong>
+              <span className="stat-progress-track">
+                <span
+                  className="stat-progress-fill"
+                  style={{ width: `${Math.min(100, (progress.week_minutes / Math.max(1, progress.weekly_goal_minutes)) * 100)}%` }}
+                />
+              </span>
+            </div>
+          </div>
+          {progress.continue_learning ? (
+            <button
+              type="button"
+              className="continue-learning-card"
+              onClick={() =>
+                navigate(buildRouteHash("课程", { courseId: progress.continue_learning!.course_id, chapterId: progress.continue_learning!.chapter_id }))
+              }
+            >
+              <span className="stat-label">继续学习</span>
+              <strong>{progress.continue_learning.course_title} · {progress.continue_learning.chapter_title}</strong>
+            </button>
+          ) : null}
+          {progress.courses.length ? (
+            <div className="record-list">
+              {progress.courses.map((course) => (
+                <div key={course.course_id} className="record-row" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <button
+                    type="button"
+                    className="text-button"
+                    style={{ flex: 1, textAlign: "left" }}
+                    onClick={() => navigate(buildRouteHash("课程", { courseId: course.course_id }))}
+                  >
+                    {course.course_title}
+                  </button>
+                  <span style={{ whiteSpace: "nowrap" }}>已学 {course.studied_chapters}/{course.total_chapters} 章</span>
+                  <span style={{ flex: 2, height: 8, borderRadius: 999, background: "rgba(127,127,127,0.25)", overflow: "hidden" }}>
+                    <span style={{ display: "block", height: "100%", width: `${Math.min(100, course.progress_pct)}%`, background: "var(--primary)" }} />
+                  </span>
+                  <span style={{ whiteSpace: "nowrap" }}>{Math.round(course.progress_pct)}%</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </article>
+      ) : null}
       <article className="panel">
         <h2>近 7 天活动</h2>
         {summary && summary.daily.length ? (

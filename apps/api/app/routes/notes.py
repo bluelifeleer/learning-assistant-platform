@@ -27,8 +27,19 @@ def note_item(db: Session, note: Note) -> NoteItem:
 
 
 @router.get("", response_model=NoteListOut)
-def list_notes(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteListOut:
-    notes = db.query(Note).order_by(Note.created_at.desc()).limit(200).all()
+def list_notes(
+    course_id: str | None = None,
+    tag: str | None = None,
+    _: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> NoteListOut:
+    query = db.query(Note)
+    if course_id:
+        query = query.filter(Note.course_id == course_id)
+    notes = query.order_by(Note.created_at.desc()).limit(500).all()
+    # tags 是 JSON 数组,PG/MySQL 写法不同,统一在 Python 侧过滤
+    if tag:
+        notes = [note for note in notes if tag in (note.tags or [])]
     return NoteListOut(items=[note_item(db, note) for note in notes])
 
 

@@ -132,6 +132,7 @@ def test_ai_settings_mask_and_update(ai_client) -> None:
     assert initial.json() == {
         "llm_base_url": None,
         "llm_model": None,
+        "llm_vision_model": None,
         "api_key_masked": None,
         "configured": False,
         "ai_auto_generate": False,

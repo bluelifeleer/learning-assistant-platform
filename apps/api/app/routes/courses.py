@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_current_user
 from app.db.session import get_db
-from app.models.entities import Chapter, Course, Note, Site, TranscriptSegment, User
+from app.models.entities import Chapter, ChapterSummary, Course, Note, QuizQuestion, Screenshot, Site, TranscriptSegment, User, VideoSession
 from app.schemas.workspace import (
     ChapterDetailOut,
+    ChapterFlagsOut,
     CourseCreateIn,
     ChapterNoteOut,
     ChapterOut,
@@ -66,8 +67,41 @@ def _to_float(value) -> float | None:
     return float(value) if value is not None else None
 
 
+def _chapter_flag_chapter_ids(db: Session, model, chapter_ids: list[str], extra_filter=None) -> set[str]:
+    if not chapter_ids:
+        return set()
+    query = db.query(model.chapter_id).filter(model.chapter_id.in_(chapter_ids))
+    if extra_filter is not None:
+        query = query.filter(extra_filter)
+    return {row[0] for row in query.distinct().all()}
+
+
+def _chapter_flags(db: Session, chapter_ids: list[str], user_id: str) -> dict[str, ChapterFlagsOut]:
+    """批量计算每个章节的状态徽标,避免 N+1"""
+    with_transcript = _chapter_flag_chapter_ids(db, TranscriptSegment, chapter_ids)
+    with_notes = _chapter_flag_chapter_ids(db, Note, chapter_ids, Note.user_id == user_id)
+    with_summary = _chapter_flag_chapter_ids(db, ChapterSummary, chapter_ids, ChapterSummary.status == "done")
+    with_quiz = _chapter_flag_chapter_ids(db, QuizQuestion, chapter_ids)
+    # 学过 = 当前用户在该章有播放会话/笔记/截图任一
+    studied = (
+        _chapter_flag_chapter_ids(db, VideoSession, chapter_ids, VideoSession.user_id == user_id)
+        | with_notes
+        | _chapter_flag_chapter_ids(db, Screenshot, chapter_ids, Screenshot.user_id == user_id)
+    )
+    return {
+        chapter_id: ChapterFlagsOut(
+            has_transcript=chapter_id in with_transcript,
+            has_notes=chapter_id in with_notes,
+            has_summary=chapter_id in with_summary,
+            has_quiz=chapter_id in with_quiz,
+            studied=chapter_id in studied,
+        )
+        for chapter_id in chapter_ids
+    }
+
+
 @router.get("/{course_id}/detail", response_model=CourseFullDetailOut)
-def get_course_detail(course_id: str, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> CourseFullDetailOut:
+def get_course_detail(course_id: str, user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> CourseFullDetailOut:
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -89,6 +123,7 @@ def get_course_detail(course_id: str, _: User = Depends(require_current_user), d
     for note in notes:
         if note.chapter_id:
             notes_by_chapter.setdefault(note.chapter_id, []).append(note)
+    flags_by_chapter = _chapter_flags(db, chapter_ids, user.id)
 
     def build_node(chapter: Chapter) -> ChapterDetailOut:
         return ChapterDetailOut(
@@ -98,6 +133,7 @@ def get_course_detail(course_id: str, _: User = Depends(require_current_user), d
             title=chapter.title,
             sort_order=chapter.sort_order,
             duration_seconds=chapter.duration_seconds,
+            flags=flags_by_chapter.get(chapter.id, ChapterFlagsOut()),
             transcripts=[
                 ChapterTranscriptOut(
                     id=segment.id,

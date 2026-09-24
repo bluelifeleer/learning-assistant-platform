@@ -38,6 +38,7 @@ def list_screenshots(
                 chapter_id=screenshot.chapter_id,
                 chapter_title=chapter.title if chapter else None,
                 video_time_seconds=float(screenshot.video_time_seconds) if screenshot.video_time_seconds is not None else None,
+                ocr_text=screenshot.ocr_text,
                 created_at=screenshot.created_at,
             )
         )

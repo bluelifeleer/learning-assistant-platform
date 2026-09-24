@@ -194,11 +194,13 @@ export interface WorkspaceSettings {
   api_base_url: string;
   database_type?: string | null;
   export_dir: string;
+  weekly_goal_minutes?: number;
 }
 
 export interface WorkspaceSettingsUpdatePayload {
   organization_name?: string;
   license_key?: string;
+  weekly_goal_minutes?: number;
 }
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:17890/api/v1";
@@ -349,6 +351,14 @@ export interface CourseChapterTranscript {
   source: string;
 }
 
+export interface ChapterFlags {
+  has_transcript: boolean;
+  has_notes: boolean;
+  has_summary: boolean;
+  has_quiz: boolean;
+  studied: boolean;
+}
+
 export interface CourseChapterNode {
   id: string;
   title: string;
@@ -357,6 +367,7 @@ export interface CourseChapterNode {
   children: CourseChapterNode[];
   transcripts: CourseChapterTranscript[];
   notes: CourseChapterNote[];
+  flags?: ChapterFlags;
 }
 
 export interface CourseDetail {
@@ -494,6 +505,14 @@ export async function fetchNotes(token?: string): Promise<{ items: NoteItem[] }>
   return getJson<{ items: NoteItem[] }>("/notes", token);
 }
 
+export async function fetchAllNotes(courseId?: string, tag?: string, token?: string): Promise<{ items: NoteItem[] }> {
+  const params = new URLSearchParams();
+  if (courseId) params.set("course_id", courseId);
+  if (tag) params.set("tag", tag);
+  const suffix = params.toString();
+  return getJson<{ items: NoteItem[] }>(`/notes${suffix ? `?${suffix}` : ""}`, token);
+}
+
 export async function createNote(payload: NoteCreatePayload, token?: string): Promise<NoteItem> {
   return postJson<NoteItem>("/notes", payload, token);
 }
@@ -559,6 +578,7 @@ export interface ScreenshotItem {
   chapter_title: string;
   video_time_seconds?: number | null;
   created_at?: string | null;
+  ocr_text?: string | null;
 }
 
 export async function fetchScreenshots(courseId?: string, chapterId?: string, token?: string): Promise<{ items: ScreenshotItem[] }> {
@@ -577,6 +597,7 @@ export async function fetchScreenshotImageUrl(id: string, token?: string): Promi
 export interface AISettings {
   llm_base_url: string | null;
   llm_model: string | null;
+  llm_vision_model?: string | null;
   api_key_masked: string | null;
   configured: boolean;
   ai_auto_generate: boolean;
@@ -585,6 +606,7 @@ export interface AISettings {
 export interface AISettingsUpdatePayload {
   llm_base_url?: string;
   llm_model?: string;
+  llm_vision_model?: string;
   llm_api_key?: string;
   ai_auto_generate?: boolean;
 }
@@ -594,7 +616,7 @@ export interface AITestResult {
   detail?: string | null;
 }
 
-export type AITaskType = "chapter_summary" | "course_summary" | "quiz" | "flashcards" | "email_digest";
+export type AITaskType = "chapter_summary" | "course_summary" | "quiz" | "flashcards" | "email_digest" | "chapter_ocr";
 
 export type AITaskStatus = "pending" | "running" | "done" | "failed";
 
@@ -663,6 +685,20 @@ export async function testAiConnection(token?: string): Promise<AITestResult> {
 
 export async function requestChapterSummary(chapterId: string, token?: string): Promise<AITaskCreateResponse> {
   return postJson<AITaskCreateResponse>(`/ai/summary/chapter/${chapterId}`, {}, token);
+}
+
+export async function requestChapterOcr(chapterId: string, token?: string): Promise<AITaskCreateResponse> {
+  return postJson<AITaskCreateResponse>(`/ai/ocr/chapter/${chapterId}`, {}, token);
+}
+
+export interface ScreenshotOcrResult {
+  ok: boolean;
+  ocr_text: string;
+  cached: boolean;
+}
+
+export async function requestScreenshotOcr(screenshotId: string, token?: string): Promise<ScreenshotOcrResult> {
+  return postJson<ScreenshotOcrResult>(`/ai/ocr/screenshot/${screenshotId}`, {}, token);
 }
 
 export async function requestCourseSummary(courseId: string, token?: string): Promise<AITaskCreateResponse> {
@@ -749,6 +785,33 @@ export interface MasteryItem {
 export async function fetchMastery(courseId?: string, token?: string): Promise<{ items: MasteryItem[] }> {
   const suffix = courseId ? `?course_id=${encodeURIComponent(courseId)}` : "";
   return getJson<{ items: MasteryItem[] }>(`/stats/mastery${suffix}`, token);
+}
+
+export interface ContinueLearningItem {
+  course_id: string;
+  course_title: string;
+  chapter_id: string;
+  chapter_title: string;
+}
+
+export interface CourseProgressItem {
+  course_id: string;
+  course_title: string;
+  total_chapters: number;
+  studied_chapters: number;
+  progress_pct: number;
+}
+
+export interface LearningProgress {
+  streak_days: number;
+  week_minutes: number;
+  weekly_goal_minutes: number;
+  continue_learning: ContinueLearningItem | null;
+  courses: CourseProgressItem[];
+}
+
+export async function fetchLearningProgress(token?: string): Promise<LearningProgress> {
+  return getJson<LearningProgress>("/stats/learning-progress", token);
 }
 
 export type DigestFrequency = "daily" | "weekly";

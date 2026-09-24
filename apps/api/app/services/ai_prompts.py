@@ -158,3 +158,8 @@ def digest_messages(stats_text: str, key_points: list[str]) -> list[dict[str, st
             ),
         },
     ]
+
+OCR_PROMPT = (
+    "这是一张课程视频的课件截图。请识别图中的所有文字,按阅读顺序原样输出为纯文本,"
+    "保留标题和要点的换行结构;不要描述画面内容、不要添加评论;图中没有文字就输出空。"
+)

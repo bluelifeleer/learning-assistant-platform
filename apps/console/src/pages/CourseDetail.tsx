@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import {
   createExport,
+  createNote,
   deleteScreenshot,
   downloadExport,
   fetchChapterSummary,
   fetchCourseDetail,
   fetchCourseSummary,
+  requestChapterOcr,
   requestChapterSummary,
   requestCourseSummary,
   requestFlashcards,
   requestQuiz,
+  requestScreenshotOcr,
   updateScreenshotImage,
   fetchCourseVideoSources,
   fetchExports,
@@ -18,7 +21,9 @@ import {
   type AISummary,
   type AITask,
   type AITaskCreateResponse,
+  type ChapterFlags,
   type CourseChapterNode,
+  type CourseChapterTranscript,
   type CourseDetail,
   type CourseVideoSourceItem,
   type ExportFormat,
@@ -102,6 +107,19 @@ interface LoadedScreenshot {
   url: string;
 }
 
+function ChapterFlagsBadges({ flags }: { flags?: ChapterFlags }) {
+  if (!flags) return null;
+  return (
+    <span className="chapter-flags">
+      {flags.studied ? <span className="chapter-flag flag-studied" title="已学习">✓</span> : null}
+      {flags.has_transcript ? <span className="chapter-flag" title="有字幕">字</span> : null}
+      {flags.has_notes ? <span className="chapter-flag" title="有笔记">✎</span> : null}
+      {flags.has_summary ? <span className="chapter-flag" title="已生成摘要">摘</span> : null}
+      {flags.has_quiz ? <span className="chapter-flag" title="已出题">题</span> : null}
+    </span>
+  );
+}
+
 function ChapterScreenshots({ courseId, chapterId, unassignedOnly }: { courseId: string; chapterId?: string; unassignedOnly?: boolean }) {
   const [items, setItems] = useState<LoadedScreenshot[]>([]);
   const [message, setMessage] = useState("");
@@ -150,8 +168,26 @@ function ChapterScreenshots({ courseId, chapterId, unassignedOnly }: { courseId:
     }
   }
 
-  async function saveEditedImage(dataUrl: string) {
-    if (editingIndex === null) return;
+  const [ocrBusy, setOcrBusy] = useState(false);
+
+  async function recognizeViewerText() {
+    const target = viewerIndex !== null ? items[viewerIndex] : null;
+    if (!target || ocrBusy) return;
+    setOcrBusy(true);
+    try {
+      const result = await requestScreenshotOcr(target.shot.id);
+      setItems((current) =>
+        current.map((item, index) => (index === viewerIndex ? { ...item, shot: { ...item.shot, ocr_text: result.ocr_text } } : item)),
+      );
+      toast.success("识别完成");
+    } catch (error) {
+      toast.error(aiActionErrorMessage(error, "识别失败"));
+    } finally {
+      setOcrBusy(false);
+    }
+  }
+
+  async function saveEditedImage(dataUrl: string) {    if (editingIndex === null) return;
     const target = items[editingIndex];
     if (!target) return;
     await updateScreenshotImage(target.shot.id, dataUrl);
@@ -253,9 +289,24 @@ function ChapterScreenshots({ courseId, chapterId, unassignedOnly }: { courseId:
               <button type="button" className="text-button text-button-sm" onClick={() => rotateImage(90)}>右旋</button>
               <button type="button" className="text-button text-button-sm" onClick={() => setViewTransform({ scale: 1, rotate: 0 })}>重置</button>
               <button type="button" className="text-button text-button-sm" onClick={() => setEditingIndex(viewerIndex)}>编辑</button>
+              <button
+                type="button"
+                className="text-button text-button-sm"
+                disabled={ocrBusy}
+                title={viewer.shot.ocr_text ? "重新识别文字" : "识别图中文字"}
+                onClick={() => void recognizeViewerText()}
+              >
+                {ocrBusy ? "识别中..." : viewer.shot.ocr_text ? "重新识别" : "识别文字"}
+              </button>
               <button type="button" className="text-button text-button-sm" onClick={() => downloadImage(viewer)}>下载</button>
               <button type="button" className="text-button text-button-sm" style={{ color: "#e5534b" }} onClick={() => void removeShot(viewerIndex)}>删除</button>
             </div>
+            {viewer.shot.ocr_text ? (
+              <details className="screenshot-ocr-text">
+                <summary>识别文字</summary>
+                <p>{viewer.shot.ocr_text}</p>
+              </details>
+            ) : null}
             <img
               src={viewer.url}
               alt={`截图 ${formatTimecode(viewer.shot.video_time_seconds)}`}
@@ -521,8 +572,33 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
     });
   }
 
-  function generateQuiz(chapterId: string) {
-    const key = `quiz:${chapterId}`;
+  function transcriptToNote(transcript: CourseChapterTranscript) {
+    if (!selectedChapterId) return;
+    void createNote({
+      course_id: courseId,
+      chapter_id: selectedChapterId,
+      video_time_seconds: transcript.start_seconds,
+      content: transcript.text,
+    })
+      .then(() => {
+        toast.success("已转为笔记");
+        void reloadDetail();
+      })
+      .catch((error: unknown) => toast.error(aiActionErrorMessage(error, "转笔记失败")));
+  }
+
+  function generateChapterOcr(chapterId: string) {
+    runAiTask(
+      `ocr:${chapterId}`,
+      () => requestChapterOcr(chapterId),
+      (task) => {
+        toast.success(`OCR 识别完成，新增 ${task.result_count} 段字幕`);
+        void reloadDetail();
+      },
+    );
+  }
+
+  function generateQuiz(chapterId: string) {    const key = `quiz:${chapterId}`;
     setAiBusy((current) => ({ ...current, [key]: true }));
     void (async () => {
       const quizTask = await runAiTaskOnce(key, () => requestQuiz({ chapter_id: chapterId }));
@@ -635,6 +711,7 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
                   onClick={() => selectChapter(chapter.id)}
                 >
                   {chapter.title}
+                  <ChapterFlagsBadges flags={chapter.flags} />
                 </button>
                 {chapter.transcripts.length ? (
                   <span className="chapter-tree-actions">
@@ -664,14 +741,29 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
               <ChapterSummaryPanel chapterId={selectedChapter.id} refreshKey={chapterSummaryRefresh[selectedChapter.id] ?? 0} />
               <ChapterVideoSource item={selectedVideoSource ?? courseLevelVideoSource} courseLevel={!selectedVideoSource && Boolean(courseLevelVideoSource)} />
               <article>
-                <h3>字幕</h3>
+                <h3>
+                  字幕
+                  {selectedChapter && !selectedChapter.transcripts.length ? (
+                    <button
+                      type="button"
+                      className="text-button text-button-sm"
+                      disabled={aiBusy[`ocr:${selectedChapter.id}`]}
+                      onClick={() => generateChapterOcr(selectedChapter.id)}
+                    >
+                      {aiBusy[`ocr:${selectedChapter.id}`] ? "识别中..." : "OCR 生成字幕"}
+                    </button>
+                  ) : null}
+                </h3>
                 <div className="record-list">
                   {selectedChapter.transcripts.length ? selectedChapter.transcripts.map((transcript) => (
-                    <article key={transcript.id} className="record-row">
+                    <article key={transcript.id} className="record-row transcript-row">
                       <strong>{formatTimecode(transcript.start_seconds)} - {formatTimecode(transcript.end_seconds)}</strong>
                       <p>{transcript.text}</p>
+                      <button type="button" className="text-button text-button-sm" onClick={() => transcriptToNote(transcript)}>
+                        转笔记
+                      </button>
                     </article>
-                  )) : <p>该章节暂无字幕。</p>}
+                  )) : <p>该章节暂无字幕，可用截图 OCR 生成。</p>}
                 </div>
               </article>
               <article>

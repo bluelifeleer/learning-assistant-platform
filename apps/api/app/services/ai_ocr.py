@@ -1,0 +1,84 @@
+import base64
+from pathlib import Path
+
+from sqlalchemy.orm import Session
+
+from app.models.entities import Chapter, Organization, Screenshot, TranscriptSegment
+from app.services import llm
+
+OCR_SOURCE = "ocr"
+OCR_TIME_TOLERANCE_SECONDS = 0.5
+
+
+def _vision_model(organization: Organization) -> str | None:
+    return organization.llm_vision_model or None
+
+
+def _ocr_file(config: llm.LLMConfig, file_path: str, vision_model: str | None) -> str:
+    data = Path(file_path).read_bytes()
+    image_b64 = base64.b64encode(data).decode("ascii")
+    from app.services.ai_prompts import OCR_PROMPT
+
+    return llm.chat_completion_vision(config, OCR_PROMPT, [image_b64], model_override=vision_model).strip()
+
+
+def ocr_screenshot(db: Session, screenshot: Screenshot, config: llm.LLMConfig, vision_model: str | None = None) -> str:
+    """单张截图识别,结果写回 ocr_text 并复用缓存"""
+    if screenshot.ocr_text:
+        return screenshot.ocr_text
+    text = _ocr_file(config, screenshot.file_path, vision_model)
+    screenshot.ocr_text = text
+    db.commit()
+    db.refresh(screenshot)
+    return text
+
+
+def _has_ocr_segment(db: Session, screenshot: Screenshot) -> bool:
+    if screenshot.video_time_seconds is None:
+        return False
+    center = float(screenshot.video_time_seconds)
+    return (
+        db.query(TranscriptSegment.id)
+        .filter(
+            TranscriptSegment.chapter_id == screenshot.chapter_id,
+            TranscriptSegment.source == OCR_SOURCE,
+            TranscriptSegment.start_seconds >= center - OCR_TIME_TOLERANCE_SECONDS,
+            TranscriptSegment.start_seconds <= center + OCR_TIME_TOLERANCE_SECONDS,
+        )
+        .first()
+        is not None
+    )
+
+
+def ocr_chapter(db: Session, chapter: Chapter, organization: Organization, config: llm.LLMConfig) -> int:
+    """把章节全部截图 OCR 成字幕段(source="ocr"),让无字幕章节复用摘要/出题/问答管线
+
+    幂等:已有 ocr_text 的截图直接复用;时间点(±0.5s)已有 OCR 段的跳过。
+    返回新增字幕段数。
+    """
+    screenshots = (
+        db.query(Screenshot)
+        .filter(Screenshot.chapter_id == chapter.id)
+        .order_by(Screenshot.video_time_seconds.asc())
+        .all()
+    )
+    created = 0
+    vision_model = _vision_model(organization)
+    for screenshot in screenshots:
+        text = ocr_screenshot(db, screenshot, config, vision_model)
+        if not text or _has_ocr_segment(db, screenshot):
+            continue
+        db.add(
+            TranscriptSegment(
+                course_id=screenshot.course_id,
+                chapter_id=chapter.id,
+                video_session_id=None,
+                start_seconds=screenshot.video_time_seconds,
+                end_seconds=None,
+                text=text,
+                source=OCR_SOURCE,
+            )
+        )
+        created += 1
+    db.commit()
+    return created

@@ -62,7 +62,7 @@ def extract_json(text: str) -> Any:
     raise LLMRequestError("LLM 返回内容不是合法 JSON")
 
 
-def _post_chat_completion(config: LLMConfig, messages: list[dict[str, str]]) -> str:
+def _post_chat_completion(config: LLMConfig, messages: list[dict]) -> str:
     url = f"{config.base_url}/chat/completions"
     headers = {"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"}
     payload = {"model": config.model, "messages": messages, "temperature": 0.3}
@@ -92,6 +92,15 @@ def chat_completion(config: LLMConfig, messages: list[dict[str, str]], json_mode
 
 def chat_completion_json(config: LLMConfig, messages: list[dict[str, str]]) -> Any:
     return extract_json(chat_completion(config, messages, json_mode=True))
+
+
+def chat_completion_vision(config: LLMConfig, prompt: str, images_base64: list[str], model_override: str | None = None) -> str:
+    """多模态识图:content 数组走 OpenAI vision 格式,模型优先用视觉专用配置"""
+    effective = LLMConfig(base_url=config.base_url, api_key=config.api_key, model=model_override or config.model)
+    content: list[dict] = [{"type": "text", "text": prompt}]
+    for image_b64 in images_base64:
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}})
+    return _post_chat_completion(effective, [{"role": "user", "content": content}])
 
 
 def test_connection(config: LLMConfig) -> str | None:

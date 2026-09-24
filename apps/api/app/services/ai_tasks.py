@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.models.entities import AiTask, Chapter, ChapterSummary, Course, Organization, TranscriptSegment
-from app.services import ai_pipeline
+from app.services import ai_ocr, ai_pipeline, llm
 from app.services.digest import send_digest
 from app.services.review import utc_now
 
@@ -15,7 +15,8 @@ TASK_COURSE_SUMMARY = "course_summary"
 TASK_QUIZ = "quiz"
 TASK_FLASHCARDS = "flashcards"
 TASK_EMAIL_DIGEST = "email_digest"
-TASK_TYPES = {TASK_CHAPTER_SUMMARY, TASK_COURSE_SUMMARY, TASK_QUIZ, TASK_FLASHCARDS, TASK_EMAIL_DIGEST}
+TASK_CHAPTER_OCR = "chapter_ocr"
+TASK_TYPES = {TASK_CHAPTER_SUMMARY, TASK_COURSE_SUMMARY, TASK_QUIZ, TASK_FLASHCARDS, TASK_EMAIL_DIGEST, TASK_CHAPTER_OCR}
 
 AUTO_MIN_SEGMENTS = 20
 
@@ -84,6 +85,15 @@ def run_task_inline(
                 raise ValueError("组织不存在")
             send_digest(db, organization)
             result_count = 1
+        elif task.task_type == TASK_CHAPTER_OCR:
+            chapter = db.get(Chapter, task.chapter_id)
+            if not chapter:
+                raise ValueError("章节不存在")
+            organization = db.get(Organization, task.organization_id)
+            if not organization:
+                raise ValueError("组织不存在")
+            config = llm.llm_config_for_organization(organization)
+            result_count = ai_ocr.ocr_chapter(db, chapter, organization, config)
         else:
             raise ValueError(f"未知任务类型: {task.task_type}")
     except Exception as exc:

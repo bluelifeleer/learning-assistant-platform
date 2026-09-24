@@ -9,6 +9,7 @@ import { CourseDetailPage } from "./pages/CourseDetail";
 import { Courses } from "./pages/Courses";
 import { Dashboard } from "./pages/Dashboard";
 import { Installer } from "./pages/Installer";
+import { Notes } from "./pages/Notes";
 import { Quiz } from "./pages/Quiz";
 import { Review } from "./pages/Review";
 import { Search } from "./pages/Search";
@@ -54,6 +55,7 @@ function WorkspacePage({ page, session, courseDetailId, courseChapterId, setting
       : <Courses onOpenDetail={onOpenCourseDetail} />;
   }
   if (page === "复习") return <Review token={session?.token} />;
+  if (page === "笔记") return <Notes />;
   if (page === "测验") return <Quiz token={session?.token} />;
   if (page === "搜索") return <Search />;
   return <SystemSettings tab={settingsTab} onTabChange={onSettingsTabChange} session={session} onSessionChange={onSessionChange} onPluginStatusChange={onPluginStatusChange} />;

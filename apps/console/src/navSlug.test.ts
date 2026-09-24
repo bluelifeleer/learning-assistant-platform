@@ -5,7 +5,7 @@ describe("nav slug mapping", () => {
   it("maps the six navigation items to unique slugs", () => {
     const hashes = navItems.map((page) => buildRouteHash(page));
     expect(new Set(hashes).size).toBe(navItems.length);
-    expect(navItems).toEqual(["总览", "课程", "复习", "测验", "搜索", "系统设置"]);
+    expect(navItems).toEqual(["总览", "课程", "笔记", "复习", "测验", "搜索", "系统设置"]);
     expect(buildRouteHash("总览")).toBe("#/dashboard");
     expect(buildRouteHash("课程")).toBe("#/courses");
     expect(buildRouteHash("复习")).toBe("#/review");
@@ -41,7 +41,8 @@ describe("nav slug mapping", () => {
 
   it("ignores invalid settings tabs and foreign sub-paths", () => {
     expect(parseRouteHash("#/settings/nope").settingsTab).toBeNull();
-    expect(parseRouteHash("#/notes/whatever").page).toBe("总览");
+    expect(parseRouteHash("#/notes/whatever").page).toBe("笔记");
+    expect(parseRouteHash("#/legacy/whatever").page).toBe("总览");
     expect(parseRouteHash(`#/courses/${encodeURIComponent("课程 A")}/ch/${encodeURIComponent("第一章")}`)).toEqual({
       page: "课程",
       courseId: "课程 A",

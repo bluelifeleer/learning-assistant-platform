@@ -51,6 +51,14 @@ class ChapterNoteOut(BaseModel):
     created_at: datetime | None = None
 
 
+class ChapterFlagsOut(BaseModel):
+    has_transcript: bool = False
+    has_notes: bool = False
+    has_summary: bool = False
+    has_quiz: bool = False
+    studied: bool = False
+
+
 class ChapterDetailOut(BaseModel):
     id: str
     parent_id: str | None = None
@@ -60,6 +68,7 @@ class ChapterDetailOut(BaseModel):
     duration_seconds: int | None = None
     transcripts: list[ChapterTranscriptOut] = Field(default_factory=list)
     notes: list[ChapterNoteOut] = Field(default_factory=list)
+    flags: ChapterFlagsOut = Field(default_factory=ChapterFlagsOut)
     children: list["ChapterDetailOut"] = Field(default_factory=list)
 
 
@@ -220,11 +229,13 @@ class WorkspaceSettingsOut(BaseModel):
     api_base_url: str
     database_type: str | None = None
     export_dir: str
+    weekly_goal_minutes: int = 300
 
 
 class WorkspaceSettingsUpdateIn(BaseModel):
     organization_name: str | None = Field(default=None, min_length=1, max_length=200)
     license_key: str | None = Field(default=None, max_length=200)
+    weekly_goal_minutes: int | None = Field(default=None, ge=10, le=10080)
 
 
 class ExportCreateIn(BaseModel):
@@ -253,6 +264,7 @@ class ScreenshotItem(BaseModel):
     chapter_id: str | None = None
     chapter_title: str | None = None
     video_time_seconds: float | None = None
+    ocr_text: str | None = None
     created_at: datetime | None = None
 
 
@@ -295,6 +307,29 @@ class MasteryItem(BaseModel):
 
 class MasteryOut(BaseModel):
     items: list[MasteryItem]
+
+
+class CourseProgressItem(BaseModel):
+    course_id: str
+    course_title: str
+    total_chapters: int
+    studied_chapters: int
+    progress_pct: float
+
+
+class ContinueLearningItem(BaseModel):
+    course_id: str
+    course_title: str
+    chapter_id: str
+    chapter_title: str
+
+
+class LearningProgressOut(BaseModel):
+    streak_days: int
+    week_minutes: int
+    weekly_goal_minutes: int
+    continue_learning: ContinueLearningItem | None = None
+    courses: list[CourseProgressItem]
 
 
 class EmailSettingsOut(BaseModel):
