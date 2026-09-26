@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
 
+# 会更新 VideoSession(学习时长/连续天数/继续学习)的事件类型。
+# 扩展在播放中每 30s 发一次 progress,后端按 max(video_time_seconds) 记录最远进度。
+SESSION_TRACKING_EVENTS = frozenset({"play", "progress"})
+
 
 def screenshots_dir_path() -> Path:
     configured = Path(get_settings().screenshots_dir)
@@ -137,9 +141,11 @@ class CaptureService:
         )
         self.db.add(event)
         self.db.flush()
-        if payload.event_type == "play":
+        if payload.event_type in SESSION_TRACKING_EVENTS:
             # 追踪学习会话,填充 VideoSession 供学习时长/连续天数/继续学习等统计使用。
             # 会话追踪失败不应阻断播放事件本身的上报。
+            # 注意也必须处理 progress:只在 play 那一刻采样的话,
+            # 从头看到尾的视频会把时长记成 0(play 事件发生在 currentTime≈0 时)。
             try:
                 self._upsert_video_session(token, payload, event_payload)
             except Exception:

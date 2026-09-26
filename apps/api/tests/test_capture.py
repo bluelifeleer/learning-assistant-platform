@@ -169,3 +169,54 @@ def test_play_event_creates_video_session_for_progress(client, auth_headers) -> 
     assert body["continue_learning"] is not None
     assert body["continue_learning"]["chapter_id"] is not None
     assert body["week_minutes"] >= 2  # 150 秒 → 2 分钟
+
+
+def test_progress_events_also_track_study_minutes(client, auth_headers) -> None:
+    """播放中周期性上报的 progress 事件同样要计入学习时长。
+
+    扩展只在 play 那一刻采样的话,从头看到尾的视频只会在 currentTime≈0 上报一次,
+    学习时长会被记成 0 —— 所以 progress 必须和 play 一样更新 VideoSession。
+    """
+    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge progress"}, headers=auth_headers).json()["token"]
+    plugin_headers = {"authorization": f"Bearer {token}"}
+
+    snapshot = client.post(
+        "/api/v1/capture/course-snapshot",
+        headers=plugin_headers,
+        json={
+            "adapter_id": "wencai-school",
+            "site_url": "https://learning.example.com/",
+            "external_course_id": "course-tick",
+            "course_title": "进度上报课程",
+            "chapters": [
+                {"external_chapter_id": "chapter-tick", "title": "第1章", "sort_order": 1, "children": []}
+            ],
+        },
+    )
+    assert snapshot.status_code == 200
+
+    # 只发 progress,不发 play
+    for seconds in (30.0, 240.0):
+        response = client.post(
+            "/api/v1/capture/video-event",
+            headers=plugin_headers,
+            json={
+                "session_id": "wencai:course-tick:chapter-tick",
+                "event_type": "progress",
+                "video_time_seconds": seconds,
+                "payload": {
+                    "course_url": "https://learning.example.com/",
+                    "external_course_id": "course-tick",
+                    "external_chapter_id": "chapter-tick",
+                    "video_source": {"currentSrc": "https://cdn.example.com/lesson.mp4"},
+                },
+            },
+        )
+        assert response.status_code == 200
+
+    progress = client.get("/api/v1/stats/learning-progress", headers=auth_headers)
+    assert progress.status_code == 200
+    body = progress.json()
+    assert body["continue_learning"] is not None
+    assert body["continue_learning"]["chapter_id"] is not None
+    assert body["week_minutes"] >= 4  # 最远位置 240 秒 → 4 分钟

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
@@ -39,11 +39,34 @@ def _count(db: Session, model) -> int:
     return db.query(func.count(model.id)).scalar() or 0
 
 
+def _local_day(value: datetime | None) -> date | None:
+    """把库里的时间戳换算成本地日期。
+
+    不能直接用 SQL 的 date():它按数据库会话时区分桶(测试用的 SQLite 更是按 UTC),
+    而 today / since 都是本地日期 —— 本地 00:00~08:00(+08:00)这段会被算到前一天,
+    「今日」计数与连续学习天数都会差一天。
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone().date()
+
+
 def _daily_counts(db: Session, model, since: date, extra_filter=None) -> dict[str, int]:
-    query = db.query(func.date(model.created_at), func.count(model.id)).filter(model.created_at >= since)
+    """按本地日期分桶统计(只取最近几天的 created_at,数据量可控)"""
+    since_start = datetime.combine(since, time.min).astimezone()
+    query = db.query(model.created_at).filter(model.created_at >= since_start)
     if extra_filter is not None:
         query = query.filter(extra_filter)
-    return {str(day): count for day, count in query.group_by(func.date(model.created_at)).all()}
+    counts: dict[str, int] = {}
+    for (value,) in query.all():
+        day = _local_day(value)
+        if day is None:
+            continue
+        key = day.isoformat()
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 @router.get("/summary", response_model=StatsSummaryOut)
@@ -124,17 +147,23 @@ def mastery(course_id: str | None = None, user: User = Depends(require_current_u
 
 
 def _activity_dates(db: Session, user_id: str) -> set[date]:
-    """当前用户有学习活动的日期集合"""
-    dates: set[date] = set()
+    """当前用户有学习活动的本地日期集合(同样不能依赖 SQL 的 date(),见 _local_day)"""
+    # 连续学习天数不需要看很久以前;限定窗口避免全表扫描
+    since = datetime.combine(date.today() - timedelta(days=400), time.min).astimezone()
     queries = [
-        db.query(func.date(VideoSession.started_at)).filter(VideoSession.user_id == user_id),
-        db.query(func.date(Note.created_at)).filter(Note.user_id == user_id),
-        db.query(func.date(QuizAttempt.created_at)).filter(QuizAttempt.user_id == user_id),
-        db.query(func.date(ReviewLog.reviewed_at)).join(ReviewCard, ReviewLog.card_id == ReviewCard.id).filter(ReviewCard.user_id == user_id),
+        db.query(VideoSession.started_at).filter(VideoSession.user_id == user_id, VideoSession.started_at >= since),
+        db.query(Note.created_at).filter(Note.user_id == user_id, Note.created_at >= since),
+        db.query(QuizAttempt.created_at).filter(QuizAttempt.user_id == user_id, QuizAttempt.created_at >= since),
+        db.query(ReviewLog.reviewed_at)
+        .join(ReviewCard, ReviewLog.card_id == ReviewCard.id)
+        .filter(ReviewCard.user_id == user_id, ReviewLog.reviewed_at >= since),
     ]
+    dates: set[date] = set()
     for query in queries:
-        # func.date 在 SQLite 返回字符串、PG 返回 date,统一归一化为 date
-        dates.update(date.fromisoformat(str(row[0])[:10]) for row in query.distinct().all() if row[0])
+        for (value,) in query.all():
+            day = _local_day(value)
+            if day is not None:
+                dates.add(day)
     return dates
 
 

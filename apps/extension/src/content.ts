@@ -236,9 +236,11 @@ async function boot(): Promise<void> {
     }).catch(() => undefined);
   };
 
-  const reportVideoSource = (eventType: "video-source" | "play"): void => {
+  const reportVideoSource = (eventType: "video-source" | "play" | "progress"): void => {
     const videoSource = adapter.extractVideoSource(document);
-    if (!videoSource) return;
+    // video-source 是专门上报播放源的事件,拿不到就跳过;
+    // play / progress 主要用于记录学习时长,播放源缺失不应阻断上报
+    if (!videoSource && eventType === "video-source") return;
     const sessionId = videoSessionId();
     // 章节尚未解析出来时后端会直接丢弃(accept_video_event 找不到 chapter 就 return),
     // 所以这里跳过而不是发一个对不上的 id
@@ -252,9 +254,27 @@ async function boot(): Promise<void> {
         external_course_id: currentCourseId(),
         // 章节树由页面异步渲染,boot 时的提取可能失败退回 item id;上报时实时提取
         external_chapter_id: currentChapterId(),
-        video_source: videoSource,
+        video_source: videoSource ?? {},
       },
     }).catch(() => undefined);
+  };
+
+  // 后端按 max(video_time_seconds) 记录学习时长。只在 play 事件采样的话,
+  // 从头看到尾的视频只会在 currentTime≈0 时上报一次,时长会被记成 0 ——
+  // 所以播放期间每 30s 补报一次当前位置。
+  const PROGRESS_INTERVAL_MS = 30000;
+  let progressTimer: ReturnType<typeof setInterval> | undefined;
+  const startProgressReporting = (): void => {
+    if (progressTimer !== undefined) return;
+    progressTimer = setInterval(() => {
+      if (!video || video.paused || video.ended) return;
+      reportVideoSource("progress");
+    }, PROGRESS_INTERVAL_MS);
+  };
+  const stopProgressReporting = (): void => {
+    if (progressTimer === undefined) return;
+    clearInterval(progressTimer);
+    progressTimer = undefined;
   };
 
   // 字幕文件导入是一次性的,但章节树可能尚未渲染。
@@ -288,8 +308,18 @@ async function boot(): Promise<void> {
     video.addEventListener("play", () => {
       overlay?.update({ adapterName: adapter.name, courseTitle: course?.title, status: "正在记录播放" });
       reportVideoSource("play");
+      startProgressReporting();
     });
-    video.addEventListener("ended", () => overlay?.remindManualSave());
+    video.addEventListener("pause", () => {
+      // 暂停时补一次,把这一段实际的观看进度落到后端
+      stopProgressReporting();
+      reportVideoSource("progress");
+    });
+    video.addEventListener("ended", () => {
+      stopProgressReporting();
+      reportVideoSource("progress");
+      overlay?.remindManualSave();
+    });
   }
 
   // DOM 里的字幕节点只反映"当前这一句",拿不到它的结束时间。
@@ -349,6 +379,8 @@ async function boot(): Promise<void> {
   const shutdown = (): void => {
     // 收尾最后一句,不然每章最后一条字幕会丢
     flushTranscript(video?.currentTime);
+    reportVideoSource("progress");
+    stopProgressReporting();
     observer.disconnect();
   };
   window.addEventListener("pagehide", shutdown);
