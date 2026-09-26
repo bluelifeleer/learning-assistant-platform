@@ -29,12 +29,31 @@ from app.services.video_sources import latest_video_events_by_chapter, video_sou
 router = APIRouter(prefix="/courses", tags=["courses"])
 
 
+def _counts_by_course(db: Session, model, course_ids: list[str]) -> dict[str, int]:
+    """一次性按 course_id 聚合计数,避免每门课各发一条 COUNT 的 N+1。"""
+    if not course_ids:
+        return {}
+    rows = (
+        db.query(model.course_id, func.count(model.id))
+        .filter(model.course_id.in_(course_ids))
+        .group_by(model.course_id)
+        .all()
+    )
+    return {course_id: count for course_id, count in rows}
+
+
 @router.get("", response_model=CourseListOut)
 def list_courses(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> CourseListOut:
     courses = db.query(Course).order_by(Course.updated_at.desc()).all()
+    course_ids = [course.id for course in courses]
+    site_ids = {course.site_id for course in courses if course.site_id}
+    sites = {row.id: row for row in db.query(Site).filter(Site.id.in_(site_ids)).all()} if site_ids else {}
+    chapter_counts = _counts_by_course(db, Chapter, course_ids)
+    transcript_counts = _counts_by_course(db, TranscriptSegment, course_ids)
+    note_counts = _counts_by_course(db, Note, course_ids)
     items: list[CourseListItem] = []
     for course in courses:
-        site = db.query(Site).filter(Site.id == course.site_id).first()
+        site = sites.get(course.site_id)
         items.append(
             CourseListItem(
                 id=course.id,
@@ -42,9 +61,9 @@ def list_courses(_: User = Depends(require_current_user), db: Session = Depends(
                 term=course.term,
                 site_name=site.name if site else "Unknown",
                 adapter_id=site.adapter_id if site else "unknown",
-                chapter_count=db.query(func.count(Chapter.id)).filter(Chapter.course_id == course.id).scalar() or 0,
-                transcript_count=db.query(func.count(TranscriptSegment.id)).filter(TranscriptSegment.course_id == course.id).scalar() or 0,
-                note_count=db.query(func.count(Note.id)).filter(Note.course_id == course.id).scalar() or 0,
+                chapter_count=chapter_counts.get(course.id, 0),
+                transcript_count=transcript_counts.get(course.id, 0),
+                note_count=note_counts.get(course.id, 0),
                 updated_at=course.updated_at,
             )
         )

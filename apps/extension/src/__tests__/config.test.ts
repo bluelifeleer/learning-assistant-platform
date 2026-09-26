@@ -53,10 +53,25 @@ describe("extension config", () => {
     expect(isValidApiBaseUrl("not a url")).toBe(false);
   });
 
-  it("falls back to the default api base url for persisted invalid values", () => {
+  it("preserves a persisted invalid api base url instead of silently using the default", () => {
+    // 旧行为是把非法地址悄悄换成默认地址,等于把用户的 token 发到他没配置过的 host。
+    // 现在原样保留,由调用方(content script)判定非法后停止上报。
     const config = normalizeExtensionConfig({ apiBaseUrl: "http://example.test/api" });
 
-    expect(config.apiBaseUrl).toBe(DEFAULT_EXTENSION_CONFIG.apiBaseUrl);
+    expect(config.apiBaseUrl).toBe("http://example.test/api");
+    expect(isValidApiBaseUrl(config.apiBaseUrl)).toBe(false);
+  });
+
+  it("treats an explicitly empty adapter list as a deliberate choice", () => {
+    // 用户取消勾选全部适配器后保存,不能被默认值覆盖(否则扩展会继续在已关闭的站点采集)
+    expect(normalizeExtensionConfig({ enabledAdapters: [] }).enabledAdapters).toEqual([]);
+
+    const { set } = stubChromeStorage({ enabledAdapters: [], apiBaseUrl: "https://example.test/api" });
+    return ensureDefaultExtensionConfig().then(() => {
+      // 允许补其它缺省项,但绝不能把 enabledAdapters 重置回默认值
+      const writtenKeys = set.mock.calls.flatMap(([value]) => Object.keys(value as Record<string, unknown>));
+      expect(writtenKeys).not.toContain("enabledAdapters");
+    });
   });
 
   it("refuses to save an invalid api base url", async () => {

@@ -134,14 +134,20 @@ def create_export(
 @router.get("", response_model=ExportListOut)
 def list_exports(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ExportListOut:
     exports = db.query(Export).order_by(Export.created_at.desc()).limit(200).all()
+    # 批量取课程标题,避免每行一次查询
+    course_ids = {row.course_id for row in exports if row.course_id}
+    course_titles = (
+        {row.id: row.title for row in db.query(Course.id, Course.title).filter(Course.id.in_(course_ids)).all()}
+        if course_ids
+        else {}
+    )
     items: list[ExportItem] = []
     for export in exports:
-        course = db.query(Course).filter(Course.id == export.course_id).first() if export.course_id else None
         items.append(
             ExportItem(
                 id=export.id,
                 course_id=export.course_id,
-                course_title=course.title if course else None,
+                course_title=course_titles.get(export.course_id) if export.course_id else None,
                 format=export.format,
                 status=export.status,
                 file_path=export.file_path,

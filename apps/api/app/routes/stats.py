@@ -87,29 +87,40 @@ def mastery(course_id: str | None = None, user: User = Depends(require_current_u
         bucket["correct"] += 1 if attempt.correct else 0
         if bucket["last_attempt_at"] is None or (attempt.created_at and attempt.created_at > bucket["last_attempt_at"]):
             bucket["last_attempt_at"] = attempt.created_at
+    # 批量取课程标题与章节(标题/排序),原来每组 2 次 + 排序键每组 1 次查询
+    course_ids = {course_id for course_id, _ in grouped}
+    chapter_ids = {chapter_id for _, chapter_id in grouped}
+    course_titles = (
+        {row.id: row.title for row in db.query(Course.id, Course.title).filter(Course.id.in_(course_ids)).all()}
+        if course_ids
+        else {}
+    )
+    chapters = (
+        {
+            row.id: (row.title, row.sort_order)
+            for row in db.query(Chapter.id, Chapter.title, Chapter.sort_order).filter(Chapter.id.in_(chapter_ids)).all()
+        }
+        if chapter_ids
+        else {}
+    )
+    chapter_titles = {chapter_id: title for chapter_id, (title, _) in chapters.items()}
+    chapter_sorts = {chapter_id: sort_order for chapter_id, (_, sort_order) in chapters.items()}
     items: list[MasteryItem] = []
     for (attempt_course_id, attempt_chapter_id), bucket in grouped.items():
-        course = db.get(Course, attempt_course_id)
-        chapter = db.get(Chapter, attempt_chapter_id)
         items.append(
             MasteryItem(
                 course_id=attempt_course_id,
-                course_title=course.title if course else None,
+                course_title=course_titles.get(attempt_course_id),
                 chapter_id=attempt_chapter_id,
-                chapter_title=chapter.title if chapter else None,
+                chapter_title=chapter_titles.get(attempt_chapter_id),
                 total=bucket["total"],
                 correct=bucket["correct"],
                 accuracy=round(bucket["correct"] / bucket["total"] * 100, 1),
                 last_attempt_at=bucket["last_attempt_at"],
             )
         )
-    items.sort(key=lambda item: (item.course_title or "", _chapter_sort_order(db, item.chapter_id), item.chapter_title or ""))
+    items.sort(key=lambda item: (item.course_title or "", chapter_sorts.get(item.chapter_id, 0), item.chapter_title or ""))
     return MasteryOut(items=items)
-
-
-def _chapter_sort_order(db: Session, chapter_id: str) -> int:
-    chapter = db.get(Chapter, chapter_id)
-    return chapter.sort_order if chapter else 0
 
 
 def _activity_dates(db: Session, user_id: str) -> set[date]:
@@ -151,21 +162,32 @@ def learning_progress(user: User = Depends(require_current_user), db: Session = 
         or 0
     )
 
+    # 一次取回全部章节与全部"已学"章节,原来每门课 4 次查询
     courses = db.query(Course).order_by(Course.updated_at.desc()).all()
+    course_ids = [course.id for course in courses]
+    all_chapters = db.query(Chapter).filter(Chapter.course_id.in_(course_ids)).all() if course_ids else []
+    chapters_by_course: dict[str, list[Chapter]] = {}
+    for chapter in all_chapters:
+        chapters_by_course.setdefault(chapter.course_id, []).append(chapter)
+    # 只统计叶子章节(可学习单元),父章节只是目录
+    leaves_by_course: dict[str, list[Chapter]] = {}
+    for course_id, chapters in chapters_by_course.items():
+        parent_ids = {chapter.parent_id for chapter in chapters if chapter.parent_id}
+        leaves_by_course[course_id] = [chapter for chapter in chapters if chapter.id not in parent_ids]
+    all_leaf_ids = [chapter.id for leaves in leaves_by_course.values() for chapter in leaves]
+    studied_ids: set[str] = set()
+    if all_leaf_ids:
+        studied_ids = (
+            {row[0] for row in db.query(VideoSession.chapter_id).filter(VideoSession.chapter_id.in_(all_leaf_ids), VideoSession.user_id == user.id).distinct().all()}
+            | {row[0] for row in db.query(Note.chapter_id).filter(Note.chapter_id.in_(all_leaf_ids), Note.user_id == user.id).distinct().all()}
+            | {row[0] for row in db.query(Screenshot.chapter_id).filter(Screenshot.chapter_id.in_(all_leaf_ids), Screenshot.user_id == user.id).distinct().all()}
+        )
     progress_items: list[CourseProgressItem] = []
     for course in courses:
-        chapters = db.query(Chapter).filter(Chapter.course_id == course.id).all()
-        # 只统计叶子章节(可学习单元),父章节只是目录
-        parent_ids = {chapter.parent_id for chapter in chapters if chapter.parent_id}
-        leaves = [chapter for chapter in chapters if chapter.id not in parent_ids]
+        leaves = leaves_by_course.get(course.id, [])
         if not leaves:
             continue
-        leaf_ids = [chapter.id for chapter in leaves]
-        studied = (
-            {row[0] for row in db.query(VideoSession.chapter_id).filter(VideoSession.chapter_id.in_(leaf_ids), VideoSession.user_id == user.id).distinct().all()}
-            | {row[0] for row in db.query(Note.chapter_id).filter(Note.chapter_id.in_(leaf_ids), Note.user_id == user.id).distinct().all()}
-            | {row[0] for row in db.query(Screenshot.chapter_id).filter(Screenshot.chapter_id.in_(leaf_ids), Screenshot.user_id == user.id).distinct().all()}
-        )
+        studied = studied_ids.intersection({chapter.id for chapter in leaves})
         progress_items.append(
             CourseProgressItem(
                 course_id=course.id,

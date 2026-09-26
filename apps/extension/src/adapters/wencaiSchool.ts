@@ -89,28 +89,47 @@ export const wencaiSchoolAdapter: LearningAdapter = {
     return null;
   },
   extractCurrentChapter: (document: Document): ChapterNode | null => {
+    // 只回答"快照里真实存在的章节"。
+    // 以前这里用 sec ?? "0" 推导,而 collectChapters 用 sec ?? (index+1) 推导 ——
+    // 页面没有 sec 属性时两边得出的 id 不一致(快照 ch1-sec1 vs 采集 ch1-sec0),
+    // 后端查不到章节就 404 丢弃,或者把笔记/截图挂成 chapter_id=None。
+    const chapters = collectChapters(document);
+    const flat: ChapterNode[] = [];
+    const walk = (nodes: ChapterNode[]): void => {
+      for (const node of nodes) {
+        flat.push(node);
+        walk(node.children);
+      }
+    };
+    walk(chapters);
+    const matchById = (id: string): ChapterNode | null => flat.find((node) => node.externalChapterId === id) ?? null;
+    const matchByTitle = (title: string): ChapterNode | null => flat.find((node) => node.title === title) ?? null;
+
     const activeSection = document.querySelector("li.childSection.active");
     if (activeSection) {
       const chapterElement = activeSection.closest("li.chapter");
       const chapterIndex = chapterElement
         ? Array.from(document.querySelectorAll("li.chapter")).indexOf(chapterElement)
         : -1;
-      const sec = activeSection.getAttribute("sec");
       if (chapterIndex >= 0) {
-        return {
-          externalChapterId: `ch${chapterIndex + 1}-sec${sec ?? "0"}`,
-          title: clean(activeSection.textContent),
-          sortOrder: 0,
-          children: [],
-        };
+        const matched = matchById(`ch${chapterIndex + 1}-sec${activeSection.getAttribute("sec") ?? "0"}`);
+        if (matched) return matched;
       }
+      const byTitle = matchByTitle(clean(activeSection.textContent));
+      if (byTitle) return byTitle;
     }
     const itemId = wencaiItemId();
     const active = document.querySelector(".active, .selected, [aria-selected='true']");
     const title = clean(active?.textContent);
-    if (itemId) return { externalChapterId: `wencai-item:${itemId}`, title: title || `课件 ${itemId}`, sortOrder: 0, children: [] };
-    if (title) return { externalChapterId: active?.getAttribute("data-id") || title, title, sortOrder: 0, children: [] };
-    return collectChapters(document)[0] ?? null;
+    if (itemId) {
+      const matched = matchById(`wencai-item:${itemId}`);
+      if (matched) return matched;
+    }
+    if (title) {
+      const matched = matchByTitle(title) ?? matchById(active?.getAttribute("data-id") ?? title);
+      if (matched) return matched;
+    }
+    return flat[0] ?? null;
   },
   getNextChapterHint: (document: Document): Element | null => {
     const items = Array.from(document.querySelectorAll("li, .item, [class*='chapter']"));

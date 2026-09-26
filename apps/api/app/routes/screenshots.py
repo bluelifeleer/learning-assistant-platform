@@ -29,17 +29,28 @@ def list_screenshots(
     if chapter_id:
         query = query.filter(Screenshot.chapter_id == chapter_id)
     screenshots = query.order_by(Screenshot.created_at.desc()).limit(200).all()
+    # 批量取课程/章节标题:原来是每行 1~2 次查询(200 行最多 400 次)
+    course_ids = {row.course_id for row in screenshots if row.course_id}
+    chapter_ids = {row.chapter_id for row in screenshots if row.chapter_id}
+    course_titles = (
+        {row.id: row.title for row in db.query(Course.id, Course.title).filter(Course.id.in_(course_ids)).all()}
+        if course_ids
+        else {}
+    )
+    chapter_titles = (
+        {row.id: row.title for row in db.query(Chapter.id, Chapter.title).filter(Chapter.id.in_(chapter_ids)).all()}
+        if chapter_ids
+        else {}
+    )
     items: list[ScreenshotItem] = []
     for screenshot in screenshots:
-        course = db.query(Course).filter(Course.id == screenshot.course_id).first()
-        chapter = db.query(Chapter).filter(Chapter.id == screenshot.chapter_id).first() if screenshot.chapter_id else None
         items.append(
             ScreenshotItem(
                 id=screenshot.id,
                 course_id=screenshot.course_id,
-                course_title=course.title if course else None,
+                course_title=course_titles.get(screenshot.course_id),
                 chapter_id=screenshot.chapter_id,
-                chapter_title=chapter.title if chapter else None,
+                chapter_title=chapter_titles.get(screenshot.chapter_id) if screenshot.chapter_id else None,
                 video_time_seconds=float(screenshot.video_time_seconds) if screenshot.video_time_seconds is not None else None,
                 ocr_text=screenshot.ocr_text,
                 created_at=screenshot.created_at,

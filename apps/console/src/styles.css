@@ -1843,6 +1843,11 @@ p {
   animation: modal-pop var(--transition);
 }
 
+/* 弹窗内没有可聚焦元素时会回退聚焦到面板本身(tabindex=-1),不要画轮廓 */
+.modal-panel:focus {
+  outline: none;
+}
+
 .modal-header {
   display: flex;
   align-items: center;

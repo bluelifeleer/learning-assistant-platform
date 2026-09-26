@@ -302,6 +302,53 @@ def test_chapter_ocr_writes_transcript_segments_idempotent(progress_client, tmp_
         db.close()
 
 
+def test_claim_task_is_atomic(progress_client) -> None:
+    """同一任务只能被领取一次:并发重复派发时后来者拿到 False,不会重复执行。"""
+    client, session_factory = progress_client
+    register_headers(client, session_factory)
+    ids = seed_course_tree(session_factory)
+
+    from app.services import ai_tasks
+
+    db = session_factory()
+    try:
+        task, created = ai_tasks.create_task(
+            db, ids["org_id"], ai_tasks.TASK_CHAPTER_SUMMARY, ids["course_id"], ids["leaf_ids"][0]
+        )
+        assert created is True
+        assert ai_tasks.claim_task(db, task.id) is True
+        # 第二个执行者拿不到
+        assert ai_tasks.claim_task(db, task.id) is False
+        db.refresh(task)
+        assert task.status == "running"
+    finally:
+        db.close()
+
+
+def test_ocr_chapter_direct_rerun_is_idempotent(progress_client, tmp_path, monkeypatch) -> None:
+    """绕过任务层直接重跑 ocr_chapter 也不会写重复字幕段(跨运行按时间点去重)。"""
+    client, session_factory = progress_client
+    register_headers(client, session_factory)
+    ids = seed_course_tree(session_factory)
+    configure_llm(session_factory)
+    _seed_screenshots(session_factory, ids, tmp_path, count=2)
+    monkeypatch.setattr(llm, "chat_completion_vision", lambda config, prompt, images, model_override=None: "同一段文字")
+
+    from app.services import ai_ocr
+
+    db = session_factory()
+    try:
+        chapter = db.get(Chapter, ids["leaf_ids"][0])
+        organization = ensure_default_organization(db)
+        config = llm.llm_config_for_organization(organization)
+        assert ai_ocr.ocr_chapter(db, chapter, organization, config) == 2
+        # 第二次:截图 ocr_text 已缓存,字幕段按 ±0.5s 命中已有段 → 不新增
+        assert ai_ocr.ocr_chapter(db, chapter, organization, config) == 0
+        assert db.query(TranscriptSegment).filter(TranscriptSegment.source == "ocr").count() == 2
+    finally:
+        db.close()
+
+
 def test_screenshot_ocr_sync(progress_client, tmp_path, monkeypatch) -> None:
     client, session_factory = progress_client
     headers = register_headers(client, session_factory)

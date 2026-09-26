@@ -121,17 +121,18 @@ describe("stable external course ids", () => {
     expect(fromPlayerFrame?.externalCourseId).toBe("wencai-course:123");
   });
 
-  it("uses the scorm_item_id query param as wencai chapter identity", () => {
+  it("only reports wencai chapter ids that exist in the snapshot", () => {
     vi.stubGlobal("location", new URL("https://learning.wencaischool.net/openlearning/separation/courseware/index.html?course_id=123&scorm_item_id=456"));
-    const fakeDocument = {
+    const emptyDocument = {
       querySelector: () => null,
       querySelectorAll: () => [],
       title: "示例课程",
     } as unknown as Document;
 
-    const chapter = wencaiSchoolAdapter.extractCurrentChapter(fakeDocument);
-
-    expect(chapter?.externalChapterId).toBe("wencai-item:456");
+    // 页面上没有任何可解析的章节树时,快照里就不存在章节。
+    // 旧实现会编一个 wencai-item:456(快照永远不会产生这种 id)→ 后端 404 →
+    // 采集数据被静默丢弃。现在返回 null,由调用方跳过上报。
+    expect(wencaiSchoolAdapter.extractCurrentChapter(emptyDocument)).toBeNull();
   });
 });
 

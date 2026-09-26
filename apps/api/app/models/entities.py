@@ -131,6 +131,11 @@ class Chapter(Base):
 
 class VideoSession(Base):
     __tablename__ = "video_sessions"
+    __table_args__ = (
+        # 学习进度/时长统计按 (用户, 开始时间) 过滤
+        Index("ix_video_sessions_user_started", "user_id", "started_at"),
+        Index("ix_video_sessions_chapter", "chapter_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     external_session_id: Mapped[str | None] = mapped_column(String(255), index=True)
@@ -170,6 +175,11 @@ class VideoCaptureEvent(Base, TimestampMixin):
 
 class TranscriptSegment(Base, TimestampMixin):
     __tablename__ = "transcript_segments"
+    __table_args__ = (
+        # 章节字幕按时间轴读取;OCR 去重额外按 source + start_seconds 过滤
+        Index("ix_transcript_segments_chapter_source_start", "chapter_id", "source", "start_seconds"),
+        Index("ix_transcript_segments_course", "course_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
@@ -183,6 +193,12 @@ class TranscriptSegment(Base, TimestampMixin):
 
 class Note(Base, TimestampMixin):
     __tablename__ = "notes"
+    __table_args__ = (
+        # 笔记列表按 (用户, 创建时间倒序) 分页
+        Index("ix_notes_user_created", "user_id", "created_at"),
+        Index("ix_notes_chapter", "chapter_id"),
+        Index("ix_notes_course", "course_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
@@ -198,6 +214,8 @@ class Note(Base, TimestampMixin):
 
 class Export(Base, TimestampMixin):
     __tablename__ = "exports"
+    # 导出列表按创建时间倒序 + LIMIT
+    __table_args__ = (Index("ix_exports_created", "created_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
@@ -222,6 +240,8 @@ class AuditLog(Base, TimestampMixin):
 
 class ReviewCard(Base, TimestampMixin):
     __tablename__ = "review_cards"
+    # 取"某用户到期卡片"
+    __table_args__ = (Index("ix_review_cards_user_due", "user_id", "due_at"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
@@ -248,6 +268,12 @@ class ReviewLog(Base):
 
 class Screenshot(Base, TimestampMixin):
     __tablename__ = "screenshots"
+    __table_args__ = (
+        # 与迁移 0006 保持一致(此前只建在库里,模型没声明,导致测试库缺这条索引)
+        Index("ix_screenshots_course_id", "course_id"),
+        Index("ix_screenshots_chapter", "chapter_id"),
+        Index("ix_screenshots_user", "user_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)

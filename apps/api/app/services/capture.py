@@ -225,7 +225,16 @@ class CaptureService:
             return {"status": "accepted", "external_course_id": payload.external_course_id, "segment_id": existing.id}
         video_session_id = None
         if payload.session_id:
-            video_session = self.db.query(VideoSession).filter(VideoSession.id == payload.session_id).first()
+            # 扩展上报的 session_id 是合成值(adapter:course:chapter),落在
+            # VideoSession.external_session_id,不是主键 —— 之前拿主键比对,永远匹配不上,
+            # 导致字幕段从不关联到视频会话。这里与 play 事件(见上文)用同一种查法,
+            # 并同样按用户过滤(同一课程+章节的 external_session_id 在不同用户间会重复)。
+            user_id = self._capture_user_id(self._plugin_token(bearer_token))
+            video_session = (
+                self.db.query(VideoSession)
+                .filter(VideoSession.external_session_id == payload.session_id, VideoSession.user_id == user_id)
+                .first()
+            )
             if video_session:
                 video_session_id = video_session.id
         segment = TranscriptSegment(

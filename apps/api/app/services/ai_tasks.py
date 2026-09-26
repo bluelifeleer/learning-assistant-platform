@@ -54,6 +54,22 @@ def create_task(db: Session, organization_id: str, task_type: str, course_id: st
     return task, True
 
 
+def claim_task(db: Session, task_id: str) -> bool:
+    """原子领取任务:只有把状态从 pending/failed 改成 running 的那一个执行者能拿到。
+
+    并发触发(客户端重试、多 worker、BackgroundTasks 重复派发)时,后来者的 UPDATE
+    会匹配到 0 行并直接返回 False —— 这是"同一章节的 OCR 不会并行执行、
+    不会写出重复字幕段"的关键保证。
+    """
+    claimed = (
+        db.query(AiTask)
+        .filter(AiTask.id == task_id, AiTask.status.in_(["pending", "failed"]))
+        .update({"status": "running", "error": None, "updated_at": utc_now()}, synchronize_session=False)
+    )
+    db.commit()
+    return bool(claimed)
+
+
 def run_task_inline(
     db: Session,
     task: AiTask,
@@ -61,10 +77,11 @@ def run_task_inline(
     types: list[str] | None = None,
     user_id: str | None = None,
 ) -> AiTask:
-    task.status = "running"
-    task.error = None
-    task.updated_at = utc_now()
-    db.commit()
+    if not claim_task(db, task.id):
+        # 已被其它执行者领取(或已执行完),不再重复执行
+        db.refresh(task)
+        return task
+    db.refresh(task)
     try:
         if task.task_type == TASK_CHAPTER_SUMMARY:
             chapter = db.get(Chapter, task.chapter_id)

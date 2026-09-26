@@ -106,12 +106,23 @@ def generate_course_summary(db: Session, course: Course) -> int:
     organization = _organization_for_course(db, course)
     config = llm.llm_config_for_organization(organization)
     chapters = db.query(Chapter).filter(Chapter.course_id == course.id).order_by(Chapter.sort_order.asc()).all()
+    # 一次取回全部已完成摘要,避免每章一条查询
+    chapter_ids = [chapter.id for chapter in chapters]
+    done_summaries = (
+        {
+            row.chapter_id: row.summary_md
+            for row in db.query(ChapterSummary.chapter_id, ChapterSummary.summary_md)
+            .filter(ChapterSummary.chapter_id.in_(chapter_ids), ChapterSummary.status == "done")
+            .all()
+        }
+        if chapter_ids
+        else {}
+    )
     summarized: list[str] = []
     skipped: list[str] = []
     for chapter in chapters:
-        summary = db.query(ChapterSummary).filter(ChapterSummary.chapter_id == chapter.id).first()
-        if summary and summary.status == "done":
-            summarized.append(f"## {chapter.title}\n{summary.summary_md}")
+        if chapter.id in done_summaries:
+            summarized.append(f"## {chapter.title}\n{done_summaries[chapter.id]}")
         else:
             skipped.append(chapter.title)
     if not summarized:
