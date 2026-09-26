@@ -17,6 +17,22 @@ import {
 import { aiActionErrorMessage, startAiTaskPolling } from "./aiTasks";
 import { toast } from "../components/toast";
 
+interface AiPreset {
+  id: string;
+  label: string;
+  baseUrl: string;
+  models: string[];
+  visionModels?: string[];
+}
+
+const AI_PRESETS: AiPreset[] = [
+  { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", models: ["deepseek-chat", "deepseek-reasoner"] },
+  { id: "kimi", label: "Kimi（月之暗面）", baseUrl: "https://api.moonshot.cn/v1", models: ["kimi-k2-0905-preview", "moonshot-v1-8k", "moonshot-v1-32k"], visionModels: ["moonshot-v1-8k-vision-preview"] },
+  { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", models: ["gpt-4o-mini", "gpt-4o"], visionModels: ["gpt-4o"] },
+  { id: "qwen", label: "通义千问（阿里）", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: ["qwen-plus", "qwen-turbo", "qwen-max"], visionModels: ["qwen-vl-plus"] },
+  { id: "glm", label: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", models: ["glm-4-flash", "glm-4-plus"], visionModels: ["glm-4v-flash"] },
+];
+
 interface SettingsProps {
   title?: string;
   description?: string;
@@ -28,6 +44,7 @@ function AiSettingsPanel() {
   const [model, setModel] = useState("");
   const [visionModel, setVisionModel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [presetId, setPresetId] = useState("");
   const [autoGenerate, setAutoGenerate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -35,6 +52,7 @@ function AiSettingsPanel() {
   const [testMessage, setTestMessage] = useState("");
 
   function applyAiSettings(next: AISettings) {
+    setPresetId(AI_PRESETS.find((preset) => preset.baseUrl === (next.llm_base_url ?? ""))?.id ?? "");
     setAiSettings(next);
     setBaseUrl(next.llm_base_url ?? "");
     setModel(next.llm_model ?? "");
@@ -86,6 +104,15 @@ function AiSettingsPanel() {
     }
   }
 
+  function applyPreset(id: string) {
+    setPresetId(id);
+    const preset = AI_PRESETS.find((item) => item.id === id);
+    if (!preset) return;
+    setBaseUrl(preset.baseUrl);
+    setModel(preset.models[0]);
+    setVisionModel(preset.visionModels?.[0] ?? "");
+  }
+
   async function testConnection() {
     setTesting(true);
     setTestMessage("");
@@ -104,13 +131,26 @@ function AiSettingsPanel() {
       <h2>AI 设置</h2>
       <p>配置大模型服务，用于章节摘要、自动出题与闪卡生成。当前状态：{aiSettings ? (aiSettings.configured ? "已配置" : "未配置") : "读取中"}</p>
       <form className="inline-form">
-        <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.deepseek.com/v1" />
-        <input value={model} onChange={(event) => setModel(event.target.value)} placeholder="模型名，如 deepseek-chat" />
+        <select value={presetId} onChange={(event) => applyPreset(event.target.value)}>
+          <option value="">自定义服务…</option>
+          {AI_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+        </select>
+        <input value={baseUrl} onChange={(event) => { setPresetId(""); setBaseUrl(event.target.value); }} placeholder="API 地址，如 https://api.deepseek.com/v1" />
+      </form>
+      <form className="inline-form">
+        <input list="ai-model-options" value={model} onChange={(event) => setModel(event.target.value)} placeholder="对话模型，如 deepseek-chat" />
+        <datalist id="ai-model-options">
+          {(AI_PRESETS.find((preset) => preset.id === presetId)?.models ?? []).map((name) => <option key={name} value={name} />)}
+        </datalist>
         <input
+          list="ai-vision-model-options"
           value={visionModel}
           onChange={(event) => setVisionModel(event.target.value)}
           placeholder="视觉模型（可选，用于截图 OCR），默认同对话模型"
         />
+        <datalist id="ai-vision-model-options">
+          {(AI_PRESETS.find((preset) => preset.id === presetId)?.visionModels ?? []).map((name) => <option key={name} value={name} />)}
+        </datalist>
       </form>
       <form className="inline-form">
         <input
@@ -273,37 +313,64 @@ function EmailSettingsPanel() {
     <article className="panel">
       <h2>邮箱设置</h2>
       <p>配置 SMTP 服务，用于发送笔记和学习总结邮件。当前状态：{emailSettings ? (emailSettings.configured ? "已配置" : "未配置") : "读取中"}</p>
-      <form className="inline-form">
-        <input value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} placeholder="SMTP 主机，如 smtp.qq.com" />
-        <input value={smtpPort} onChange={(event) => setSmtpPort(event.target.value)} placeholder="端口（默认 465）" />
-      </form>
-      <form className="inline-form">
-        <input value={smtpUsername} onChange={(event) => setSmtpUsername(event.target.value)} placeholder="SMTP 用户名" />
-        <input value={emailFrom} onChange={(event) => setEmailFrom(event.target.value)} placeholder="发件人地址" />
-        <input value={emailTo} onChange={(event) => setEmailTo(event.target.value)} placeholder="收件邮箱" />
-      </form>
-      <form className="inline-form">
-        <input
-          type="password"
-          value={smtpPassword}
-          onChange={(event) => setSmtpPassword(event.target.value)}
-          placeholder={emailSettings?.password_masked ? `已配置：${emailSettings.password_masked}（留空不修改）` : "SMTP 密码 / 授权码"}
-        />
-        {emailSettings?.password_masked ? (
-          <button type="button" className="text-button" disabled={saving} onClick={() => void clearPassword()}>清除密码</button>
-        ) : null}
-      </form>
-      <label className="filter-item">
-        <input type="checkbox" checked={digestAuto} onChange={(event) => setDigestAuto(event.target.checked)} />
-        <span>自动发送学习总结</span>
-      </label>
-      <form className="inline-form">
-        <select value={digestFrequency} onChange={(event) => setDigestFrequency(event.target.value as DigestFrequency)}>
-          <option value="daily">每天</option>
-          <option value="weekly">每周</option>
-        </select>
-        <input type="number" min={0} max={23} value={digestHour} onChange={(event) => setDigestHour(event.target.value)} placeholder="发送小时（0-23）" />
-      </form>
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
+        <label className="modal-field">
+          <span>SMTP 主机</span>
+          <input value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} placeholder="如 smtp.qq.com" />
+        </label>
+        <label className="modal-field">
+          <span>端口</span>
+          <input value={smtpPort} onChange={(event) => setSmtpPort(event.target.value)} placeholder="默认 465" />
+        </label>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <label className="modal-field">
+          <span>SMTP 用户名</span>
+          <input value={smtpUsername} onChange={(event) => setSmtpUsername(event.target.value)} placeholder="通常为完整邮箱地址" />
+        </label>
+        <label className="modal-field">
+          <span>SMTP 密码 / 授权码</span>
+          <input
+            type="password"
+            value={smtpPassword}
+            onChange={(event) => setSmtpPassword(event.target.value)}
+            placeholder={emailSettings?.password_masked ? `已配置：${emailSettings.password_masked}（留空不修改）` : "密码或授权码"}
+          />
+        </label>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <label className="modal-field">
+          <span>发件人地址</span>
+          <input value={emailFrom} onChange={(event) => setEmailFrom(event.target.value)} placeholder="一般与用户名一致" />
+        </label>
+        <label className="modal-field">
+          <span>收件邮箱</span>
+          <input value={emailTo} onChange={(event) => setEmailTo(event.target.value)} placeholder="接收学习总结的邮箱" />
+        </label>
+      </div>
+      {emailSettings?.password_masked ? (
+        <div>
+          <button type="button" className="text-button text-button-sm" disabled={saving} onClick={() => void clearPassword()}>清除已保存的密码</button>
+        </div>
+      ) : null}
+      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+        <label className="filter-item" style={{ margin: 0 }}>
+          <input type="checkbox" checked={digestAuto} onChange={(event) => setDigestAuto(event.target.checked)} />
+          <span>自动发送学习总结</span>
+        </label>
+        <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+          频率
+          <select value={digestFrequency} onChange={(event) => setDigestFrequency(event.target.value as DigestFrequency)}>
+            <option value="daily">每天</option>
+            <option value="weekly">每周</option>
+          </select>
+        </label>
+        <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+          发送时间
+          <input type="number" min={0} max={23} value={digestHour} onChange={(event) => setDigestHour(event.target.value)} style={{ width: 72 }} />
+          点
+        </label>
+      </div>
       <p>上次发送学习总结：{emailSettings?.last_digest_at ?? "尚未发送"}</p>
       <div className="inline-form">
         <button type="button" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存邮箱设置"}</button>
