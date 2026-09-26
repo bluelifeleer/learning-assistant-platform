@@ -1,4 +1,7 @@
+from datetime import UTC, datetime, timedelta
+
 from app.schemas.capture import CourseSnapshotIn, TranscriptSegmentIn, VideoEventIn
+from app.services import capture as capture_service
 
 
 def test_course_snapshot_payload_accepts_chapter_tree() -> None:
@@ -122,7 +125,7 @@ def test_video_event_rejects_invalid_plugin_token(client) -> None:
     assert response.status_code == 401
 
 
-def test_play_event_creates_video_session_for_progress(client, auth_headers) -> None:
+def test_play_event_creates_video_session_for_progress(client, auth_headers, monkeypatch) -> None:
     token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}, headers=auth_headers).json()["token"]
     plugin_headers = {"authorization": f"Bearer {token}"}
 
@@ -146,32 +149,43 @@ def test_play_event_creates_video_session_for_progress(client, auth_headers) -> 
     )
     assert snapshot.status_code == 200
 
-    play = client.post(
-        "/api/v1/capture/video-event",
-        headers=plugin_headers,
-        json={
-            "session_id": "wencai:course-progress:chapter-progress",
-            "event_type": "play",
-            "video_time_seconds": 150.0,
-            "payload": {
-                "course_url": "https://learning.example.com/",
-                "external_course_id": "course-progress",
-                "external_chapter_id": "chapter-progress",
-                "video_source": {"currentSrc": "https://cdn.example.com/lesson.mp4"},
+    # 用固定时钟驱动,验证"按进度增量累加"而不是"取最远进度"
+    base = datetime.now(UTC)
+    ticks = iter([base, base + timedelta(seconds=60), base + timedelta(seconds=120)])
+    monkeypatch.setattr(capture_service, "_utc_now", lambda: next(ticks))
+
+    def send(event_type: str, seconds: float) -> None:
+        response = client.post(
+            "/api/v1/capture/video-event",
+            headers=plugin_headers,
+            json={
+                "session_id": "wencai:course-progress:chapter-progress",
+                "event_type": event_type,
+                "video_time_seconds": seconds,
+                "payload": {
+                    "course_url": "https://learning.example.com/",
+                    "external_course_id": "course-progress",
+                    "external_chapter_id": "chapter-progress",
+                    "video_source": {"currentSrc": "https://cdn.example.com/lesson.mp4"},
+                },
             },
-        },
-    )
-    assert play.status_code == 200
+        )
+        assert response.status_code == 200
+
+    send("play", 10.0)        # 第一条只建立基准
+    send("progress", 310.0)   # 60 秒墙钟跳了 300 秒 → 判定为拖动,不计
+    send("progress", 370.0)   # 60 秒墙钟前进 60 秒 → 记 60 秒
 
     progress = client.get("/api/v1/stats/learning-progress", headers=auth_headers)
     assert progress.status_code == 200
     body = progress.json()
     assert body["continue_learning"] is not None
     assert body["continue_learning"]["chapter_id"] is not None
-    assert body["week_minutes"] >= 2  # 150 秒 → 2 分钟
+    # 只算真实播放的 60 秒;拖动跳过的 300 秒不计
+    assert body["week_minutes"] == 1
 
 
-def test_progress_events_also_track_study_minutes(client, auth_headers) -> None:
+def test_progress_events_also_track_study_minutes(client, auth_headers, monkeypatch) -> None:
     """播放中周期性上报的 progress 事件同样要计入学习时长。
 
     扩展只在 play 那一刻采样的话,从头看到尾的视频只会在 currentTime≈0 上报一次,
@@ -195,8 +209,12 @@ def test_progress_events_also_track_study_minutes(client, auth_headers) -> None:
     )
     assert snapshot.status_code == 200
 
+    base = datetime.now(UTC)
+    ticks = iter([base, base + timedelta(seconds=30), base + timedelta(seconds=90)])
+    monkeypatch.setattr(capture_service, "_utc_now", lambda: next(ticks))
+
     # 只发 progress,不发 play
-    for seconds in (30.0, 240.0):
+    for seconds in (0.0, 30.0, 90.0):
         response = client.post(
             "/api/v1/capture/video-event",
             headers=plugin_headers,
@@ -219,4 +237,4 @@ def test_progress_events_also_track_study_minutes(client, auth_headers) -> None:
     body = progress.json()
     assert body["continue_learning"] is not None
     assert body["continue_learning"]["chapter_id"] is not None
-    assert body["week_minutes"] >= 4  # 最远位置 240 秒 → 4 分钟
+    assert body["week_minutes"] == 1  # 30 + 60 秒真实播放 → 1 分钟

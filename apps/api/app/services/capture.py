@@ -19,8 +19,46 @@ logger = logging.getLogger(__name__)
 MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
 
 # 会更新 VideoSession(学习时长/连续天数/继续学习)的事件类型。
-# 扩展在播放中每 30s 发一次 progress,后端按 max(video_time_seconds) 记录最远进度。
+# 扩展在播放中每 30s 发一次 progress。
 SESSION_TRACKING_EVENTS = frozenset({"play", "progress"})
+
+# 两次上报之间,进度增量最多能是墙钟时间的多少倍。
+# 正常播放(含 2~3 倍速)不会超过它;拖动进度条会远远超过,直接判定为跳跃不计入。
+SEEK_TOLERANCE = 3.0
+
+
+def _utc_now() -> datetime:
+    """独立出来便于测试注入固定的"当前时间"。"""
+    return datetime.now(UTC)
+
+
+def _as_aware(value: datetime) -> datetime:
+    """SQLite 取出来的时间戳是 naive 的,统一补成 UTC 再做减法。"""
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def watched_seconds_between(
+    previous_position: float | None,
+    previous_at: datetime | None,
+    position: float,
+    now: datetime,
+) -> int:
+    """相邻两次上报之间真正观看的秒数。
+
+    - 没有上一次记录(会话第一条事件)→ 只建立基准,记 0
+    - 进度没前进(暂停/缓冲)或时间倒流 → 0
+    - 进度增量远大于墙钟时间(拖进度条)→ 0
+    - 其余按进度增量计入
+    """
+    if previous_position is None or previous_at is None:
+        return 0
+    wall = (now - _as_aware(previous_at)).total_seconds()
+    advance = position - previous_position
+    if wall <= 0 or advance <= 0:
+        return 0
+    if advance > wall * SEEK_TOLERANCE:
+        return 0
+    return int(advance)
 
 
 def screenshots_dir_path() -> Path:
@@ -187,7 +225,7 @@ class CaptureService:
             or video_source.get("current_src")
             or ""
         )
-        now = datetime.now(UTC)
+        now = _utc_now()
         if not session:
             session = VideoSession(
                 external_session_id=payload.session_id,
@@ -204,9 +242,13 @@ class CaptureService:
                 session.source_url = source_url
             session.ended_at = None
         if payload.video_time_seconds is not None:
-            reached = max(0, int(float(payload.video_time_seconds)))
-            if reached > (session.duration_watched_seconds or 0):
-                session.duration_watched_seconds = reached
+            position = max(0.0, float(payload.video_time_seconds))
+            previous_position = None if session.last_position_seconds is None else float(session.last_position_seconds)
+            watched = watched_seconds_between(previous_position, session.last_event_at, position, now)
+            if watched:
+                session.duration_watched_seconds = (session.duration_watched_seconds or 0) + watched
+            session.last_position_seconds = position
+        session.last_event_at = now
         self.db.flush()
 
     def accept_transcript_segment(self, bearer_token: str, payload: TranscriptSegmentIn, background_tasks: BackgroundTasks | None = None) -> dict[str, str]:

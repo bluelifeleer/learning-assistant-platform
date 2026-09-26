@@ -144,7 +144,12 @@ class VideoSession(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # 实际观看时长(秒)。按相邻两次上报之间的进度增量累加,
+    # 拖动进度条造成的跳跃不计入 —— 不是"视频最远进度"
     duration_watched_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    # 上一次上报时的播放位置与时间,用于计算增量
+    last_position_seconds: Mapped[float | None] = mapped_column(Numeric(10, 3))
+    last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_url: Mapped[str] = mapped_column(Text, nullable=False)
 
 
