@@ -3,7 +3,7 @@ from html import escape
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_current_user
+from app.core.deps import require_current_user, require_owner
 from app.db.session import get_db
 from app.exporters.markdown import format_time
 from app.models.entities import Chapter, Course, Note, Organization, TranscriptSegment, User
@@ -46,13 +46,13 @@ def org_email_config(organization: Organization):
 
 
 @router.get("/settings", response_model=EmailSettingsOut)
-def read_email_settings(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> EmailSettingsOut:
+def read_email_settings(_: User = Depends(require_owner), db: Session = Depends(get_db)) -> EmailSettingsOut:
     return settings_out(db)
 
 
 @router.put("/settings", response_model=EmailSettingsOut)
 def update_email_settings(
-    payload: EmailSettingsUpdateIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)
+    payload: EmailSettingsUpdateIn, _: User = Depends(require_owner), db: Session = Depends(get_db)
 ) -> EmailSettingsOut:
     organization = ensure_default_organization(db)
     if payload.smtp_host is not None:
@@ -81,7 +81,7 @@ def update_email_settings(
 
 
 @router.post("/settings/test", response_model=EmailActionOut)
-def test_email_settings(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> EmailActionOut:
+def test_email_settings(_: User = Depends(require_owner), db: Session = Depends(get_db)) -> EmailActionOut:
     organization = ensure_default_organization(db)
     config = org_email_config(organization)
     try:

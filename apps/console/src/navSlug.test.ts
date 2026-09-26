@@ -39,6 +39,15 @@ describe("nav slug mapping", () => {
     expect(parseRouteHash("#/no-such-page")).toEqual(fallback);
   });
 
+  it("does not crash on malformed percent-encoding in course hash", () => {
+    expect(parseRouteHash("#/courses/%E0%A4%A")).toEqual({
+      page: "课程",
+      courseId: null,
+      chapterId: null,
+      settingsTab: null,
+    });
+  });
+
   it("ignores invalid settings tabs and foreign sub-paths", () => {
     expect(parseRouteHash("#/settings/nope").settingsTab).toBeNull();
     expect(parseRouteHash("#/notes/whatever").page).toBe("笔记");

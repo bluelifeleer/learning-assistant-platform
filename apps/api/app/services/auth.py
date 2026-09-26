@@ -1,9 +1,10 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import pbkdf2_hmac
 import hmac
 from secrets import token_urlsafe
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -13,6 +14,7 @@ from app.services.auth_tokens import create_plain_token, hash_token
 from app.services.plugins import ensure_default_organization
 
 PASSWORD_ITERATIONS = 120_000
+SESSION_TOKEN_TTL = timedelta(days=30)
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -28,7 +30,11 @@ def verify_password(password: str, stored_hash: str) -> bool:
         return False
     if algorithm != "pbkdf2_sha256":
         return False
-    digest = pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), int(iterations)).hex()
+    try:
+        iterations_int = int(iterations)
+    except ValueError:
+        return False
+    digest = pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), iterations_int).hex()
     return hmac.compare_digest(digest, expected)
 
 
@@ -43,13 +49,15 @@ class AuthService:
     def create_session_token(self, user: User) -> str:
         organization = ensure_default_organization(self.db)
         token = create_plain_token()
+        now = datetime.now(UTC)
         self.db.add(
             ApiToken(
                 organization_id=organization.id,
                 user_id=user.id,
                 token_hash=hash_token(token, get_settings().api_token_pepper),
                 name="Console session",
-                last_used_at=datetime.now(UTC),
+                last_used_at=now,
+                expires_at=now + SESSION_TOKEN_TTL,
             )
         )
         return token
@@ -62,7 +70,9 @@ class AuthService:
         user = User(email=email, display_name=payload.display_name, password_hash=hash_password(payload.password))
         self.db.add(user)
         self.db.flush()
-        self.db.add(Membership(organization_id=organization.id, user_id=user.id, role="owner"))
+        # 开放注册时,新用户默认是普通成员,不具备修改工作区/AI/邮箱设置等管理权限;
+        # 管理员只能通过安装向导创建,或由现有 owner 手动提升。
+        self.db.add(Membership(organization_id=organization.id, user_id=user.id, role="member"))
         token = self.create_session_token(user)
         self.db.commit()
         self.db.refresh(user)
@@ -106,14 +116,29 @@ class AuthService:
 
     def current_user(self, bearer_token: str) -> User:
         digest = hash_token(bearer_token, get_settings().api_token_pepper)
-        token = self.db.query(ApiToken).filter(ApiToken.token_hash == digest, ApiToken.user_id.is_not(None), ApiToken.revoked_at.is_(None)).first()
+        now = datetime.now(UTC)
+        token = (
+            self.db.query(ApiToken)
+            .filter(
+                ApiToken.token_hash == digest,
+                ApiToken.user_id.is_not(None),
+                ApiToken.revoked_at.is_(None),
+                or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
+            )
+            .first()
+        )
         if not token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session token")
-        token.last_used_at = datetime.now(UTC)
         user = self.db.query(User).filter(User.id == token.user_id).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        self.db.commit()
+        # last_used_at 只需分钟级精度,避免每个 GET 请求都触发一次写库
+        last = token.last_used_at
+        if last is not None and last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        if last is None or (now - last) > timedelta(minutes=1):
+            token.last_used_at = now
+            self.db.commit()
         return user
 
     def logout(self, bearer_token: str) -> None:

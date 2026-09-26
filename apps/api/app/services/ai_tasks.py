@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from fastapi import BackgroundTasks
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
@@ -40,7 +41,15 @@ def create_task(db: Session, organization_id: str, task_type: str, course_id: st
         return existing, False
     task = AiTask(organization_id=organization_id, task_type=task_type, course_id=course_id, chapter_id=chapter_id, status="pending")
     db.add(task)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # 并发创建时唯一活跃索引拦截,回滚后返回已存在的任务
+        db.rollback()
+        existing = find_active_task(db, task_type, course_id, chapter_id)
+        if existing:
+            return existing, False
+        raise
     db.refresh(task)
     return task, True
 

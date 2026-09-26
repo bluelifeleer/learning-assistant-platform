@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_current_user
+from app.core.deps import require_current_user, require_owner
 from app.db.session import get_db
 from app.models.entities import AiTask, Chapter, ChapterSummary, Course, CourseSummary, QuizQuestion, Screenshot, TranscriptSegment, User
 from app.schemas.ai import (
@@ -76,12 +76,12 @@ def get_course_or_404(db: Session, course_id: str) -> Course:
 
 
 @router.get("/settings", response_model=AiSettingsOut)
-def read_ai_settings(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> AiSettingsOut:
+def read_ai_settings(_: User = Depends(require_owner), db: Session = Depends(get_db)) -> AiSettingsOut:
     return settings_out(db)
 
 
 @router.put("/settings", response_model=AiSettingsOut)
-def update_ai_settings(payload: AiSettingsUpdateIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> AiSettingsOut:
+def update_ai_settings(payload: AiSettingsUpdateIn, _: User = Depends(require_owner), db: Session = Depends(get_db)) -> AiSettingsOut:
     organization = ensure_default_organization(db)
     if payload.llm_base_url is not None:
         organization.llm_base_url = payload.llm_base_url.rstrip("/") or None
@@ -98,7 +98,7 @@ def update_ai_settings(payload: AiSettingsUpdateIn, _: User = Depends(require_cu
 
 
 @router.post("/settings/test", response_model=AiSettingsTestOut)
-def test_ai_settings(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> AiSettingsTestOut:
+def test_ai_settings(_: User = Depends(require_owner), db: Session = Depends(get_db)) -> AiSettingsTestOut:
     organization = ensure_default_organization(db)
     try:
         config = llm.llm_config_for_organization(organization)

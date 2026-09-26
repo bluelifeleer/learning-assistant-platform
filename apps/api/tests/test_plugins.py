@@ -54,6 +54,29 @@ def test_plugin_heartbeat_rejects_invalid_token(client):
     assert response.status_code == 401
 
 
+def test_plugin_token_revocation_invalidates_heartbeat(client, auth_headers):
+    created = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}, headers=auth_headers).json()
+    token = created["token"]
+    token_id = created["token_id"]
+
+    heartbeat = client.post(
+        "/api/v1/plugin-heartbeat",
+        headers={"authorization": f"Bearer {token}"},
+        json={"extension_version": "0.1.0"},
+    )
+    assert heartbeat.status_code == 200
+
+    revoked = client.delete(f"/api/v1/plugin-tokens/{token_id}", headers=auth_headers)
+    assert revoked.status_code == 204
+
+    after = client.post(
+        "/api/v1/plugin-heartbeat",
+        headers={"authorization": f"Bearer {token}"},
+        json={"extension_version": "0.1.0"},
+    )
+    assert after.status_code == 401
+
+
 def test_plugin_package_exports_loadable_extension_zip(client, auth_headers):
     response = client.get("/api/v1/plugin-package", headers=auth_headers)
 

@@ -11,6 +11,7 @@ import {
   fetchAdapters,
   fetchAiSettings,
   fetchAiTask,
+  fetchChapterMemo,
   fetchChapterSummary,
   fetchCourseDetail,
   fetchCourseSummary,
@@ -36,6 +37,7 @@ import {
   requestFlashcards,
   requestQuiz,
   saveAdapter,
+  saveChapterMemo,
   searchContent,
   sendDigestEmail,
   sendNoteEmail,
@@ -46,6 +48,7 @@ import {
   testEmailSettings,
   updateAiSettings,
   updateEmailSettings,
+  updateNote,
   updateSettings,
   testDatabaseConnection,
   updateMe,
@@ -264,6 +267,41 @@ describe("learning client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:17890/api/v1/courses/course-1/detail",
       expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+  });
+
+  it("updates note content via PATCH", async () => {
+    const note = { id: "note-1", content: "新内容", corrected_content: null, tags: [] };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => note });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await updateNote("note-1", "新内容", "la_session");
+
+    expect(result).toEqual(note);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/notes/note-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ content: "新内容" }),
+        headers: expect.objectContaining({ authorization: "Bearer la_session" }),
+      }),
+    );
+  });
+
+  it("reads and saves the chapter memo", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ chapter_id: "ch-1", content_md: "总结" }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchChapterMemo("ch-1", "la_session");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/courses/chapters/ch-1/memo",
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: "Bearer la_session" }) }),
+    );
+
+    await saveChapterMemo("ch-1", "# 总结", "la_session");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/courses/chapters/ch-1/memo",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ content_md: "# 总结" }) }),
     );
   });
 
@@ -541,8 +579,8 @@ describe("quiz attempts and mastery client", () => {
 
     const result = await submitQuizAttempts(
       [
-        { question_id: "q-1", chosen: "乙", correct: true },
-        { question_id: "q-2", chosen: "甲", correct: false },
+        { question_id: "q-1", chosen: "乙" },
+        { question_id: "q-2", chosen: "甲" },
       ],
       "la_session",
     );
@@ -554,8 +592,8 @@ describe("quiz attempts and mastery client", () => {
         method: "POST",
         body: JSON.stringify({
           items: [
-            { question_id: "q-1", chosen: "乙", correct: true },
-            { question_id: "q-2", chosen: "甲", correct: false },
+            { question_id: "q-1", chosen: "乙" },
+            { question_id: "q-2", chosen: "甲" },
           ],
         }),
         headers: expect.objectContaining({ authorization: "Bearer la_session" }),

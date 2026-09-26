@@ -283,3 +283,55 @@ def test_note_tags_visible_in_course_detail(client, auth_headers):
     detail = client.get(f"/api/v1/courses/{course_id}/detail", headers=auth_headers).json()
     note = detail["chapters"][0]["children"][0]["notes"][0]
     assert note["tags"] == ["多选"]
+
+
+def test_note_edit_replaces_content_and_clears_correction(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    detail = client.get(f"/api/v1/courses/{course_id}/detail", headers=auth_headers).json()
+    chapter_id = detail["chapters"][0]["children"][0]["id"]
+
+    note = client.post(
+        "/api/v1/notes",
+        headers=auth_headers,
+        json={"course_id": course_id, "chapter_id": chapter_id, "content": "原始内容", "video_time_seconds": 10},
+    ).json()
+    client.patch(f"/api/v1/notes/{note['id']}/correction", headers=auth_headers, json={"corrected_content": "勘误内容"})
+
+    edited = client.patch(f"/api/v1/notes/{note['id']}", headers=auth_headers, json={"content": "直接编辑后的内容"})
+
+    assert edited.status_code == 200
+    assert edited.json()["content"] == "直接编辑后的内容"
+    # 直接编辑会清除旧的勘误内容,与「勘误」保留原文的语义区分
+    assert edited.json()["corrected_content"] is None
+
+    assert client.patch("/api/v1/notes/no-such-note", headers=auth_headers, json={"content": "x"}).status_code == 404
+    assert client.patch(f"/api/v1/notes/{note['id']}", headers=auth_headers, json={"content": "   "}).status_code == 422
+
+
+def test_chapter_memo_save_and_read(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    detail = client.get(f"/api/v1/courses/{course_id}/detail", headers=auth_headers).json()
+    chapter_id = detail["chapters"][0]["children"][0]["id"]
+
+    empty = client.get(f"/api/v1/courses/chapters/{chapter_id}/memo", headers=auth_headers)
+    assert empty.status_code == 200
+    assert empty.json()["content_md"] == ""
+
+    saved = client.put(
+        f"/api/v1/courses/chapters/{chapter_id}/memo",
+        headers=auth_headers,
+        json={"content_md": "## 总结\n本章要点"},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["content_md"] == "## 总结\n本章要点"
+
+    read = client.get(f"/api/v1/courses/chapters/{chapter_id}/memo", headers=auth_headers)
+    assert read.status_code == 200
+    assert read.json()["content_md"] == "## 总结\n本章要点"
+
+    missing = client.put("/api/v1/courses/chapters/no-such-chapter/memo", headers=auth_headers, json={"content_md": "x"})
+    assert missing.status_code == 404

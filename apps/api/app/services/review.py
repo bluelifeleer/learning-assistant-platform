@@ -11,7 +11,7 @@ VALID_RESULTS = {"good", "again"}
 
 
 def utc_now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(UTC)
 
 
 class ReviewService:

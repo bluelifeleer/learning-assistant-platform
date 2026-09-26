@@ -1,5 +1,6 @@
 from datetime import datetime
 from io import BytesIO
+from xml.sax.saxutils import escape as xml_escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -95,15 +96,15 @@ def build_study_report(db: Session, organization: Organization, user: User, cour
     styles = _styles()
     if course:
         courses = [course]
-        scope_text = f"课程:{course.title}"
+        scope_text = f"课程:{xml_escape(course.title)}"
     else:
         courses = db.query(Course).filter(Course.organization_id == organization.id).order_by(Course.created_at.asc()).all()
         scope_text = "全部课程"
     story: list = [Paragraph("学习档案", styles["title"])]
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     for line in (
-        f"组织:{organization.name}",
-        f"用户:{user.display_name}",
+        f"组织:{xml_escape(organization.name)}",
+        f"用户:{xml_escape(user.display_name)}",
         f"生成时间:{generated_at}",
         f"统计区间:{scope_text}(全部历史记录)",
     ):
@@ -112,14 +113,14 @@ def build_study_report(db: Session, organization: Organization, user: User, cour
     if not courses:
         story.append(Paragraph("暂无课程数据。", styles["body"]))
     for item in (_course_report_data(db, user, entry) for entry in courses):
-        story.append(Paragraph(f"课程:{item['course'].title}", styles["h1"]))
+        story.append(Paragraph(f"课程:{xml_escape(item['course'].title)}", styles["h1"]))
         if not item["has_activity"]:
             story.append(Paragraph("暂无学习记录", styles["body"]))
             story.append(Spacer(1, 3 * mm))
             continue
         rows = [["章节", "学习时长"]]
         for chapter in item["chapters"]:
-            rows.append([chapter.title, format_duration(item["durations"].get(chapter.id, 0))])
+            rows.append([xml_escape(chapter.title), format_duration(item["durations"].get(chapter.id, 0))])
         if len(rows) > 1:
             table = Table(rows, colWidths=[110 * mm, 50 * mm])
             table.setStyle(
@@ -146,7 +147,7 @@ def build_study_report(db: Session, organization: Organization, user: User, cour
         if item["key_points"]:
             story.append(Paragraph("学习重点", styles["h2"]))
             for point in item["key_points"]:
-                story.append(Paragraph(f"• {point}", styles["point"]))
+                story.append(Paragraph(f"• {xml_escape(str(point))}", styles["point"]))
         story.append(Spacer(1, 3 * mm))
     buffer = BytesIO()
     document = SimpleDocTemplate(buffer, pagesize=A4, title="学习档案", leftMargin=20 * mm, rightMargin=20 * mm)

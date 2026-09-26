@@ -161,6 +161,34 @@ def test_database_type_rejects_unknown_value() -> None:
         )
 
 
+def test_organization_name_rejects_env_injection() -> None:
+    for malicious in ("Acme\nALLOW_REGISTRATION=true", "Acme\r\nALLOW_REGISTRATION=true", "Acme=evil"):
+        with pytest.raises(ValueError):
+            SetupInitializeIn(
+                organization_name=malicious,
+                admin_email="admin@example.com",
+                admin_password="super-secret-123",
+                database=DatabaseConfigIn(
+                    database_type="postgresql", host="db.example.com", port=5432, database="learn", username="u", password="p"
+                ),
+            )
+
+
+def test_database_host_rejects_metacharacters() -> None:
+    for host in ("db.example.com\nALLOW_REGISTRATION=true", "db.example.com/path", "db@example.com", "db.example.com?x=1"):
+        with pytest.raises(ValueError):
+            DatabaseConfigIn(database_type="postgresql", host=host, port=5432, database="learn", username="u", password="p")
+
+
+def test_setup_endpoint_rejects_non_loopback() -> None:
+    from app.main import create_app
+
+    app = create_app()
+    with TestClient(app, client=("203.0.113.5", 50000)) as remote:
+        assert remote.get("/api/v1/setup/status").status_code == 403
+        assert remote.post("/api/v1/setup/test-database", json=make_initialize_payload().database.model_dump()).status_code == 403
+
+
 def test_write_env_file_preserves_existing_pepper_on_reinitialize() -> None:
     env_path = Path("tests/.setup-pepper-keep.env")
     if env_path.exists():

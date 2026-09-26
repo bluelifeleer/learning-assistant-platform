@@ -1,8 +1,11 @@
 import base64
 import binascii
+from datetime import UTC, datetime
+import logging
 from pathlib import Path
 
 from fastapi import BackgroundTasks, HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -10,6 +13,8 @@ from app.models.entities import ApiToken, Chapter, Course, Membership, Note, Not
 from app.schemas.capture import ChapterSnapshotIn, CourseSnapshotIn, NoteCaptureIn, NoteImageCaptureIn, ScreenshotCaptureIn, TranscriptSegmentIn, VideoEventIn
 from app.services import ai_tasks
 from app.services.plugins import hash_plugin_token
+
+logger = logging.getLogger(__name__)
 
 MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
 
@@ -39,6 +44,8 @@ def decode_base64_image(image_base64: str, too_large_detail: str = "Image too la
         content = base64.b64decode(data, validate=True)
     except (binascii.Error, ValueError):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image data") from None
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty image data")
     if len(content) > MAX_SCREENSHOT_BYTES:
         raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=too_large_detail)
     return content, suffix
@@ -50,7 +57,16 @@ class CaptureService:
 
     def _plugin_token(self, bearer_token: str) -> ApiToken:
         token_hash = hash_plugin_token(bearer_token)
-        token = self.db.query(ApiToken).filter(ApiToken.token_hash == token_hash, ApiToken.revoked_at.is_(None)).first()
+        now = datetime.now(UTC)
+        token = (
+            self.db.query(ApiToken)
+            .filter(
+                ApiToken.token_hash == token_hash,
+                ApiToken.revoked_at.is_(None),
+                or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
+            )
+            .first()
+        )
         if not token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid plugin token")
         return token
@@ -105,7 +121,8 @@ class CaptureService:
         return {"status": "accepted", "external_course_id": payload.external_course_id, "course_id": course.id}
 
     def accept_video_event(self, bearer_token: str, payload: VideoEventIn) -> dict[str, str]:
-        organization_id = self._organization_id_for_plugin_token(bearer_token)
+        token = self._plugin_token(bearer_token)
+        organization_id = token.organization_id
         event_payload = payload.payload or {}
         event = VideoCaptureEvent(
             organization_id=organization_id,
@@ -119,8 +136,72 @@ class CaptureService:
             payload=event_payload,
         )
         self.db.add(event)
+        self.db.flush()
+        if payload.event_type == "play":
+            # 追踪学习会话,填充 VideoSession 供学习时长/连续天数/继续学习等统计使用。
+            # 会话追踪失败不应阻断播放事件本身的上报。
+            try:
+                self._upsert_video_session(token, payload, event_payload)
+            except Exception:
+                logger.exception("failed to track video session for %s", payload.session_id)
         self.db.commit()
         return {"status": "accepted", "session_id": payload.session_id}
+
+    def _upsert_video_session(self, token: ApiToken, payload: VideoEventIn, event_payload: dict) -> None:
+        external_course_id = event_payload.get("external_course_id")
+        if not external_course_id:
+            return
+        course = (
+            self.db.query(Course)
+            .filter(Course.organization_id == token.organization_id, Course.external_course_id == external_course_id)
+            .first()
+        )
+        if not course:
+            return
+        external_chapter_id = event_payload.get("external_chapter_id")
+        chapter = None
+        if external_chapter_id:
+            chapter = (
+                self.db.query(Chapter)
+                .filter(Chapter.course_id == course.id, Chapter.external_chapter_id == external_chapter_id)
+                .first()
+            )
+        if not chapter:
+            return
+        user_id = self._capture_user_id(token)
+        session = (
+            self.db.query(VideoSession)
+            .filter(VideoSession.external_session_id == payload.session_id, VideoSession.user_id == user_id)
+            .first()
+        )
+        video_source = event_payload.get("video_source") or {}
+        source_url = (
+            event_payload.get("course_url")
+            or video_source.get("currentSrc")
+            or video_source.get("current_src")
+            or ""
+        )
+        now = datetime.now(UTC)
+        if not session:
+            session = VideoSession(
+                external_session_id=payload.session_id,
+                course_id=course.id,
+                chapter_id=chapter.id,
+                user_id=user_id,
+                started_at=now,
+                duration_watched_seconds=0,
+                source_url=source_url,
+            )
+            self.db.add(session)
+        else:
+            if source_url:
+                session.source_url = source_url
+            session.ended_at = None
+        if payload.video_time_seconds is not None:
+            reached = max(0, int(float(payload.video_time_seconds)))
+            if reached > (session.duration_watched_seconds or 0):
+                session.duration_watched_seconds = reached
+        self.db.flush()
 
     def accept_transcript_segment(self, bearer_token: str, payload: TranscriptSegmentIn, background_tasks: BackgroundTasks | None = None) -> dict[str, str]:
         organization_id = self._organization_id_for_plugin_token(bearer_token)

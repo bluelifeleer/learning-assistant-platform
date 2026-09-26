@@ -141,7 +141,8 @@ def _streak_days(dates: set[date], today: date) -> int:
 def learning_progress(user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> LearningProgressOut:
     organization = ensure_default_organization(db)
     today = date.today()
-    week_start = datetime.combine(today - timedelta(days=today.weekday()), datetime.min.time())
+    # aware 本地周一 00:00,与 timezone=True 的 started_at 列比较时避免 naive/aware 偏差
+    week_start = datetime.combine(today - timedelta(days=today.weekday()), datetime.min.time()).astimezone()
 
     week_seconds = (
         db.query(func.coalesce(func.sum(VideoSession.duration_watched_seconds), 0))

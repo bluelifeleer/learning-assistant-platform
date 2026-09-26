@@ -71,15 +71,26 @@ def _post_chat_completion(config: LLMConfig, messages: list[dict]) -> str:
         try:
             with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
                 response = client.post(url, headers=headers, json=payload)
-            if response.status_code >= 400:
-                raise LLMRequestError(f"LLM 请求失败: HTTP {response.status_code} {response.text[:500]}")
+        except httpx.HTTPError as exc:
+            last_error = exc
+            continue  # 网络错误可重试
+
+        if response.status_code >= 400:
+            message = f"LLM 请求失败: HTTP {response.status_code} {response.text[:500]}"
+            if response.status_code < 500:
+                # 客户端错误(如 401 坏 key、400 坏请求)重试无意义,直接失败
+                raise LLMRequestError(message)
+            last_error = LLMRequestError(message)
+            continue  # 5xx 可重试一次
+
+        try:
             data = response.json()
             content = data["choices"][0]["message"]["content"]
             if not isinstance(content, str) or not content.strip():
                 raise LLMRequestError("LLM 返回了空内容")
             return content
-        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, LLMRequestError) as exc:
-            last_error = exc
+        except (KeyError, IndexError, TypeError, ValueError, LLMRequestError) as exc:
+            last_error = exc  # 响应结构异常可重试一次
     raise LLMRequestError(str(last_error))
 
 

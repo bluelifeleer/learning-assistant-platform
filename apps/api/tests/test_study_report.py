@@ -165,6 +165,25 @@ def test_report_pdf_all_courses_includes_empty_course(report_client) -> None:
     assert len(content) > 500
 
 
+def test_report_pdf_escapes_xml_metacharacters(report_client) -> None:
+    client, session_factory = report_client
+    headers, user_id = register_headers(client)
+    ids = seed_course(session_factory, user_id, title="供应链 & <管理>")
+
+    db = session_factory()
+    try:
+        summary = db.query(ChapterSummary).first()
+        summary.key_points = ["重点 & <标签>"]
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post("/api/v1/exports", headers=headers, json={"course_id": ids["course_id"], "export_format": "report_pdf"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+
+
 def test_report_pdf_course_not_found(report_client) -> None:
     client, _ = report_client
     headers, _ = register_headers(client)

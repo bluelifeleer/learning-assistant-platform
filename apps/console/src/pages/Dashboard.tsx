@@ -75,7 +75,7 @@ export function Dashboard() {
         {summary ? (
           <div className="stat-grid">
             <StatCard label="课程" value={summary.courses} hash={buildRouteHash("课程")} />
-            <StatCard label="笔记" value={summary.notes} hash={buildRouteHash("课程")} />
+            <StatCard label="笔记" value={summary.notes} hash={buildRouteHash("笔记")} />
             <StatCard label="字幕" value={summary.transcripts} hash={buildRouteHash("课程")} />
             <StatCard label="播放事件" value={summary.play_events} hash={buildRouteHash("搜索")} />
             <StatCard label="今日待复习" value={dueCount ?? "-"} hash={buildRouteHash("复习")} />

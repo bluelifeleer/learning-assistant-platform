@@ -21,6 +21,7 @@ class PluginClientOut(BaseModel):
 
 class PluginTokenCreateOut(BaseModel):
     token: str
+    token_id: str
     client: PluginClientOut
 
 

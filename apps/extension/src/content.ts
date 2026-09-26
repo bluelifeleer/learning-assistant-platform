@@ -18,6 +18,8 @@ async function boot(): Promise<void> {
   const adapter = pickAdapter(new URL(location.href), config.enabledAdapters);
   if (!adapter) return;
   console.info("[Learning Assistant] adapter matched", adapter.id, location.hostname);
+  // 上报到 API 的页面 URL 只保留 origin+pathname,避免 query/fragment 中可能携带的 token 被采集
+  const reportPageUrl = location.origin + location.pathname;
 
   const course = adapter.extractCourse(document);
   const currentChapter = adapter.extractCurrentChapter(document);
@@ -140,7 +142,7 @@ async function boot(): Promise<void> {
 
   void client.post("/plugin-heartbeat", {
     extension_version: chrome.runtime.getManifest().version,
-    current_url: location.href,
+    current_url: reportPageUrl,
     adapter_id: adapter.id,
     adapter_name: adapter.name,
     enabled_adapters: config.enabledAdapters,
@@ -149,7 +151,7 @@ async function boot(): Promise<void> {
   if (course) {
     void client.post("/capture/course-snapshot", {
       adapter_id: adapter.id,
-      site_url: location.href,
+      site_url: reportPageUrl,
       external_course_id: course.externalCourseId,
       course_title: course.title,
       term: course.term,
@@ -178,7 +180,7 @@ async function boot(): Promise<void> {
     overlay?.update({ courseTitle: freshCourse.title });
     void client.post("/capture/course-snapshot", {
       adapter_id: adapter.id,
-      site_url: location.href,
+      site_url: reportPageUrl,
       external_course_id: freshCourse.externalCourseId,
       course_title: freshCourse.title,
       term: freshCourse.term,
@@ -195,7 +197,7 @@ async function boot(): Promise<void> {
       event_type: eventType,
       video_time_seconds: video?.currentTime,
       payload: {
-        course_url: location.href,
+        course_url: reportPageUrl,
         external_course_id: course?.externalCourseId,
         // 章节树由页面异步渲染,boot 时的提取可能失败退回 item id;上报时实时提取
         external_chapter_id: currentChapterId(),
@@ -206,7 +208,7 @@ async function boot(): Promise<void> {
 
   void collectAndReportSubtitleTrackFiles({
     document,
-    locationHref: location.href,
+    locationHref: reportPageUrl,
     client,
     fetchSubtitleFileText,
     externalCourseId: course?.externalCourseId ?? location.href,

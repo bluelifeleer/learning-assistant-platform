@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -70,6 +70,7 @@ class ApiToken(Base):
     token_hash: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -132,6 +133,7 @@ class VideoSession(Base):
     __tablename__ = "video_sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    external_session_id: Mapped[str | None] = mapped_column(String(255), index=True)
     course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
     chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -281,6 +283,18 @@ class ChapterSummary(Base, TimestampMixin):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class ChapterMemo(Base, TimestampMixin):
+    """章节总结:用户在课程详情页手写/编辑的总结,与 AI 生成的 ChapterSummary 相互独立。"""
+
+    __tablename__ = "chapter_memos"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    chapter_id: Mapped[str] = mapped_column(ForeignKey("chapters.id"), nullable=False, unique=True)
+    course_id: Mapped[str] = mapped_column(ForeignKey("courses.id"), nullable=False)
+    content_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class CourseSummary(Base, TimestampMixin):
     __tablename__ = "course_summaries"
 
@@ -324,6 +338,19 @@ class QuizAttempt(Base, TimestampMixin):
 
 class AiTask(Base, TimestampMixin):
     __tablename__ = "ai_tasks"
+    __table_args__ = (
+        # 同一章节/课程的同一类任务只允许存在一个活跃(pending/running)实例,防止并发重复生成。
+        # email_digest 等 course_id/chapter_id 为 NULL 的组织级任务不受此约束(NULL 在唯一索引中互不相同)。
+        Index(
+            "uq_ai_task_active",
+            "task_type",
+            "course_id",
+            "chapter_id",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'running')"),
+            sqlite_where=text("status IN ('pending', 'running')"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)

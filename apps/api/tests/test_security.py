@@ -1,3 +1,33 @@
+from uuid import uuid4
+
+
+def test_login_rate_limited_after_repeated_failures(client):
+    account = f"ratelimit-{uuid4().hex}@example.com"
+    for _ in range(10):
+        response = client.post("/api/v1/auth/login", json={"account": account, "password": "wrong-password"})
+        assert response.status_code == 401
+
+    blocked = client.post("/api/v1/auth/login", json={"account": account, "password": "wrong-password"})
+    assert blocked.status_code == 429
+
+
+def test_member_cannot_access_owner_endpoints(client):
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={"email": f"member-{uuid4().hex[:8]}@example.com", "password": "secret123", "display_name": "Member"},
+    )
+    assert registration.status_code == 200
+    headers = {"Authorization": f"Bearer {registration.json()['token']}"}
+
+    assert client.get("/api/v1/settings", headers=headers).status_code == 403
+    assert client.put("/api/v1/ai/settings", headers=headers, json={}).status_code == 403
+    assert client.put("/api/v1/email/settings", headers=headers, json={}).status_code == 403
+    assert client.post("/api/v1/plugin-tokens", json={"name": "x"}, headers=headers).status_code == 403
+
+    # 普通成员仍可访问业务接口
+    assert client.get("/api/v1/courses", headers=headers).status_code == 200
+
+
 def test_business_endpoints_require_authentication(client):
     checks = [
         ("GET", "/api/v1/courses"),

@@ -43,14 +43,23 @@ export function buildRouteHash(page: ConsolePage, options: RouteOptions = {}): s
   return `#/${slug}`;
 }
 
+function safeDecode(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null; // 畸形 hash(如非法百分号编码)不应让应用崩溃
+  }
+}
+
 export function parseRouteHash(hash: string): RouteState {
   const fallback: RouteState = { page: "总览", courseId: null, chapterId: null, settingsTab: null };
   const segments = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const page = SLUG_TO_PAGE[segments[0] ?? ""];
   if (!page) return fallback;
   if (page === "课程") {
-    const courseId = segments[1] ? decodeURIComponent(segments[1]) : null;
-    const chapterId = segments[2] === "ch" && segments[3] ? decodeURIComponent(segments[3]) : null;
+    const courseId = safeDecode(segments[1]);
+    const chapterId = segments[2] === "ch" && segments[3] ? safeDecode(segments[3]) : null;
     return { page, courseId, chapterId, settingsTab: null };
   }
   if (page === "系统设置") {

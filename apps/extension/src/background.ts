@@ -18,6 +18,10 @@ registerContentScriptReinjection();
 registerPeriodicHeartbeat();
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  // 仅接受来自本扩展自身的消息(内容脚本/扩展页面),拒绝外部页面冒用特权能力。
+  if (sender.id !== chrome.runtime.id) {
+    return false;
+  }
   if (isSubtitleFetchRequest(message)) {
     void handleSubtitleFetchMessage(message).then(sendResponse);
     return true;

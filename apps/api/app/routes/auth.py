@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.deps import require_bearer_token
+from app.core.ratelimit import login_limiter, register_limiter
 from app.db.session import get_db
 from app.schemas.auth import AuthTokenOut, LoginIn, PasswordChangeIn, RegisterIn, UserOut, UserUpdateIn
 from app.services.auth import AuthService, user_out
@@ -14,16 +15,37 @@ def get_auth_service(db: Session = Depends(get_db)) -> AuthService:
     return AuthService(db)
 
 
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/register", response_model=AuthTokenOut)
-def register(payload: RegisterIn, service: AuthService = Depends(get_auth_service)) -> AuthTokenOut:
+def register(payload: RegisterIn, request: Request, service: AuthService = Depends(get_auth_service)) -> AuthTokenOut:
     if not get_settings().allow_registration:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Registration is disabled")
-    return service.register(payload)
+    key = f"register:{_client_ip(request)}:{payload.email.lower()}"
+    if not register_limiter.allow(key):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many registration attempts, please try again later")
+    try:
+        result = service.register(payload)
+    except HTTPException:
+        raise
+    register_limiter.reset(key)
+    return result
 
 
 @router.post("/login", response_model=AuthTokenOut)
-def login(payload: LoginIn, service: AuthService = Depends(get_auth_service)) -> AuthTokenOut:
-    return service.login(payload)
+def login(payload: LoginIn, request: Request, service: AuthService = Depends(get_auth_service)) -> AuthTokenOut:
+    account = (payload.account or "").strip().lower()
+    key = f"login:{_client_ip(request)}:{account}"
+    if not login_limiter.allow(key):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts, please try again later")
+    try:
+        result = service.login(payload)
+    except HTTPException:
+        raise
+    login_limiter.reset(key)
+    return result
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

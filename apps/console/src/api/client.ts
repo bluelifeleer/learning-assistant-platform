@@ -242,10 +242,23 @@ function checkResponse(response: Response, path: string): void {
   if (!response.ok) throw new ApiError(path, response.status);
 }
 
+const DEFAULT_TIMEOUT_MS = 30000;
+
+function requestSignal(signal?: AbortSignal): AbortSignal | undefined {
+  // 调用方已提供 signal(轮询等自行管理超时/取消)时直接沿用;
+  // 否则套一个默认超时,避免登录/搜索/下载等单次请求无限挂起导致 UI 卡死。
+  if (signal) return signal;
+  try {
+    return AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
+  } catch {
+    return undefined;
+  }
+}
+
 async function postJson<T>(path: string, body: unknown, token?: string, method = "POST", signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    signal,
+    signal: requestSignal(signal),
     headers: { "content-type": "application/json", ...authHeaders(resolveToken(token)) },
     body: JSON.stringify(body),
   });
@@ -256,6 +269,7 @@ async function postJson<T>(path: string, body: unknown, token?: string, method =
 async function deleteResource(path: string, token?: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "DELETE",
+    signal: requestSignal(),
     headers: authHeaders(resolveToken(token)),
   });
   checkResponse(response, path);
@@ -263,7 +277,7 @@ async function deleteResource(path: string, token?: string): Promise<void> {
 
 async function getJson<T>(path: string, token?: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    signal,
+    signal: requestSignal(signal),
     headers: authHeaders(resolveToken(token)),
   });
   checkResponse(response, path);
@@ -272,6 +286,7 @@ async function getJson<T>(path: string, token?: string, signal?: AbortSignal): P
 
 async function getBlob(path: string, token?: string): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    signal: requestSignal(),
     headers: authHeaders(resolveToken(token)),
   });
   checkResponse(response, path);
@@ -387,6 +402,20 @@ export async function deleteScreenshot(screenshotId: string, token?: string): Pr
 
 export async function fetchCourseDetail(id: string, token?: string): Promise<CourseDetail> {
   return getJson<CourseDetail>(`/courses/${id}/detail`, token);
+}
+
+export interface ChapterMemo {
+  chapter_id: string;
+  content_md: string;
+  updated_at?: string | null;
+}
+
+export async function fetchChapterMemo(chapterId: string, token?: string): Promise<ChapterMemo> {
+  return getJson<ChapterMemo>(`/courses/chapters/${chapterId}/memo`, token);
+}
+
+export async function saveChapterMemo(chapterId: string, contentMd: string, token?: string): Promise<ChapterMemo> {
+  return postJson<ChapterMemo>(`/courses/chapters/${chapterId}/memo`, { content_md: contentMd }, token, "PUT");
 }
 
 export interface CourseVideoSourceItem {
@@ -515,6 +544,10 @@ export async function fetchAllNotes(courseId?: string, tag?: string, token?: str
 
 export async function createNote(payload: NoteCreatePayload, token?: string): Promise<NoteItem> {
   return postJson<NoteItem>("/notes", payload, token);
+}
+
+export async function updateNote(noteId: string, content: string, token?: string): Promise<NoteItem> {
+  return postJson<NoteItem>(`/notes/${noteId}`, { content }, token, "PATCH");
 }
 
 export async function saveNoteCorrection(noteId: string, correctedContent: string | null, token?: string): Promise<NoteItem> {
@@ -760,7 +793,6 @@ export async function askCourseQuestion(payload: AskPayload, token?: string): Pr
 export interface QuizAttemptItem {
   question_id: string;
   chosen: string;
-  correct: boolean;
 }
 
 export interface QuizAttemptsResponse {

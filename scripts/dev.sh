@@ -28,6 +28,18 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$API_DIR"
+
+# 启动前先应用数据库迁移,避免代码与库结构不一致(与 Windows 的 dev.ps1 保持一致)
+echo "[migrate] 正在应用数据库迁移..."
+set +e
+"$PYTHON" -m alembic upgrade head 2>&1 | sed 's/^/[migrate] /'
+migrate_exit="${PIPESTATUS[0]}"
+set -e
+if [[ "$migrate_exit" -ne 0 ]]; then
+  echo "[migrate] 数据库迁移失败,请检查数据库连接 (exit code $migrate_exit)" >&2
+  exit 1
+fi
+
 "$PYTHON" -m uvicorn app.main:app --host 127.0.0.1 --port "$API_PORT" &
 API_PID=$!
 

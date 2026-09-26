@@ -66,7 +66,8 @@ export function submitAnswer(state: QuizSessionState): QuizSessionState {
     choice: state.pendingChoice,
     correct: isCorrectAnswer(question, state.pendingChoice),
   };
-  const attempt: QuizAttemptItem = { question_id: question.id, chosen: state.pendingChoice, correct: record.correct };
+  // 判分由服务端完成,这里只提交作答,不再上送客户端的 correct 结论
+  const attempt: QuizAttemptItem = { question_id: question.id, chosen: state.pendingChoice };
   return { ...state, phase: "reviewed", answers: [...state.answers, record], attempts: [...state.attempts, attempt] };
 }
 

@@ -31,6 +31,10 @@ def assemble_transcript(db: Session, chapter_id: str) -> str:
 
 
 def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    if size <= 0:
+        raise ValueError("size 必须大于 0")
+    if overlap >= size:
+        overlap = 0  # 避免步长为 0 或负数导致死循环
     if len(text) <= size:
         return [text]
     chunks = []

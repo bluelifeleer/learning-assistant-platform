@@ -156,6 +156,20 @@ class NoteItem(BaseModel):
     created_at: datetime | None = None
 
 
+class NoteUpdateIn(BaseModel):
+    content: str = Field(min_length=1, max_length=20000)
+
+
+class ChapterMemoOut(BaseModel):
+    chapter_id: str
+    content_md: str = ""
+    updated_at: datetime | None = None
+
+
+class ChapterMemoIn(BaseModel):
+    content_md: str = Field(default="", max_length=50000)
+
+
 class NoteCorrectionIn(BaseModel):
     corrected_content: str | None = None
 
@@ -283,7 +297,6 @@ class NoteImageUploadOut(BaseModel):
 class QuizAttemptItemIn(BaseModel):
     question_id: str = Field(min_length=1)
     chosen: str = Field(default="")
-    correct: bool = False
 
 
 class QuizAttemptsIn(BaseModel):

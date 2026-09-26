@@ -3,6 +3,7 @@ from hashlib import sha256
 from secrets import token_urlsafe
 
 from fastapi import HTTPException, status
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -18,7 +19,8 @@ def hash_plugin_token(token: str) -> str:
 
 
 def ensure_default_organization(db: Session) -> Organization:
-    organization = db.query(Organization).first()
+    # 多组织时取最早创建的组织作为"默认",保证确定性
+    organization = db.query(Organization).order_by(Organization.created_at.asc()).first()
     if organization:
         return organization
     organization = Organization(name=get_settings().default_org_name, plan="local", license_status="inactive")
@@ -70,11 +72,27 @@ class PluginService:
         self.db.add(client)
         self.db.commit()
         self.db.refresh(client)
-        return PluginTokenCreateOut(token=plain_token, client=client_out(client))
+        return PluginTokenCreateOut(token=plain_token, token_id=token.id, client=client_out(client))
+
+    def revoke_token(self, token_id: str) -> None:
+        token = self.db.query(ApiToken).filter(ApiToken.id == token_id, ApiToken.user_id.is_(None)).first()
+        if not token:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plugin token not found")
+        token.revoked_at = datetime.now(UTC)
+        self.db.commit()
 
     def heartbeat(self, bearer_token: str, payload: PluginHeartbeatIn) -> PluginHeartbeatOut:
         token_hash = hash_plugin_token(bearer_token)
-        token = self.db.query(ApiToken).filter(ApiToken.token_hash == token_hash, ApiToken.revoked_at.is_(None)).first()
+        now = datetime.now(UTC)
+        token = (
+            self.db.query(ApiToken)
+            .filter(
+                ApiToken.token_hash == token_hash,
+                ApiToken.revoked_at.is_(None),
+                or_(ApiToken.expires_at.is_(None), ApiToken.expires_at > now),
+            )
+            .first()
+        )
         if not token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid plugin token")
         client = self.db.query(PluginClient).filter(PluginClient.token_id == token.id).first()

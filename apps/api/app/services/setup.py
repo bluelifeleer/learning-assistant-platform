@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 import secrets
 from urllib.parse import quote
@@ -10,6 +11,10 @@ from sqlalchemy.orm import Session
 from app.models.entities import Membership, Organization, User
 from app.schemas.setup import DatabaseConfigIn, DatabaseTestOut, SetupInitializeIn, SetupStatusOut
 from app.services.auth import hash_password
+
+logger = logging.getLogger(__name__)
+
+PLACEHOLDER_PEPPER = "change-me-token-pepper"
 
 REQUIRED_TABLES = {
     "organizations",
@@ -73,24 +78,44 @@ def parse_env(path: Path) -> dict[str, str]:
     return values
 
 
+def setup_locked(env_path: Path | None = None) -> bool:
+    """安装完成后(pepper 已生成)即永久锁定,不再依赖数据库当前是否可达。
+
+    这样数据库临时宕机时不会重新暴露 setup 端点,防止未鉴权攻击者覆盖 .env。
+    """
+    path = env_path or default_env_path()
+    if not path.exists():
+        return False
+    pepper = parse_env(path).get("API_TOKEN_PEPPER")
+    return bool(pepper) and pepper != PLACEHOLDER_PEPPER
+
+
 def test_database_connection(database_url: str) -> DatabaseTestOut:
     try:
         engine = create_engine(database_url, pool_pre_ping=True)
-        with engine.connect() as connection:
-            connection.exec_driver_sql("SELECT 1")
+        try:
+            with engine.connect() as connection:
+                connection.exec_driver_sql("SELECT 1")
+        finally:
+            engine.dispose()
         return DatabaseTestOut(ok=True, database_url=mask_database_url(database_url))
     except Exception as exc:  # SQLAlchemy wraps DB-driver import and connection errors differently.
-        return DatabaseTestOut(ok=False, database_url=mask_database_url(database_url), error=str(exc))
+        logger.warning("database connection test failed", exc_info=True)
+        return DatabaseTestOut(ok=False, database_url=mask_database_url(database_url), error="数据库连接失败,请检查主机、端口、账号和密码")
 
 
 def schema_has_required_tables(database_url: str, required_tables: set[str]) -> tuple[bool, bool, str | None]:
     try:
         engine = create_engine(database_url, pool_pre_ping=True)
-        with engine.connect() as connection:
-            tables = set(inspect(connection).get_table_names())
+        try:
+            with engine.connect() as connection:
+                tables = set(inspect(connection).get_table_names())
+        finally:
+            engine.dispose()
         return True, required_tables.issubset(tables), None
     except Exception as exc:
-        return False, False, str(exc)
+        logger.warning("schema inspection failed", exc_info=True)
+        return False, False, "数据库连接失败,无法读取表结构"
 
 
 def read_setup_status(env_path: Path | None = None, required_tables: set[str] | None = None) -> SetupStatusOut:
@@ -99,6 +124,7 @@ def read_setup_status(env_path: Path | None = None, required_tables: set[str] | 
     required = required_tables or REQUIRED_TABLES
     database_url = env.get("DATABASE_URL", "")
     database_type = env.get("DATABASE_TYPE")
+    previously_installed = setup_locked(env_path=path)
 
     if not path.exists():
         return SetupStatusOut(
@@ -118,6 +144,7 @@ def read_setup_status(env_path: Path | None = None, required_tables: set[str] | 
             database_configured=False,
             database_connected=False,
             schema_initialized=False,
+            previously_installed=previously_installed,
             database_type=database_type,
             next_step="Configure a remote or local database",
         )
@@ -130,6 +157,7 @@ def read_setup_status(env_path: Path | None = None, required_tables: set[str] | 
             database_configured=True,
             database_connected=False,
             schema_initialized=False,
+            previously_installed=previously_installed,
             database_type=database_type,
             next_step="Fix database connection settings",
             error=error,
@@ -142,6 +170,7 @@ def read_setup_status(env_path: Path | None = None, required_tables: set[str] | 
             database_configured=True,
             database_connected=True,
             schema_initialized=False,
+            previously_installed=previously_installed,
             database_type=database_type,
             next_step="Initialize database schema",
         )
@@ -152,6 +181,7 @@ def read_setup_status(env_path: Path | None = None, required_tables: set[str] | 
         database_configured=True,
         database_connected=True,
         schema_initialized=True,
+        previously_installed=True,
         database_type=database_type,
         next_step="Open console",
     )

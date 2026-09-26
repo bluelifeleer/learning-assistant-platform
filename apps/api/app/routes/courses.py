@@ -6,10 +6,12 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_current_user
 from app.db.session import get_db
-from app.models.entities import Chapter, ChapterSummary, Course, Note, QuizQuestion, Screenshot, Site, TranscriptSegment, User, VideoSession
+from app.models.entities import Chapter, ChapterMemo, ChapterSummary, Course, Note, QuizQuestion, Screenshot, Site, TranscriptSegment, User, VideoSession
 from app.schemas.workspace import (
     ChapterDetailOut,
     ChapterFlagsOut,
+    ChapterMemoIn,
+    ChapterMemoOut,
     CourseCreateIn,
     ChapterNoteOut,
     ChapterOut,
@@ -125,6 +127,11 @@ def get_course_detail(course_id: str, user: User = Depends(require_current_user)
             notes_by_chapter.setdefault(note.chapter_id, []).append(note)
     flags_by_chapter = _chapter_flags(db, chapter_ids, user.id)
 
+    # 预先按 parent_id 分组,避免 build_node 对每个节点都全量扫描 chapters(O(n²))
+    children_by_parent: dict[str | None, list[Chapter]] = {}
+    for chapter in chapters:
+        children_by_parent.setdefault(chapter.parent_id, []).append(chapter)
+
     def build_node(chapter: Chapter) -> ChapterDetailOut:
         return ChapterDetailOut(
             id=chapter.id,
@@ -156,7 +163,7 @@ def get_course_detail(course_id: str, user: User = Depends(require_current_user)
                 )
                 for note in notes_by_chapter.get(chapter.id, [])
             ],
-            children=[build_node(child) for child in chapters if child.parent_id == chapter.id],
+            children=[build_node(child) for child in children_by_parent.get(chapter.id, [])],
         )
 
     roots = [chapter for chapter in chapters if not chapter.parent_id or chapter.parent_id not in chapter_ids]
@@ -237,3 +244,27 @@ def create_manual_course(payload: CourseCreateIn, user: User = Depends(require_c
         note_count=0,
         updated_at=course.updated_at,
     )
+
+
+@router.get("/chapters/{chapter_id}/memo", response_model=ChapterMemoOut)
+def read_chapter_memo(chapter_id: str, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ChapterMemoOut:
+    memo = db.query(ChapterMemo).filter(ChapterMemo.chapter_id == chapter_id).first()
+    if not memo:
+        return ChapterMemoOut(chapter_id=chapter_id, content_md="", updated_at=None)
+    return ChapterMemoOut(chapter_id=memo.chapter_id, content_md=memo.content_md, updated_at=memo.updated_at)
+
+
+@router.put("/chapters/{chapter_id}/memo", response_model=ChapterMemoOut)
+def save_chapter_memo(chapter_id: str, payload: ChapterMemoIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ChapterMemoOut:
+    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    memo = db.query(ChapterMemo).filter(ChapterMemo.chapter_id == chapter_id).first()
+    if not memo:
+        memo = ChapterMemo(chapter_id=chapter_id, course_id=chapter.course_id, content_md=payload.content_md)
+        db.add(memo)
+    else:
+        memo.content_md = payload.content_md
+    db.commit()
+    db.refresh(memo)
+    return ChapterMemoOut(chapter_id=memo.chapter_id, content_md=memo.content_md, updated_at=memo.updated_at)

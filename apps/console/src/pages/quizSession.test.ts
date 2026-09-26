@@ -120,14 +120,14 @@ describe("quizSession", () => {
     expect(summary.wrong.map((record) => record.question.id)).toEqual(["2", "3"]);
   });
 
-  it("accumulates attempts with question_id, chosen and correct on each submission", () => {
+  it("accumulates attempts with question_id and chosen on each submission", () => {
     let session = createQuizSession([question("1"), question("2")]);
     session = nextQuestion(submitAnswer(selectChoice(session, "乙")));
     session = nextQuestion(submitAnswer(selectChoice(session, "甲")));
 
     expect(session.attempts).toEqual([
-      { question_id: "1", chosen: "乙", correct: true },
-      { question_id: "2", chosen: "甲", correct: false },
+      { question_id: "1", chosen: "乙" },
+      { question_id: "2", chosen: "甲" },
     ]);
   });
 

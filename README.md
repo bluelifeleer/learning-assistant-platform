@@ -140,7 +140,9 @@ password=learn_assistant
 
 ## 数据库迁移
 
-安装器初始化会自动执行 Alembic 迁移。已有安装升级代码后,需要手动应用新迁移:
+安装器初始化会自动执行 Alembic 迁移。日常启动时,`scripts\dev.ps1`(Windows)和 `scripts/dev.sh`(macOS / Linux)都会在启动 API 前自动执行 `alembic upgrade head`;迁移失败会中止启动并提示检查数据库连接(`start-macos.command` / `start-linux.sh` 内部调用 `dev.sh`,行为一致)。
+
+如需手动应用(例如只升级代码、暂不启动服务):
 
 ```powershell
 Set-Location apps\api
@@ -152,6 +154,14 @@ macOS / Linux:
 ```bash
 cd apps/api
 ./.venv/bin/python -m alembic upgrade head
+```
+
+查看当前版本 / 回退一步:
+
+```bash
+cd apps/api
+./.venv/bin/python -m alembic current
+./.venv/bin/python -m alembic downgrade -1
 ```
 
 ## 开放注册

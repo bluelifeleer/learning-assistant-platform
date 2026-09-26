@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.entities import Organization
-from app.services.digest import digest_is_due, send_digest
+from app.services.digest import claim_digest_slot, digest_is_due, send_digest
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +22,17 @@ def smtp_ready(organization: Organization) -> bool:
 def run_digest_tick(session_factory: Callable[[], Session] = SessionLocal, now: datetime | None = None) -> None:
     db = session_factory()
     try:
+        effective_now = now or datetime.now().astimezone()
         organizations = db.query(Organization).filter(Organization.digest_auto.is_(True)).all()
         for organization in organizations:
             try:
                 if not smtp_ready(organization):
                     continue
-                if digest_is_due(organization, now or datetime.now()):
-                    send_digest(db, organization)
+                if not digest_is_due(organization, effective_now):
+                    continue
+                if not claim_digest_slot(db, organization, effective_now):
+                    continue
+                send_digest(db, organization, effective_now)
             except Exception:
                 logger.exception("digest send failed for organization %s", organization.id)
     finally:

@@ -120,3 +120,52 @@ def test_video_event_rejects_invalid_plugin_token(client) -> None:
     )
 
     assert response.status_code == 401
+
+
+def test_play_event_creates_video_session_for_progress(client, auth_headers) -> None:
+    token = client.post("/api/v1/plugin-tokens", json={"name": "Edge local"}, headers=auth_headers).json()["token"]
+    plugin_headers = {"authorization": f"Bearer {token}"}
+
+    snapshot = client.post(
+        "/api/v1/capture/course-snapshot",
+        headers=plugin_headers,
+        json={
+            "adapter_id": "wencai-school",
+            "site_url": "https://learning.example.com/",
+            "external_course_id": "course-progress",
+            "course_title": "测试课程",
+            "chapters": [
+                {
+                    "external_chapter_id": "chapter-progress",
+                    "title": "第1章",
+                    "sort_order": 1,
+                    "children": [],
+                }
+            ],
+        },
+    )
+    assert snapshot.status_code == 200
+
+    play = client.post(
+        "/api/v1/capture/video-event",
+        headers=plugin_headers,
+        json={
+            "session_id": "wencai:course-progress:chapter-progress",
+            "event_type": "play",
+            "video_time_seconds": 150.0,
+            "payload": {
+                "course_url": "https://learning.example.com/",
+                "external_course_id": "course-progress",
+                "external_chapter_id": "chapter-progress",
+                "video_source": {"currentSrc": "https://cdn.example.com/lesson.mp4"},
+            },
+        },
+    )
+    assert play.status_code == 200
+
+    progress = client.get("/api/v1/stats/learning-progress", headers=auth_headers)
+    assert progress.status_code == 200
+    body = progress.json()
+    assert body["continue_learning"] is not None
+    assert body["continue_learning"]["chapter_id"] is not None
+    assert body["week_minutes"] >= 2  # 150 秒 → 2 分钟

@@ -33,21 +33,21 @@ def ocr_screenshot(db: Session, screenshot: Screenshot, config: llm.LLMConfig, v
     return text
 
 
-def _has_ocr_segment(db: Session, screenshot: Screenshot) -> bool:
+def _has_ocr_segment(db: Session, screenshot: Screenshot, text: str) -> bool:
+    query = db.query(TranscriptSegment.id).filter(
+        TranscriptSegment.chapter_id == screenshot.chapter_id,
+        TranscriptSegment.source == OCR_SOURCE,
+    )
     if screenshot.video_time_seconds is None:
-        return False
-    center = float(screenshot.video_time_seconds)
-    return (
-        db.query(TranscriptSegment.id)
-        .filter(
-            TranscriptSegment.chapter_id == screenshot.chapter_id,
-            TranscriptSegment.source == OCR_SOURCE,
+        # 无时间点的截图按识别文本去重(ocr_text 已缓存,文本跨次运行稳定)
+        query = query.filter(TranscriptSegment.start_seconds.is_(None), TranscriptSegment.text == text)
+    else:
+        center = float(screenshot.video_time_seconds)
+        query = query.filter(
             TranscriptSegment.start_seconds >= center - OCR_TIME_TOLERANCE_SECONDS,
             TranscriptSegment.start_seconds <= center + OCR_TIME_TOLERANCE_SECONDS,
         )
-        .first()
-        is not None
-    )
+    return query.first() is not None
 
 
 def ocr_chapter(db: Session, chapter: Chapter, organization: Organization, config: llm.LLMConfig) -> int:
@@ -66,7 +66,7 @@ def ocr_chapter(db: Session, chapter: Chapter, organization: Organization, confi
     vision_model = _vision_model(organization)
     for screenshot in screenshots:
         text = ocr_screenshot(db, screenshot, config, vision_model)
-        if not text or _has_ocr_segment(db, screenshot):
+        if not text or _has_ocr_segment(db, screenshot, text):
             continue
         db.add(
             TranscriptSegment(

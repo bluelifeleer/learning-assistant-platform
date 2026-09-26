@@ -1608,6 +1608,52 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+/* ============ 区块标题行 / 章节总结 ============ */
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-head > h3 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.memo-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.memo-editor textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 160px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.memo-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* ============ 搜索 / 导出紧凑表单 ============ */
 
 .search-form {
@@ -1893,6 +1939,13 @@ button.stat-card-link:focus-visible {
   margin: 4px 0 0;
   color: var(--text-tertiary);
   white-space: pre-wrap;
+}
+
+.modal-hint {
+  margin: 6px 0 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 /* ============ 弹窗字段行 / 详情页操作组 ============ */

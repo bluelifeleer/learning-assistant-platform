@@ -18,6 +18,10 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Learning Assistant API", version="0.1.0", lifespan=lifespan)
+    # CORS:浏览器插件的内容脚本会从任意学习站点页面(如 wencai/mooc 等)直接调用本 API,
+    # 这些请求携带的是页面自身 Origin,无法预先枚举,因此必须放开 Origin。
+    # 关键防护是 allow_credentials=False:业务鉴权走 Authorization: Bearer 头(不会随跨域请求
+    # 自动携带),且不启用任何 Cookie 会话,恶意站点无法借 CORS 读取到用户数据。
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

@@ -50,7 +50,33 @@ describe("background subtitle fetch proxy", () => {
 
       expect(response).toEqual({
         ok: false,
-        error: "Unsupported subtitle URL: only http(s) URLs are allowed",
+        error: "Unsupported subtitle URL: only public http(s) URLs are allowed",
+      });
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects private/loopback/link-local subtitle urls without fetching", async () => {
+    const fetchMock = vi.fn();
+
+    for (const url of [
+      "http://127.0.0.1/latest/meta-data",
+      "http://169.254.169.254/latest/meta-data",
+      "http://10.0.0.5/secret.vtt",
+      "http://192.168.1.1/admin",
+      "http://172.16.0.1/secret.vtt",
+      "http://[::1]/secret.vtt",
+      "http://localhost/secret.vtt",
+      "http://internal.corp.local/secret.vtt",
+    ]) {
+      const response = await handleSubtitleFetchMessage(
+        { type: "learning-assistant:fetch-subtitle-file", url },
+        { fetch: fetchMock },
+      );
+
+      expect(response).toEqual({
+        ok: false,
+        error: "Unsupported subtitle URL: only public http(s) URLs are allowed",
       });
     }
     expect(fetchMock).not.toHaveBeenCalled();

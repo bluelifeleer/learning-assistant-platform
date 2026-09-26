@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.deps import require_current_user
+from app.core.deps import require_owner
 from app.db.session import get_db
 from app.models.entities import User
 from app.schemas.workspace import WorkspaceSettingsOut, WorkspaceSettingsUpdateIn
@@ -27,12 +27,12 @@ def settings_out(db: Session) -> WorkspaceSettingsOut:
 
 
 @router.get("", response_model=WorkspaceSettingsOut)
-def read_settings(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> WorkspaceSettingsOut:
+def read_settings(_: User = Depends(require_owner), db: Session = Depends(get_db)) -> WorkspaceSettingsOut:
     return settings_out(db)
 
 
 @router.put("", response_model=WorkspaceSettingsOut)
-def update_settings(payload: WorkspaceSettingsUpdateIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> WorkspaceSettingsOut:
+def update_settings(payload: WorkspaceSettingsUpdateIn, _: User = Depends(require_owner), db: Session = Depends(get_db)) -> WorkspaceSettingsOut:
     organization = ensure_default_organization(db)
     if payload.organization_name is not None:
         organization.name = payload.organization_name

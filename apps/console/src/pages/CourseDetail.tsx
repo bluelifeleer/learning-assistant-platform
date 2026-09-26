@@ -30,6 +30,7 @@ import {
   type ExportItem,
   type ScreenshotItem,
 } from "../api/client";
+import { ChapterMemoPanel } from "../components/ChapterMemoPanel";
 import { Modal } from "../components/Modal";
 import { NoteCard } from "../components/NoteCard";
 import { NoteEditorModal } from "../components/NoteEditorModal";
@@ -582,7 +583,7 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
     })
       .then(() => {
         toast.success("已转为笔记");
-        void reloadDetail();
+        void reloadDetail().catch(() => undefined);
       })
       .catch((error: unknown) => toast.error(aiActionErrorMessage(error, "转笔记失败")));
   }
@@ -593,7 +594,7 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
       () => requestChapterOcr(chapterId),
       (task) => {
         toast.success(`OCR 识别完成，新增 ${task.result_count} 段字幕`);
-        void reloadDetail();
+        void reloadDetail().catch(() => undefined);
       },
     );
   }
@@ -657,15 +658,20 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
     try {
       const created = await createExport({ course_id: courseId, export_format: exportFormat }, token);
       // 轮询任务状态,完成后直接触发下载
+      let finished = false;
       for (let attempt = 0; attempt < 8; attempt++) {
         const list = await fetchExports();
         const item = list.items.find((entry) => entry.id === created.id);
         if (item?.status === "completed") {
           await downloadExportFile(item, token);
+          finished = true;
           break;
         }
         if (item?.status === "failed") throw new Error("导出任务失败");
         await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+      if (!finished) {
+        throw new Error("导出超时,请稍后在导出记录中下载");
       }
       setExportOpen(false);
       setExportsRefreshKey((key) => key + 1);
@@ -767,7 +773,10 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
                 </div>
               </article>
               <article>
-                <h3>笔记</h3>
+                <div className="section-head">
+                  <h3>笔记</h3>
+                  <button type="button" className="text-button text-button-sm" onClick={() => setNoteEditorOpen(true)}>添加笔记</button>
+                </div>
                 <div className="record-list">
                   {selectedChapter.notes.length ? selectedChapter.notes.map((note) => (
                     <NoteCard
@@ -785,6 +794,7 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
                 </div>
               </article>
               <ChapterScreenshots courseId={courseId} chapterId={selectedChapter.id} />
+              <ChapterMemoPanel chapterId={selectedChapter.id} token={token} />
             </div>
           ) : null}
         </div>

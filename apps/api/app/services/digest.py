@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from html import escape
 
-from sqlalchemy import Integer, cast, func
+from sqlalchemy import Integer, cast, func, or_
 from sqlalchemy.orm import Session
 
 from app.models.entities import (
@@ -28,12 +28,24 @@ def digest_window(organization: Organization) -> timedelta:
     return WEEKLY_WINDOW if organization.digest_frequency == "weekly" else DAILY_WINDOW
 
 
+def _coerce_aware(value: datetime) -> datetime:
+    """把 naive 时间按本地时区补全为 aware,已 aware 的原样返回。
+
+    SQLite 测试环境下 timezone=True 列读回的是 naive,PostgreSQL 下读回 aware,
+    统一为 aware 后才能安全做减法/日期比较,避免 naive/aware 相减抛 TypeError。
+    """
+    if value.tzinfo is None:
+        return value.astimezone()
+    return value
+
+
 def digest_is_due(organization: Organization, now: datetime) -> bool:
     """纯函数:按服务器本地时间判断组织的自动学习总结是否到期。"""
     if not organization.digest_auto:
         return False
+    now = _coerce_aware(now)
     digest_hour = organization.digest_hour if organization.digest_hour is not None else 8
-    last = organization.last_digest_at
+    last = _coerce_aware(organization.last_digest_at) if organization.last_digest_at is not None else None
     if organization.digest_frequency == "weekly":
         # 每周一 digest_hour 点之后,且 7 天内未发送过
         if now.weekday() != 0 or now.hour < digest_hour:
@@ -103,7 +115,7 @@ def _stats_text(stats: dict) -> str:
 
 
 def build_digest(db: Session, organization: Organization, user: User | None, since: datetime) -> tuple[str, str, str]:
-    now = datetime.now()
+    now = datetime.now().astimezone()
     stats = collect_digest_stats(db, organization, since, now)
     stats_text = _stats_text(stats)
     subject = f"学习总结 {since:%Y-%m-%d} ~ {now:%Y-%m-%d}"
@@ -145,7 +157,31 @@ def build_digest(db: Session, organization: Organization, user: User | None, sin
     return subject, html_body, text_body
 
 
-def send_digest(db: Session, organization: Organization) -> None:
+def claim_digest_slot(db: Session, organization: Organization, now: datetime) -> bool:
+    """原子认领本次自动发送权,避免多 worker / 重复 tick 并发重复发送。
+
+    只有第一个把 last_digest_at 推进到 now 的进程会返回 True 并发送;
+    其余进程的 UPDATE 影响 0 行,返回 False 后跳过。认领在发送之前完成,
+    因此即使发信很慢或中途崩溃,也不会在同一窗口内重复发送。
+    """
+    now = _coerce_aware(now)
+    if organization.digest_frequency == "weekly":
+        threshold = now - WEEKLY_WINDOW
+    else:
+        threshold = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    updated = (
+        db.query(Organization)
+        .filter(
+            Organization.id == organization.id,
+            or_(Organization.last_digest_at.is_(None), Organization.last_digest_at < threshold),
+        )
+        .update({"last_digest_at": now}, synchronize_session=False)
+    )
+    db.commit()
+    return updated == 1
+
+
+def send_digest(db: Session, organization: Organization, now: datetime | None = None) -> None:
     """组织级聚合数据,发一封到 email_to,成功后更新 last_digest_at。"""
     config = email_config_for_organization(organization)
     user = (
@@ -155,7 +191,7 @@ def send_digest(db: Session, organization: Organization) -> None:
         .order_by(Membership.role.asc(), User.created_at.asc())
         .first()
     ) or db.query(User).order_by(User.created_at.asc()).first()
-    now = datetime.now()
+    now = now or datetime.now().astimezone()
     subject, html_body, text_body = build_digest(db, organization, user, now - digest_window(organization))
     send_email(config, config.email_to, subject, html_body, text_body)
     organization.last_digest_at = now

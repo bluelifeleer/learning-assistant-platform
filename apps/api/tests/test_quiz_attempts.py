@@ -109,6 +109,25 @@ def test_record_attempts_skips_unknown_questions(quiz_client) -> None:
     assert response.json() == {"recorded": 2}
 
 
+def test_record_attempts_grades_server_side_ignoring_client_correct(quiz_client) -> None:
+    client, session_factory = quiz_client
+    headers = register_headers(client)
+    ids = seed_course(session_factory)
+
+    # 客户端谎报 correct=false,但 chosen="甲" 恰是正确答案,服务端应按真实答案判为正确
+    response = client.post(
+        "/api/v1/quiz/attempts",
+        headers=headers,
+        json={"items": [{"question_id": ids["question_ids"][0], "chosen": "甲", "correct": False}]},
+    )
+    assert response.status_code == 200
+
+    mastery = client.get("/api/v1/stats/mastery", headers=headers).json()
+    assert mastery["items"][0]["correct"] == 1
+    assert mastery["items"][0]["total"] == 1
+    assert mastery["items"][0]["accuracy"] == 100.0
+
+
 def test_record_attempts_validates_batch_size(quiz_client) -> None:
     client, _ = quiz_client
     headers = register_headers(client)

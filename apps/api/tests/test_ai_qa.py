@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
-from app.models.entities import Chapter, ChapterSummary, Course, Site, TranscriptSegment
+from app.models.entities import Chapter, ChapterSummary, Course, Membership, Site, TranscriptSegment
 from app.services import ai_qa, llm
 from app.services.plugins import ensure_default_organization
 
@@ -42,13 +42,23 @@ def qa_client(monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None, N
     Base.metadata.drop_all(engine)
 
 
-def register_headers(client: TestClient) -> dict[str, str]:
+def register_headers(client: TestClient, session_factory=None) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/register",
         json={"email": "qa-user@example.com", "password": "secret123", "display_name": "QA User"},
     )
     assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['token']}"}
+    body = response.json()
+    if session_factory is not None:
+        db = session_factory()
+        try:
+            membership = db.query(Membership).filter(Membership.user_id == body["user"]["id"]).first()
+            if membership:
+                membership.role = "owner"
+                db.commit()
+        finally:
+            db.close()
+    return {"Authorization": f"Bearer {body['token']}"}
 
 
 def configure_llm(client: TestClient, headers: dict[str, str]) -> None:
@@ -229,7 +239,7 @@ def test_retrieve_context_truncated(qa_client, monkeypatch) -> None:
 
 def test_ask_endpoint_returns_answer_and_citations(qa_client, monkeypatch) -> None:
     client, session_factory = qa_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_qa_course(session_factory)
 
@@ -274,7 +284,7 @@ def test_ask_endpoint_returns_answer_and_citations(qa_client, monkeypatch) -> No
 
 def test_ask_endpoint_chapter_scope(qa_client) -> None:
     client, session_factory = qa_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_qa_course(session_factory)
 
@@ -291,7 +301,7 @@ def test_ask_endpoint_chapter_scope(qa_client) -> None:
 
 def test_ask_endpoint_requires_llm_configuration(qa_client) -> None:
     client, session_factory = qa_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_qa_course(session_factory)
 
     response = client.post("/api/v1/ai/ask", headers=headers, json={"course_id": ids["course_id"], "question": "梯度下降"})
@@ -300,7 +310,7 @@ def test_ask_endpoint_requires_llm_configuration(qa_client) -> None:
 
 def test_ask_endpoint_422_without_transcript(qa_client) -> None:
     client, session_factory = qa_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_qa_course(session_factory)
 
@@ -324,7 +334,7 @@ def test_ask_endpoint_422_without_transcript(qa_client) -> None:
 
 def test_ask_endpoint_404_for_missing_course_or_chapter(qa_client) -> None:
     client, session_factory = qa_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_qa_course(session_factory)
 
@@ -341,7 +351,7 @@ def test_ask_endpoint_404_for_missing_course_or_chapter(qa_client) -> None:
 
 def test_ask_endpoint_validates_history_role_and_question(qa_client) -> None:
     client, session_factory = qa_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_qa_course(session_factory)
 

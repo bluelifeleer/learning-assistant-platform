@@ -34,7 +34,7 @@ class AiTaskCreatedOut(BaseModel):
 class AiTaskOut(BaseModel):
     id: str
     task_type: str
-    course_id: str
+    course_id: str | None = None
     chapter_id: str | None = None
     status: str
     result_count: int

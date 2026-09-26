@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_bearer_token, require_current_user
+from app.core.deps import require_bearer_token, require_current_user, require_owner
 from app.db.session import get_db
 from app.models.entities import User
 from app.schemas.plugins import PluginHeartbeatIn, PluginHeartbeatOut, PluginStatusOut, PluginTokenCreateIn, PluginTokenCreateOut
@@ -50,10 +50,20 @@ def get_plugin_service(db: Session = Depends(get_db)) -> PluginService:
 @router.post("/plugin-tokens", response_model=PluginTokenCreateOut)
 def create_plugin_token(
     payload: PluginTokenCreateIn,
-    _: User = Depends(require_current_user),
+    _: User = Depends(require_owner),
     service: PluginService = Depends(get_plugin_service),
 ) -> PluginTokenCreateOut:
     return service.create_token(payload.name)
+
+
+@router.delete("/plugin-tokens/{token_id}", status_code=204)
+def revoke_plugin_token(
+    token_id: str,
+    _: User = Depends(require_owner),
+    service: PluginService = Depends(get_plugin_service),
+) -> Response:
+    service.revoke_token(token_id)
+    return Response(status_code=204)
 
 
 @router.get("/plugin-status", response_model=PluginStatusOut)

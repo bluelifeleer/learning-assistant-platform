@@ -195,6 +195,7 @@ export function ScreenshotEditor({ imageUrl, onSave, onClose }: ScreenshotEditor
       await onSave(canvas.toDataURL("image/jpeg", 0.9));
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
+    } finally {
       setSaving(false);
     }
   }

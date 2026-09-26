@@ -11,7 +11,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
 from app.models import entities  # noqa: F401 - register models
-from app.models.entities import Chapter, Course, Site, TranscriptSegment
+from app.models.entities import Chapter, Course, Membership, Site, TranscriptSegment
 from app.services import ai_tasks, llm
 from app.services.plugins import ensure_default_organization
 
@@ -70,13 +70,23 @@ def ai_client(monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None, N
     Base.metadata.drop_all(engine)
 
 
-def register_headers(client: TestClient) -> dict[str, str]:
+def register_headers(client: TestClient, session_factory=None) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/register",
         json={"email": "ai-user@example.com", "password": "secret123", "display_name": "AI User"},
     )
     assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['token']}"}
+    body = response.json()
+    if session_factory is not None:
+        db = session_factory()
+        try:
+            membership = db.query(Membership).filter(Membership.user_id == body["user"]["id"]).first()
+            if membership:
+                membership.role = "owner"
+                db.commit()
+        finally:
+            db.close()
+    return {"Authorization": f"Bearer {body['token']}"}
 
 
 def configure_llm(client: TestClient, headers: dict[str, str], auto_generate: bool = False) -> None:
@@ -124,8 +134,8 @@ def seed_course_with_transcript(session_factory, segment_count: int = 25) -> dic
 
 
 def test_ai_settings_mask_and_update(ai_client) -> None:
-    client, _ = ai_client
-    headers = register_headers(client)
+    client, session_factory = ai_client
+    headers = register_headers(client, session_factory)
 
     initial = client.get("/api/v1/ai/settings", headers=headers)
     assert initial.status_code == 200
@@ -159,8 +169,8 @@ def test_ai_settings_mask_and_update(ai_client) -> None:
 
 
 def test_ai_settings_test_endpoint(ai_client, monkeypatch) -> None:
-    client, _ = ai_client
-    headers = register_headers(client)
+    client, session_factory = ai_client
+    headers = register_headers(client, session_factory)
     monkeypatch.setattr(llm, "test_connection", lambda config: None)
     configure_llm(client, headers)
 
@@ -171,14 +181,14 @@ def test_ai_settings_test_endpoint(ai_client, monkeypatch) -> None:
 
 
 def test_ai_settings_test_requires_configuration(ai_client) -> None:
-    client, _ = ai_client
-    headers = register_headers(client)
+    client, session_factory = ai_client
+    headers = register_headers(client, session_factory)
     response = client.post("/api/v1/ai/settings/test", headers=headers)
     assert response.status_code == 400
 
 
 def test_ai_routes_require_auth(ai_client) -> None:
-    client, _ = ai_client
+    client, session_factory = ai_client
     assert client.get("/api/v1/ai/settings").status_code == 401
     assert client.post("/api/v1/ai/summary/chapter/x").status_code == 401
     assert client.post("/api/v1/ai/quiz", json={"chapter_id": "x"}).status_code == 401
@@ -187,7 +197,7 @@ def test_ai_routes_require_auth(ai_client) -> None:
 
 def test_chapter_summary_task_completes(ai_client) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_course_with_transcript(session_factory)
 
@@ -209,7 +219,7 @@ def test_chapter_summary_task_completes(ai_client) -> None:
 
 def test_task_creation_dedupes_pending_tasks(ai_client, monkeypatch) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_course_with_transcript(session_factory)
     monkeypatch.setattr(ai_tasks, "run_ai_task", lambda *args, **kwargs: None)
@@ -223,7 +233,7 @@ def test_task_creation_dedupes_pending_tasks(ai_client, monkeypatch) -> None:
 
 def test_failed_task_records_error(ai_client, monkeypatch) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_course_with_transcript(session_factory)
 
@@ -241,7 +251,7 @@ def test_failed_task_records_error(ai_client, monkeypatch) -> None:
 
 def test_quiz_flow(ai_client) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_course_with_transcript(session_factory)
 
@@ -262,7 +272,7 @@ def test_quiz_flow(ai_client) -> None:
 
 def test_flashcards_flow_creates_due_review_cards(ai_client) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_course_with_transcript(session_factory)
 
@@ -280,7 +290,7 @@ def test_flashcards_flow_creates_due_review_cards(ai_client) -> None:
 
 def test_course_summary_task(ai_client) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers)
     ids = seed_course_with_transcript(session_factory)
     client.post(f"/api/v1/ai/summary/chapter/{ids['chapter_id']}", headers=headers)
@@ -328,7 +338,7 @@ def capture_course(client: TestClient, headers: dict[str, str], segment_count: i
 
 def test_auto_generate_triggers_on_transcript_threshold(ai_client) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers, auto_generate=True)
 
     # 不足 20 段不触发
@@ -359,7 +369,7 @@ def test_auto_generate_triggers_on_transcript_threshold(ai_client) -> None:
 
 def test_auto_generate_stays_off_when_disabled(ai_client) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_llm(client, headers, auto_generate=False)
 
     capture_course(client, headers, segment_count=25)
@@ -373,7 +383,7 @@ def test_auto_generate_stays_off_when_disabled(ai_client) -> None:
 
 def test_auto_generate_requires_llm_configuration(ai_client) -> None:
     client, session_factory = ai_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     # 只开开关,不配 LLM
     response = client.put("/api/v1/ai/settings", headers=headers, json={"ai_auto_generate": True})
     assert response.status_code == 200

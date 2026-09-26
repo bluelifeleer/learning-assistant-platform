@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,6 +10,8 @@ from app.db.session import get_db
 from app.models.entities import Chapter, Course, Screenshot, User
 from app.schemas.workspace import ScreenshotImageUpdateIn, ScreenshotItem, ScreenshotListOut
 from app.services.capture import decode_base64_image
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/screenshots", tags=["screenshots"])
 
@@ -63,10 +66,15 @@ def delete_screenshot(screenshot_id: str, _: User = Depends(require_current_user
     if not screenshot:
         raise HTTPException(status_code=404, detail="Screenshot not found")
     path = Path(screenshot.file_path)
+    # 先删文件再删 DB 行:即使文件删除失败也只留孤儿文件并记录日志,而不是先删 DB 行后
+    # 文件删除失败返回 500 造成"已提交但报错"的中间态。
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        logger.warning("failed to delete screenshot file %s", path)
     db.delete(screenshot)
     db.commit()
-    if path.is_file():
-        path.unlink()
 
 
 @router.put("/{screenshot_id}/image")

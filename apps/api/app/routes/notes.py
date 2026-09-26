@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import require_current_user
 from app.db.session import get_db
 from app.models.entities import Chapter, Course, Note, User
-from app.schemas.workspace import NoteCorrectionIn, NoteCreateIn, NoteItem, NoteListOut, NoteTagsIn
+from app.schemas.workspace import NoteCorrectionIn, NoteCreateIn, NoteItem, NoteListOut, NoteTagsIn, NoteUpdateIn
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
@@ -36,10 +36,13 @@ def list_notes(
     query = db.query(Note)
     if course_id:
         query = query.filter(Note.course_id == course_id)
-    notes = query.order_by(Note.created_at.desc()).limit(500).all()
-    # tags 是 JSON 数组,PG/MySQL 写法不同,统一在 Python 侧过滤
+    query = query.order_by(Note.created_at.desc())
+    # tags 是 JSON 数组,PG/MySQL 写法不同,统一在 Python 侧过滤;
+    # 带 tag 过滤时先取全量再过滤再截断,避免匹配项落在 limit(500) 之外导致漏数据。
     if tag:
-        notes = [note for note in notes if tag in (note.tags or [])]
+        notes = [note for note in query.all() if tag in (note.tags or [])][:500]
+    else:
+        notes = query.limit(500).all()
     return NoteListOut(items=[note_item(db, note) for note in notes])
 
 
@@ -54,6 +57,23 @@ def create_note(payload: NoteCreateIn, user: User = Depends(require_current_user
         tags=[tag for tag in payload.tags if tag],
     )
     db.add(note)
+    db.commit()
+    db.refresh(note)
+    return note_item(db, note)
+
+
+@router.patch("/{note_id}", response_model=NoteItem)
+def update_note(note_id: str, payload: NoteUpdateIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteItem:
+    """直接编辑笔记内容:覆盖原文。与「勘误」不同,勘误保留原文另存 corrected_content。"""
+    note = db.query(Note).filter(Note.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="笔记内容不能为空")
+    note.content = content
+    # 直接编辑后旧的勘误不再适用,一并清除
+    note.corrected_content = None
     db.commit()
     db.refresh(note)
     return note_item(db, note)

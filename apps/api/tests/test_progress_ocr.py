@@ -12,7 +12,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
 from app.models import entities  # noqa: F401 - register models
-from app.models.entities import Chapter, ChapterSummary, Course, Note, QuizQuestion, Screenshot, Site, TranscriptSegment, VideoSession
+from app.models.entities import Chapter, ChapterSummary, Course, Membership, Note, QuizQuestion, Screenshot, Site, TranscriptSegment, VideoSession
 from app.services import llm
 from app.services.plugins import ensure_default_organization
 
@@ -42,13 +42,23 @@ def progress_client() -> Generator[tuple[TestClient, sessionmaker], None, None]:
     Base.metadata.drop_all(engine)
 
 
-def register_headers(client: TestClient, email: str | None = None) -> dict[str, str]:
+def register_headers(client: TestClient, session_factory=None, email: str | None = None) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/register",
         json={"email": email or f"user-{uuid4().hex[:8]}@example.com", "password": "secret123", "display_name": "User"},
     )
     assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['token']}"}
+    body = response.json()
+    if session_factory is not None:
+        db = session_factory()
+        try:
+            membership = db.query(Membership).filter(Membership.user_id == body["user"]["id"]).first()
+            if membership:
+                membership.role = "owner"
+                db.commit()
+        finally:
+            db.close()
+    return {"Authorization": f"Bearer {body['token']}"}
 
 
 def seed_course_tree(session_factory, leaf_count: int = 2) -> dict:
@@ -96,8 +106,8 @@ def configure_llm(session_factory) -> None:
 
 
 def test_learning_progress_empty(progress_client) -> None:
-    client, _ = progress_client
-    headers = register_headers(client)
+    client, session_factory = progress_client
+    headers = register_headers(client, session_factory)
     response = client.get("/api/v1/stats/learning-progress", headers=headers)
     assert response.status_code == 200
     data = response.json()
@@ -110,7 +120,7 @@ def test_learning_progress_empty(progress_client) -> None:
 
 def test_learning_progress_counts_study_and_streak(progress_client) -> None:
     client, session_factory = progress_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_course_tree(session_factory, leaf_count=2)
     # 当前用户:第一节有播放会话(本周、今天),第二节有截图
     db = session_factory()
@@ -135,7 +145,7 @@ def test_learning_progress_counts_study_and_streak(progress_client) -> None:
 
 def test_learning_progress_streak_across_days(progress_client) -> None:
     client, session_factory = progress_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_course_tree(session_factory)
     db = session_factory()
     try:
@@ -161,8 +171,8 @@ def test_learning_progress_streak_across_days(progress_client) -> None:
 
 
 def test_settings_weekly_goal_roundtrip(progress_client) -> None:
-    client, _ = progress_client
-    headers = register_headers(client)
+    client, session_factory = progress_client
+    headers = register_headers(client, session_factory)
     assert client.get("/api/v1/settings", headers=headers).json()["weekly_goal_minutes"] == 300
     updated = client.put("/api/v1/settings", headers=headers, json={"weekly_goal_minutes": 600})
     assert updated.status_code == 200
@@ -172,7 +182,7 @@ def test_settings_weekly_goal_roundtrip(progress_client) -> None:
 
 def test_course_detail_flags(progress_client) -> None:
     client, session_factory = progress_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_course_tree(session_factory, leaf_count=2)
     db = session_factory()
     try:
@@ -198,7 +208,7 @@ def test_course_detail_flags(progress_client) -> None:
 
 def test_notes_filter_by_course_and_tag(progress_client) -> None:
     client, session_factory = progress_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_course_tree(session_factory)
     other = seed_course_tree(session_factory)
     client.post("/api/v1/notes", headers=headers, json={"course_id": ids["course_id"], "chapter_id": ids["leaf_ids"][0], "content": "重点笔记", "tags": ["考点"]})
@@ -242,7 +252,7 @@ def _seed_screenshots(session_factory, ids: dict, tmp_path, count: int = 2) -> l
 
 def test_chapter_ocr_requires_llm(progress_client, tmp_path) -> None:
     client, session_factory = progress_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_course_tree(session_factory)
     _seed_screenshots(session_factory, ids, tmp_path)
     response = client.post(f"/api/v1/ai/ocr/chapter/{ids['leaf_ids'][0]}", headers=headers)
@@ -251,7 +261,7 @@ def test_chapter_ocr_requires_llm(progress_client, tmp_path) -> None:
 
 def test_chapter_ocr_requires_screenshots(progress_client) -> None:
     client, session_factory = progress_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_course_tree(session_factory)
     configure_llm(session_factory)
     response = client.post(f"/api/v1/ai/ocr/chapter/{ids['leaf_ids'][0]}", headers=headers)
@@ -260,7 +270,7 @@ def test_chapter_ocr_requires_screenshots(progress_client) -> None:
 
 def test_chapter_ocr_writes_transcript_segments_idempotent(progress_client, tmp_path, monkeypatch) -> None:
     client, session_factory = progress_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_course_tree(session_factory)
     configure_llm(session_factory)
     _seed_screenshots(session_factory, ids, tmp_path, count=2)
@@ -294,7 +304,7 @@ def test_chapter_ocr_writes_transcript_segments_idempotent(progress_client, tmp_
 
 def test_screenshot_ocr_sync(progress_client, tmp_path, monkeypatch) -> None:
     client, session_factory = progress_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_course_tree(session_factory)
     configure_llm(session_factory)
     screenshot_ids = _seed_screenshots(session_factory, ids, tmp_path, count=1)
@@ -311,8 +321,8 @@ def test_screenshot_ocr_sync(progress_client, tmp_path, monkeypatch) -> None:
 
 
 def test_ai_settings_vision_model_roundtrip(progress_client) -> None:
-    client, _ = progress_client
-    headers = register_headers(client)
+    client, session_factory = progress_client
+    headers = register_headers(client, session_factory)
     response = client.put(
         "/api/v1/ai/settings",
         headers=headers,

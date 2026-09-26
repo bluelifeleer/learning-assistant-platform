@@ -15,6 +15,7 @@ from app.models.entities import (
     AiTask,
     Chapter,
     Course,
+    Membership,
     Note,
     Organization,
     QuizAttempt,
@@ -92,13 +93,23 @@ def email_client(monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None
     Base.metadata.drop_all(engine)
 
 
-def register_headers(client: TestClient) -> dict[str, str]:
+def register_headers(client: TestClient, session_factory=None) -> dict[str, str]:
     response = client.post(
         "/api/v1/auth/register",
         json={"email": "email-user@example.com", "password": "secret123", "display_name": "Mail User"},
     )
     assert response.status_code == 200
-    return {"Authorization": f"Bearer {response.json()['token']}"}
+    body = response.json()
+    if session_factory is not None:
+        db = session_factory()
+        try:
+            membership = db.query(Membership).filter(Membership.user_id == body["user"]["id"]).first()
+            if membership:
+                membership.role = "owner"
+                db.commit()
+        finally:
+            db.close()
+    return {"Authorization": f"Bearer {body['token']}"}
 
 
 def configure_smtp(client: TestClient, headers: dict[str, str], **overrides) -> None:
@@ -155,8 +166,8 @@ def seed_note_with_context(session_factory) -> dict:
 
 
 def test_settings_defaults(email_client) -> None:
-    client, _ = email_client
-    headers = register_headers(client)
+    client, session_factory = email_client
+    headers = register_headers(client, session_factory)
 
     response = client.get("/api/v1/email/settings", headers=headers)
 
@@ -172,8 +183,8 @@ def test_settings_defaults(email_client) -> None:
 
 
 def test_settings_update_mask_keep_and_clear_password(email_client) -> None:
-    client, _ = email_client
-    headers = register_headers(client)
+    client, session_factory = email_client
+    headers = register_headers(client, session_factory)
     configure_smtp(client, headers)
 
     body = client.get("/api/v1/email/settings", headers=headers).json()
@@ -198,8 +209,8 @@ def test_settings_update_mask_keep_and_clear_password(email_client) -> None:
 
 
 def test_settings_validation(email_client) -> None:
-    client, _ = email_client
-    headers = register_headers(client)
+    client, session_factory = email_client
+    headers = register_headers(client, session_factory)
 
     bad_frequency = client.put("/api/v1/email/settings", headers=headers, json={"digest_frequency": "monthly"})
     assert bad_frequency.status_code == 422
@@ -208,8 +219,8 @@ def test_settings_validation(email_client) -> None:
 
 
 def test_settings_test_endpoint(email_client) -> None:
-    client, _ = email_client
-    headers = register_headers(client)
+    client, session_factory = email_client
+    headers = register_headers(client, session_factory)
 
     not_configured = client.post("/api/v1/email/settings/test", headers=headers)
     assert not_configured.status_code == 400
@@ -233,7 +244,7 @@ def test_settings_test_endpoint(email_client) -> None:
 
 def test_send_note_email_includes_transcript_context(email_client, monkeypatch) -> None:
     client, session_factory = email_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     ids = seed_note_with_context(session_factory)
     configure_smtp(client, headers)
 
@@ -380,7 +391,7 @@ def test_build_digest_with_llm(email_client, monkeypatch) -> None:
 
 def test_digest_send_endpoint_runs_task(email_client) -> None:
     client, session_factory = email_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
 
     not_configured = client.post("/api/v1/email/digest/send", headers=headers)
     assert not_configured.status_code == 400
@@ -405,7 +416,7 @@ def test_digest_send_endpoint_runs_task(email_client) -> None:
 
 def test_run_digest_tick_sends_due_organization(email_client) -> None:
     client, session_factory = email_client
-    headers = register_headers(client)
+    headers = register_headers(client, session_factory)
     configure_smtp(client, headers, digest_auto=True, digest_frequency="daily", digest_hour=8)
 
     now = datetime(2026, 9, 22, 9, 0)  # 周二 09:00,已过 digest_hour 且从未发送
@@ -454,7 +465,7 @@ def test_digest_is_due_weekly_branches() -> None:
 
 
 def test_email_endpoints_require_auth(email_client) -> None:
-    client, _ = email_client
+    client, session_factory = email_client
 
     assert client.get("/api/v1/email/settings").status_code == 401
     assert client.put("/api/v1/email/settings", json={}).status_code == 401

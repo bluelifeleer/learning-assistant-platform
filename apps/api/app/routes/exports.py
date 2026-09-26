@@ -1,7 +1,7 @@
-from datetime import datetime
+import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,8 @@ from app.models.entities import Chapter, Course, Export, Note, Organization, Rev
 from app.schemas.workspace import ExportCreateIn, ExportItem, ExportListOut
 from app.services.plugins import ensure_default_organization
 from app.services.video_sources import latest_video_events_by_chapter, video_export_info
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 
@@ -91,9 +93,9 @@ def create_export(
         if export_format == "report_pdf":
             organization = db.get(Organization, organization_id)
             content = build_study_report(db, organization, user, course)
-            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             scope = course.id if course else "all"
-            path = export_dir_path() / f"study-report-{scope}-{timestamp}.pdf"
+            # 文件名用 export.id 保证唯一,避免同秒同范围导出互相覆盖
+            path = export_dir_path() / f"study-report-{scope}-{export.id}.pdf"
             path.write_bytes(content)
         elif export_format == "anki":
             if not course:
@@ -119,8 +121,11 @@ def create_export(
         export.status = "failed"
         db.commit()
         raise
-    except Exception:
+    except Exception as exc:
         export.status = "failed"
+        db.commit()
+        logger.exception("export %s failed", export.id)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="导出失败") from exc
     db.commit()
     db.refresh(export)
     return {"id": export.id, "status": export.status, "format": export.format}
