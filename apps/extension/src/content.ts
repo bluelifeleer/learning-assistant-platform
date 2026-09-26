@@ -1,9 +1,10 @@
 import { CaptureClient, CaptureRequestError } from "./capture/client";
 import { mapChapterForSnapshot } from "./capture/snapshotChapters";
 import { pickAdapter } from "./adapters/registry";
-import { isValidApiBaseUrl, loadExtensionConfig } from "./config";
+import { isValidApiBaseUrl, loadExtensionConfig, type ExtensionConfig } from "./config";
 import { registerContentScriptPing } from "./contentPing";
 import { overlayMountPlan } from "./framePolicy";
+import { buildOverlayMountedMessage, isTrustedOverlayMountedMessage } from "./overlayMessage";
 import { buildNotePayload, consoleUrlFromApiBaseUrl } from "./noteCapture";
 import { buildScreenshotPayload } from "./screenshotCapture";
 import { captureVisibleTabScreenshot } from "./screenshotCaptureClient";
@@ -50,83 +51,94 @@ async function boot(): Promise<void> {
     return `${adapter.id}:${courseId}:${chapterId}`;
   };
   // 地址非法时不要建客户端:否则请求会走相对路径,把 token 发到当前学习站点所在的 host
-  const apiBaseUrlValid = isValidApiBaseUrl(config.apiBaseUrl);
-  const client = config.apiToken && apiBaseUrlValid
-    ? new CaptureClient({ apiBaseUrl: config.apiBaseUrl, apiToken: config.apiToken })
-    : undefined;
-  if (config.apiToken && !apiBaseUrlValid) {
+  const buildClient = (next: ExtensionConfig): CaptureClient | undefined => {
+    if (!next.apiToken || !isValidApiBaseUrl(next.apiBaseUrl)) return undefined;
+    return new CaptureClient({ apiBaseUrl: next.apiBaseUrl, apiToken: next.apiToken });
+  };
+  if (config.apiToken && !isValidApiBaseUrl(config.apiBaseUrl)) {
     console.error("[Learning Assistant] API 地址非法,已停止上报:", config.apiBaseUrl);
   }
+  let client = buildClient(config);
 
-  const OVERLAY_MOUNTED_MESSAGE = "learning-assistant:overlay-mounted";
   let overlay: AssistantOverlay | undefined;
   const mountOverlay = (): void => {
     if (overlay) return;
     overlay = new AssistantOverlay({
-      onSaveNote: client
-        ? async (content: string, tags: string[]) => {
-            const videoTimeSeconds = video?.currentTime;
-            try {
-              await client.post("/capture/note", buildNotePayload({
-                content,
-                tags,
-                videoTimeSeconds,
-                externalCourseId: course?.externalCourseId,
-                externalChapterId: currentChapterId(),
-                pageId: `${location.origin}${location.pathname}`,
-              }));
-            } catch (error) {
-              if (error instanceof Error && error.message.includes("404")) {
-                throw new Error("课程尚未采集，请先在课程页面停留片刻后重试");
-              }
-              throw error;
-            }
-            return videoTimeSeconds;
+      // 这三个回调在调用时再取 client —— 选项页后来补上 token 也能立即生效
+      onSaveNote: async (content: string, tags: string[]) => {
+        const activeClient = client;
+        if (!activeClient) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
+        const videoTimeSeconds = video?.currentTime;
+        try {
+          await activeClient.post("/capture/note", buildNotePayload({
+            content,
+            tags,
+            videoTimeSeconds,
+            externalCourseId: currentCourseId(),
+            externalChapterId: currentChapterId(),
+            pageId: `${location.origin}${location.pathname}`,
+          }));
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("404")) {
+            throw new Error("课程尚未采集，请先在课程页面停留片刻后重试");
           }
-        : undefined,
+          throw error;
+        }
+        return videoTimeSeconds;
+      },
       onOpenExports: () => window.open(consoleUrlFromApiBaseUrl(config.apiBaseUrl), "_blank"),
-      onUploadNoteImage: client
-        ? async (imageBase64: string) => {
-            const result = await client.postJson<{ id: string }>("/capture/note-image", { image_base64: imageBase64 });
-            return result.id;
+      onUploadNoteImage: async (imageBase64: string) => {
+        const activeClient = client;
+        if (!activeClient) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
+        const result = await activeClient.postJson<{ id: string }>("/capture/note-image", { image_base64: imageBase64 });
+        return result.id;
+      },
+      onCaptureScreenshot: async () => {
+        const activeClient = client;
+        if (!activeClient) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
+        const videoTimeSeconds = video?.currentTime;
+        const imageBase64 = await captureVisibleTabScreenshot();
+        try {
+          await activeClient.post("/capture/screenshot", buildScreenshotPayload({
+            imageBase64,
+            videoTimeSeconds,
+            externalCourseId: currentCourseId(),
+            externalChapterId: currentChapterId(),
+            pageId: `${location.origin}${location.pathname}`,
+          }));
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("404")) {
+            throw new Error("课程尚未采集，请先在课程页面停留片刻后重试");
           }
-        : undefined,
-      onCaptureScreenshot: client
-        ? async () => {
-            const videoTimeSeconds = video?.currentTime;
-            const imageBase64 = await captureVisibleTabScreenshot();
-            try {
-              await client.post("/capture/screenshot", buildScreenshotPayload({
-                imageBase64,
-                videoTimeSeconds,
-                externalCourseId: course?.externalCourseId,
-                externalChapterId: currentChapterId(),
-                pageId: `${location.origin}${location.pathname}`,
-              }));
-            } catch (error) {
-              if (error instanceof Error && error.message.includes("404")) {
-                throw new Error("课程尚未采集，请先在课程页面停留片刻后重试");
-              }
-              throw error;
-            }
-            return videoTimeSeconds;
-          }
-        : undefined,
+          throw error;
+        }
+        return videoTimeSeconds;
+      },
     });
     overlay.mount();
     overlay.update({
       adapterName: adapter.name,
       courseTitle: course?.title,
       chapterTitle: currentChapter?.title,
-      status: config.apiToken ? "已连接页面" : "请先在扩展选项中完成插件绑定",
+      status: client ? "已连接页面" : "请先在扩展选项中完成插件绑定",
     });
   };
 
+  // 顶层浮层消息的口令:用只有扩展隔离世界读得到的 runtime.id。
+  // 页面脚本和第三方 iframe 拿不到它,所以无法伪造这条消息把浮层撤掉。
+  const overlayToken = (() => {
+    try {
+      return typeof chrome !== "undefined" && chrome.runtime?.id ? chrome.runtime.id : "";
+    } catch {
+      return "";
+    }
+  })();
   const plan = overlayMountPlan(window.top === window, Boolean(video));
   let iframeMounted = false;
   if (window.top === window) {
     window.addEventListener("message", (event) => {
-      if (event.data !== OVERLAY_MOUNTED_MESSAGE) return;
+      // 口令 + 直接子框架双重校验,页面脚本/第三方 iframe 伪造不了
+      if (!isTrustedOverlayMountedMessage(event.data, event.source, window.frames, overlayToken)) return;
       iframeMounted = true;
       // iframe(视频实际播放帧)已挂载,撤销顶层的重复浮层
       if (overlay) {
@@ -140,7 +152,7 @@ async function boot(): Promise<void> {
     if (window.top !== window) {
       const notifyTop = (): void => {
         try {
-          window.top?.postMessage(OVERLAY_MOUNTED_MESSAGE, "*");
+          window.top?.postMessage(buildOverlayMountedMessage(overlayToken), "*");
         } catch {
           // 跨域 postMessage 失败时忽略,顶层会按超时兜底挂载
         }
@@ -156,9 +168,19 @@ async function boot(): Promise<void> {
     }, 1500);
   }
 
-  if (!client) return;
+  // 选项页改了 token / API 地址后,已经打开的标签页要立刻生效,否则用户必须手动刷新学习页面
+  if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local") return;
+      if (!("apiToken" in changes) && !("apiBaseUrl" in changes)) return;
+      void loadExtensionConfig().then((next) => {
+        client = buildClient(next);
+        overlay?.update({ status: client ? "插件配置已更新" : "插件配置不完整，已停止上报" });
+      });
+    });
+  }
 
-  void client.post("/plugin-heartbeat", {
+  void client?.post("/plugin-heartbeat", {
     extension_version: chrome.runtime.getManifest().version,
     current_url: reportPageUrl,
     adapter_id: adapter.id,
@@ -175,7 +197,7 @@ async function boot(): Promise<void> {
   });
 
   if (course) {
-    void client.post("/capture/course-snapshot", {
+    void client?.post("/capture/course-snapshot", {
       adapter_id: adapter.id,
       site_url: reportPageUrl,
       external_course_id: course.externalCourseId,
@@ -204,7 +226,7 @@ async function boot(): Promise<void> {
       "| sections:", freshCourse.chapters[0]?.children.length ?? 0,
     );
     overlay?.update({ courseTitle: freshCourse.title });
-    void client.post("/capture/course-snapshot", {
+    void client?.post("/capture/course-snapshot", {
       adapter_id: adapter.id,
       site_url: reportPageUrl,
       external_course_id: freshCourse.externalCourseId,
@@ -221,13 +243,13 @@ async function boot(): Promise<void> {
     // 章节尚未解析出来时后端会直接丢弃(accept_video_event 找不到 chapter 就 return),
     // 所以这里跳过而不是发一个对不上的 id
     if (!sessionId) return;
-    void client.post("/capture/video-event", {
+    void client?.post("/capture/video-event", {
       session_id: sessionId,
       event_type: eventType,
       video_time_seconds: video?.currentTime,
       payload: {
         course_url: reportPageUrl,
-        external_course_id: course?.externalCourseId,
+        external_course_id: currentCourseId(),
         // 章节树由页面异步渲染,boot 时的提取可能失败退回 item id;上报时实时提取
         external_chapter_id: currentChapterId(),
         video_source: videoSource,
@@ -241,6 +263,9 @@ async function boot(): Promise<void> {
   let subtitleImportStarted = false;
   const maybeImportSubtitleTracks = (): void => {
     if (subtitleImportStarted) return;
+    // 绑定 token 之前不做导入;后续配置热更新也会再次触发这里
+    const activeClient = client;
+    if (!activeClient) return;
     const courseId = currentCourseId();
     const chapterId = currentChapterId();
     const sessionId = videoSessionId();
@@ -249,7 +274,7 @@ async function boot(): Promise<void> {
     void collectAndReportSubtitleTrackFiles({
       document,
       locationHref: reportPageUrl,
-      client,
+      client: activeClient,
       fetchSubtitleFileText,
       externalCourseId: courseId,
       externalChapterId: chapterId,
@@ -267,40 +292,67 @@ async function boot(): Promise<void> {
     video.addEventListener("ended", () => overlay?.remindManualSave());
   }
 
-  let lastTranscript = "";
+  // DOM 里的字幕节点只反映"当前这一句",拿不到它的结束时间。
+  // 所以改成"下一句出现时给上一句收尾":每段的 start/end 就是它真正停留在屏幕上的区间,
+  // 而不是原来的 start == end 零长度片段。收尾时取 id,切章节后的残留片段也能挂对章节。
+  let pendingTranscript: { text: string; source: string; startSeconds: number | undefined } | null = null;
+  let lastTranscriptText = "";
   let lastTranscriptAt = 0;
-  const observer = new MutationObserver(() => {
-    maybeRefreshSnapshot();
-    maybeImportSubtitleTracks();
-    const transcript = adapter.extractTranscript(document);
-    if (!transcript || transcript.text === lastTranscript) return;
-    // 字幕节点按行刷新,body 上的 characterData 监听会触发得非常频繁,做 1s 节流
-    const now = Date.now();
-    if (now - lastTranscriptAt < 1000) return;
-    // 课程/章节 id 解析不出来时跳过,不发 "unknown"(后端 404 且静默丢弃);
-    // 此时不更新 lastTranscript,等 id 可用后还能把当前这句补上
+  let observedChapterId: string | undefined;
+
+  const flushTranscript = (endSeconds: number | undefined): void => {
+    const pending = pendingTranscript;
+    pendingTranscript = null;
+    if (!pending) return;
     const courseId = currentCourseId();
     const chapterId = currentChapterId();
     if (!courseId || !chapterId) return;
-    lastTranscriptAt = now;
-    lastTranscript = transcript.text;
-    void client.post("/capture/transcript-segment", {
+    void client?.post("/capture/transcript-segment", {
       external_course_id: courseId,
       external_chapter_id: chapterId,
-      text: transcript.text,
-      source: transcript.source,
-      start_seconds: video?.currentTime,
-      end_seconds: video?.currentTime,
+      session_id: videoSessionId(),
+      text: pending.text,
+      source: pending.source,
+      start_seconds: pending.startSeconds,
+      end_seconds: endSeconds,
     }).catch(() => undefined);
+  };
+
+  const observer = new MutationObserver(() => {
+    maybeRefreshSnapshot();
+    maybeImportSubtitleTracks();
+    // SPA 切章节不刷新页面:先把上一章的残留字幕收尾,再重置去重状态
+    const chapterId = currentChapterId();
+    if (chapterId !== observedChapterId) {
+      flushTranscript(video?.currentTime);
+      lastTranscriptText = "";
+      observedChapterId = chapterId;
+    }
+    const transcript = adapter.extractTranscript(document);
+    if (!transcript || transcript.text === lastTranscriptText) return;
+    // 字幕节点按行刷新,body 上的 characterData 监听触发非常频繁,做 1s 节流
+    const now = Date.now();
+    if (now - lastTranscriptAt < 1000) return;
+    // 课程/章节 id 解析不出来时跳过,不发 "unknown"(后端 404 且静默丢弃);
+    // 此时不更新 lastTranscriptText,等 id 可用后还能把当前这句补上
+    if (!currentCourseId() || !chapterId) return;
+    lastTranscriptAt = now;
+    lastTranscriptText = transcript.text;
+    flushTranscript(video?.currentTime);
+    pendingTranscript = { text: transcript.text, source: transcript.source, startSeconds: video?.currentTime };
   });
 
   if (document.body) {
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
-  const disconnectObserver = (): void => observer.disconnect();
-  window.addEventListener("pagehide", disconnectObserver);
-  window.addEventListener("beforeunload", disconnectObserver);
+  const shutdown = (): void => {
+    // 收尾最后一句,不然每章最后一条字幕会丢
+    flushTranscript(video?.currentTime);
+    observer.disconnect();
+  };
+  window.addEventListener("pagehide", shutdown);
+  window.addEventListener("beforeunload", shutdown);
 }
 
 const bootedWindow = window as unknown as Record<string, unknown>;
