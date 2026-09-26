@@ -38,7 +38,9 @@ describe("App", () => {
     const html = renderToString(<App initialSetupStatus={installed} />);
 
     expect(html).toContain("登录学习助手");
-    expect(html).toContain("机构在线学习数据中台");
+    // 标题关键词带渐变强调,渲染为 <em> 分隔的两段文本
+    expect(html).toContain("机构在线学习");
+    expect(html).toContain("数据中台");
     expect(html).toContain("浏览器插件托管");
     expect(html).toContain("私有化部署");
     expect(html).toContain("邮箱或用户名");

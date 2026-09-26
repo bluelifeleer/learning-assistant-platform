@@ -643,22 +643,118 @@ p {
 /* ============ 登录页 ============ */
 
 .auth-shell {
+  position: relative;
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(900px 480px at 12% -10%, rgba(37, 99, 235, 0.12), transparent 60%),
-    radial-gradient(720px 420px at 105% 110%, rgba(37, 99, 235, 0.09), transparent 55%),
-    var(--bg);
   padding: 32px 24px;
+  /* 多层渐变底:蓝/紫/青三色光晕 + 冷色调纵向渐变 */
+  background:
+    radial-gradient(1200px 720px at 6% -18%, rgba(37, 99, 235, 0.34), transparent 58%),
+    radial-gradient(1040px 660px at 112% 118%, rgba(109, 40, 217, 0.3), transparent 56%),
+    radial-gradient(900px 560px at 94% -6%, rgba(6, 182, 212, 0.24), transparent 58%),
+    radial-gradient(780px 540px at 22% 122%, rgba(56, 189, 248, 0.22), transparent 60%),
+    linear-gradient(152deg, #eaf1ff 0%, #e1e9fb 38%, #e6e1fb 68%, #e7f0fb 100%);
+}
+
+/* 背景层:颗粒噪点,提升质感 */
+.auth-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.4;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+/* 装饰层:几何插画(SVG)+ 交互水波点阵(Canvas),绝对定位不参与网格布局 */
+.auth-decor {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 插画层:每个插画簇是独立 SVG(自带 viewBox),由 CSS 锚定到视口边缘。
+   这样在任何宽高比下都不会像整幅 slice 背景那样被裁掉上下/左右。 */
+.auth-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.auth-illu {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cpath d='M64 4L124 64L64 124L4 64Z' fill='none' stroke='rgba(37,99,235,0.085)' stroke-width='1'/%3E%3Ccircle cx='64' cy='64' r='1.8' fill='rgba(37,99,235,0.13)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+.auth-illu > .illu {
+  position: absolute;
+  height: auto;
+}
+
+/* 蓝图:居中,垫在「宣传」与「登录」之下 */
+.illu-blueprint {
+  top: 50%;
+  left: 50%;
+  width: min(720px, 68vw);
+  transform: translate(-50%, -50%);
+}
+
+.illu-subjects { top: 3%; left: 50%; width: min(400px, 38vw); transform: translateX(-50%); }
+.illu-learn { top: 2.5%; left: 3%; width: min(300px, 20vw); }
+.illu-chart { top: 2%; right: 3%; width: min(220px, 15vw); }
+.illu-bubble { bottom: 5%; left: 3%; width: min(210px, 15vw); }
+.illu-pencil { bottom: 4%; left: 19%; width: min(130px, 9vw); }
+.illu-quote { bottom: 13%; left: 29%; width: min(72px, 5vw); }
+.illu-org { bottom: 6%; left: 37%; width: min(320px, 22vw); }
+.illu-brain { bottom: 5%; right: 21%; width: min(150px, 10vw); }
+.illu-cap { top: 21%; left: 19%; width: min(112px, 7.5vw); }
+.illu-formula { top: 37%; right: 3.5%; width: min(86px, 5.5vw); }
+.illu-target { top: 63%; right: 3.5%; width: min(74px, 5vw); }
+
+.auth-dotwave {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  /* 窄屏:隐藏会与标题/卡片重叠的簇,避免拥挤 */
+  .illu-cap,
+  .illu-quote,
+  .illu-formula,
+  .illu-target,
+  .illu-pencil,
+  .illu-brain,
+  .illu-subjects,
+  .illu-chart {
+    display: none;
+  }
+
+  .auth-illu > .illu {
+    opacity: 0.6;
+  }
 }
 
 .auth-landing {
+  position: relative;
+  z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 400px);
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 420px);
   align-items: center;
   gap: 48px;
   width: min(1060px, 100%);
+  /* grid item 默认 min-width:auto,会被内容撑开导致窄屏横向溢出 */
+  min-width: 0;
 }
 
 .auth-commercial {
@@ -767,6 +863,34 @@ p {
   font-size: 13px;
 }
 
+/* 登录页:卡片与背景融合的玻璃质感(仅作用于登录落地页)
+   顶部内高光 + 三层阴影(近/中/远),让卡片有"厚度"而不是平贴 */
+.auth-landing .auth-panel {
+  border-color: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.87));
+  backdrop-filter: blur(18px) saturate(155%);
+  -webkit-backdrop-filter: blur(18px) saturate(155%);
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 20px 44px rgba(15, 23, 42, 0.12),
+    0 60px 120px rgba(15, 23, 42, 0.1);
+}
+
+.auth-landing .commercial-points article {
+  border-color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(10px) saturate(140%);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+}
+
+.auth-landing .commercial-stats span {
+  border-color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
 .auth-panel h1,
 .auth-panel h2 {
   margin: 0;
@@ -782,6 +906,370 @@ p {
 .auth-panel > span {
   color: var(--text-secondary);
   font-size: 13px;
+}
+
+/* ============ 登录页 · 宣传栏与登录卡精修 ============ */
+
+/* 品牌锁定组:图标 + 中英文名 */
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-lockup .auth-logo {
+  flex: none;
+  filter: drop-shadow(0 6px 14px rgba(37, 99, 235, 0.26));
+}
+
+.brand-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.brand-text strong {
+  color: var(--text-primary);
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.brand-text span {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* 主标题:关键词渐变强调 */
+.auth-commercial h1 em {
+  font-style: normal;
+  color: var(--primary);
+}
+
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .auth-commercial h1 em {
+    background: linear-gradient(112deg, #2563eb 0%, #6d28d9 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* 能力卡片:图标 + 更清晰的层级 */
+.commercial-points article {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.point-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: linear-gradient(140deg, rgba(37, 99, 235, 0.16), rgba(124, 58, 237, 0.1));
+  color: var(--primary);
+}
+
+.point-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+/* 模块标签:前置圆点 */
+.commercial-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.commercial-stats span::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: 0.55;
+}
+
+/* 登录卡:头部 + 字段 + 主按钮(B 层次精修 + C 玻璃加强) */
+.auth-panel {
+  gap: 16px;
+  padding: 32px;
+}
+
+.auth-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.auth-panel-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 13px;
+  background: linear-gradient(140deg, rgba(37, 99, 235, 0.18), rgba(124, 58, 237, 0.11));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.auth-panel-head h2 {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.auth-panel-head p {
+  margin-top: 4px;
+  max-width: 32ch;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* 字段:玻璃输入框 + 前置图标 + 主色聚焦环 */
+.auth-field {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-field > span:first-child {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.auth-input {
+  position: relative;
+  display: block;
+}
+
+.auth-input-icon {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  /* 输入框带 backdrop-filter 会形成层叠上下文,图标必须抬到它之上,
+     否则会被当作背景一起模糊掉 */
+  z-index: 2;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+  transition: color var(--transition);
+}
+
+.auth-input:focus-within .auth-input-icon {
+  color: var(--primary);
+}
+
+.auth-field input {
+  height: 44px;
+  padding-left: 41px;
+  font-size: 14px;
+  border-color: rgba(15, 23, 42, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.auth-field input::placeholder {
+  font-size: 13.5px;
+}
+
+.auth-field input:focus {
+  border-color: var(--primary);
+  background: rgba(255, 255, 255, 0.95);
+  outline: 3px solid var(--primary-ring);
+  outline-offset: 0;
+}
+
+/* 覆盖浏览器自动填充的黄底 */
+.auth-field input:-webkit-autofill,
+.auth-field input:-webkit-autofill:hover,
+.auth-field input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-primary);
+  -webkit-box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.98) inset;
+  box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.98) inset;
+  transition: background-color 9999s ease-out 0s;
+}
+
+/* 主按钮:品牌渐变 + 顶部内高光 + hover 外发光 */
+.auth-panel .auth-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  margin-top: 4px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  font-size: 14.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 10px 22px rgba(37, 99, 235, 0.26);
+}
+
+.auth-panel .auth-submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 12px 26px rgba(37, 99, 235, 0.32),
+    0 0 0 6px rgba(37, 99, 235, 0.1);
+}
+
+.auth-panel .auth-submit:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.16),
+    0 6px 14px rgba(37, 99, 235, 0.24);
+}
+
+.auth-panel .auth-submit:focus-visible {
+  outline: 3px solid var(--primary-ring);
+  outline-offset: 2px;
+}
+
+.auth-panel .auth-submit:disabled {
+  cursor: default;
+  opacity: 0.66;
+  box-shadow: none;
+}
+
+/* 提交中的内嵌 spinner */
+.auth-spinner {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: auth-spin 700ms linear infinite;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* 分段控件:轨道 + 滑块 + 图标,滑块平滑移过去 */
+.auth-panel .segmented.auth-seg {
+  position: relative;
+  isolation: isolate;
+  gap: 0;
+  padding: 4px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.055), rgba(15, 23, 42, 0.035));
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.07);
+}
+
+.auth-seg-thumb {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 0;
+  width: calc(50% - 4px);
+  height: calc(100% - 8px);
+  border-radius: 9px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7faff 100%);
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 1px 2px rgba(15, 23, 42, 0.09),
+    0 3px 8px rgba(37, 99, 235, 0.09);
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.auth-panel .segmented.auth-seg[data-mode="register"] .auth-seg-thumb {
+  transform: translateX(100%);
+}
+
+.auth-panel .segmented.auth-seg button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: color 180ms ease, background 180ms ease;
+}
+
+.auth-seg-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  opacity: 0.72;
+  transition: opacity 180ms ease;
+}
+
+.auth-panel .segmented.auth-seg button[data-active="yes"] {
+  background: transparent;
+  box-shadow: none;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.auth-panel .segmented.auth-seg button[data-active="yes"] .auth-seg-icon {
+  opacity: 1;
+}
+
+.auth-panel .segmented.auth-seg button[data-active="no"]:hover {
+  background: rgba(15, 23, 42, 0.045);
+  color: var(--text-primary);
+}
+
+.auth-panel .segmented.auth-seg button:focus-visible {
+  outline: 2px solid var(--primary-ring);
+  outline-offset: 1px;
+}
+
+.auth-panel .auth-message {
+  padding: 10px 12px;
+  border: 1px solid rgba(220, 38, 38, 0.16);
+  border-radius: 10px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* 页脚:短提示 + 锁图标;完整说明走 title */
+.auth-panel .auth-footnote {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.auth-panel .auth-footnote svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
 }
 
 .segmented {
@@ -1229,9 +1717,14 @@ p {
 /* ============ 响应式 ============ */
 
 @media (max-width: 1100px) {
+  .auth-shell {
+    padding: 24px 16px;
+  }
+
   .auth-landing {
     grid-template-columns: 1fr;
     gap: 32px;
+    width: 100%;
   }
 
   .auth-panel {
