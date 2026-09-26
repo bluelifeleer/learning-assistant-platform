@@ -45,12 +45,16 @@ export function Notes() {
             <option key={course.id} value={course.id}>{course.title}</option>
           ))}
         </select>
-        <div className="note-tag-filter">
+        {/* 之前用的是行内标签徽章的样式(.note-tag)且 .note-tag-active 根本没定义,
+            选中状态在界面上完全没有反馈;改用与标签选择器一致的 chip 样式 */}
+        <div className="tag-picker">
           {NOTE_TAG_FILTERS.map((tag) => (
             <button
               key={tag}
               type="button"
-              className={activeTags.includes(tag) ? "note-tag note-tag-active" : "note-tag"}
+              className="tag-chip"
+              data-active={activeTags.includes(tag) ? "yes" : "no"}
+              aria-pressed={activeTags.includes(tag)}
               onClick={() => toggleTag(tag)}
             >
               {tag}

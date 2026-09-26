@@ -2474,19 +2474,21 @@ button.stat-card-link:focus-visible {
   }
 }
 
-/* ============ 紧凑筛选条(搜索/复习) ============ */
+/* ============ 紧凑筛选条(搜索/测验/复习/笔记) ============ */
 
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 10px 14px;
+  min-width: 0;
 }
 
 .filter-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .filter-item > span {
@@ -2497,48 +2499,92 @@ button.stat-card-link:focus-visible {
   white-space: nowrap;
 }
 
-.filter-item select {
+/* 原生 select 会按"最长选项"撑宽:章节标题很长时会被撑到上千像素,
+   看起来就像被拉变形。这里统一限制宽度 + 省略号,并换成自绘箭头,
+   让搜索/测验/复习/笔记四个页面的下拉框长得一样。 */
+.filter-item select,
+.page-filter select {
+  appearance: none;
+  -webkit-appearance: none;
   width: auto;
-  min-width: 148px;
-  height: 32px;
+  min-width: 176px;
+  max-width: 280px;
+  height: 34px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
+  border-radius: 9px;
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 13px 13px;
   color: var(--text-primary);
-  padding: 4px 26px 4px 10px;
+  padding: 0 32px 0 12px;
   font: inherit;
   font-size: 13px;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition), background-color var(--transition);
 }
 
-.filter-item select:focus {
+.filter-item select:hover:not(:disabled),
+.page-filter select:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.filter-item select:focus,
+.page-filter select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px var(--primary-ring);
 }
 
-.filter-item select:disabled {
-  background: var(--surface-sunken);
+.filter-item select:disabled,
+.page-filter select:disabled {
+  background-color: var(--surface-sunken);
   color: var(--text-tertiary);
   cursor: not-allowed;
 }
 
+/* 筛选区统一成可换行的横向排布(此前只有测验页设了 flex,其余页面各排各的) */
 .page-filter {
-  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+  min-width: 0;
 }
 
+/* 与同排的 select 对齐高度 */
+.page-filter .tag-chip {
+  height: 34px;
+  padding: 0 16px;
+}
+
+/* 搜索页:筛选条与搜索框同排,宽屏下不再是一整行超长输入框 */
 .search-controls {
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(0, auto) minmax(300px, 560px);
+  justify-content: start;
+  align-items: center;
+  gap: 12px 18px;
   margin-bottom: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface-subtle);
-  padding: 12px 14px;
+  padding: 14px 16px;
 }
 
 .search-controls .search-form {
   margin: 0;
+  max-width: none;
+}
+
+@media (max-width: 1180px) {
+  .search-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .chapter-tree-row {
