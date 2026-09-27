@@ -68,8 +68,8 @@ export function Dashboard() {
   }, []);
 
   return (
-    <section className="stacked-page">
-      <article className="panel">
+    <section className="panel-grid">
+      <article className="panel panel-wide">
         <h2>总览</h2>
         {message ? <p>{message}</p> : null}
         {summary ? (
@@ -118,20 +118,19 @@ export function Dashboard() {
           {progress.courses.length ? (
             <div className="record-list">
               {progress.courses.map((course) => (
-                <div key={course.course_id} className="record-row" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div key={course.course_id} className="record-row progress-row">
                   <button
                     type="button"
-                    className="text-button"
-                    style={{ flex: 1, textAlign: "left" }}
+                    className="text-button progress-name"
                     onClick={() => navigate(buildRouteHash("课程", { courseId: course.course_id }))}
                   >
                     {course.course_title}
                   </button>
-                  <span style={{ whiteSpace: "nowrap" }}>已学 {course.studied_chapters}/{course.total_chapters} 章</span>
-                  <span style={{ flex: 2, height: 8, borderRadius: 999, background: "rgba(127,127,127,0.25)", overflow: "hidden" }}>
-                    <span style={{ display: "block", height: "100%", width: `${Math.min(100, course.progress_pct)}%`, background: "var(--primary)" }} />
+                  <span className="progress-meta">已学 {course.studied_chapters}/{course.total_chapters} 章</span>
+                  <span className="progress-track">
+                    <span className="progress-fill" style={{ width: `${Math.min(100, course.progress_pct)}%` }} />
                   </span>
-                  <span style={{ whiteSpace: "nowrap" }}>{Math.round(course.progress_pct)}%</span>
+                  <span className="progress-pct">{Math.round(course.progress_pct)}%</span>
                 </div>
               ))}
             </div>
@@ -155,7 +154,7 @@ export function Dashboard() {
           <p>暂无近 7 天活动数据。</p>
         )}
       </article>
-      <article className="panel">
+      <article className="panel panel-wide">
         <h2>学习掌握度</h2>
         {mastery && mastery.length ? (
           <div className="stacked-page">
@@ -164,16 +163,15 @@ export function Dashboard() {
                 <h3>{course.course_title}</h3>
                 <div className="record-list">
                   {course.chapters.map((chapter) => (
-                    <div key={chapter.chapter_id} className="record-row" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <span style={{ flex: 1 }}>{chapter.chapter_title}</span>
-                      <span style={{ whiteSpace: "nowrap" }}>
+                    <div key={chapter.chapter_id} className="record-row progress-row">
+                      <span className="progress-name">{chapter.chapter_title}</span>
+                      <span className="progress-meta">
                         {chapter.correct}/{chapter.total} · {Math.round(chapter.accuracy)}%
                       </span>
-                      <span style={{ flex: 2, height: 8, borderRadius: 999, background: "rgba(127,127,127,0.25)", overflow: "hidden" }}>
+                      <span className="progress-track">
                         <span
+                          className="progress-fill"
                           style={{
-                            display: "block",
-                            height: "100%",
                             width: `${Math.min(100, Math.max(0, chapter.accuracy))}%`,
                             background: masteryBarColor(chapter.accuracy),
                           }}

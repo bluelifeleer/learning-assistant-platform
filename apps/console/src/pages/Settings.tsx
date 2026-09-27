@@ -487,8 +487,8 @@ export function Settings({ title = "系统设置", description = "维护组织�
   }
 
   return (
-    <section className="stacked-page">
-      <article className="panel">
+    <section className="panel-grid">
+      <article className="panel panel-wide">
         <h2>{title}</h2>
         <p>{description}</p>
       </article>
@@ -512,10 +512,6 @@ export function Settings({ title = "系统设置", description = "维护组织�
       </article>
       <AppearancePanel />
       <article className="panel">
-        <h2>开放注册</h2>
-        <p>注册开关由 API 的 ALLOW_REGISTRATION 环境变量控制，默认关闭。</p>
-      </article>
-      <article className="panel">
         <h2>运行配置</h2>
         <div className="data-table settings-table">
           <div><strong>项目</strong><strong>值</strong></div>
@@ -525,8 +521,17 @@ export function Settings({ title = "系统设置", description = "维护组织�
           <div><span>授权状态</span><span>{settings?.license_status ?? "读取中"}</span></div>
         </div>
       </article>
-      <AiSettingsPanel />
-      <EmailSettingsPanel />
+      <article className="panel">
+        <h2>开放注册</h2>
+        <p>注册开关由 API 的 ALLOW_REGISTRATION 环境变量控制，默认关闭。</p>
+      </article>
+      {/* AI / 邮箱是长表单,占满整行 */}
+      <div className="panel-wide">
+        <AiSettingsPanel />
+      </div>
+      <div className="panel-wide">
+        <EmailSettingsPanel />
+      </div>
     </section>
   );
 }

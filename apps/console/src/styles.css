@@ -263,6 +263,31 @@ p {
 .workspace {
   min-width: 0;
   padding: 20px 28px 40px;
+  /* 超宽屏下限宽并居中:否则卡片会被拉成 1700px,行宽过长很难读。
+     注意这里不能用 margin-inline: auto —— 它是 grid item,
+     自动外边距会取消 stretch,把整块收缩成内容宽度。 */
+  width: 100%;
+  max-width: 1360px;
+  justify-self: center;
+}
+
+/* 面板双列网格:把长页面拆成并排卡片,减少纵向滚动 */
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+/* 需要整行的面板(内容较宽:表格、进度列表等) */
+.panel-grid > .panel-wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1080px) {
+  .workspace {
+    padding: 16px 18px 32px;
+  }
 }
 
 /* ============ 顶栏:状态徽章 ============ */
@@ -3208,9 +3233,56 @@ input[type="checkbox"]:disabled {
   display: block;
   height: 6px;
   border-radius: 999px;
-  background: rgba(127, 127, 127, 0.25);
+  background: var(--surface-sunken);
   overflow: hidden;
   margin-top: 8px;
+}
+
+/* 课程进度 / 掌握度列表行(原先是一堆内联样式 + 硬编码灰底) */
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.progress-row .progress-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-row .progress-track {
+  flex: 2;
+  min-width: 80px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.progress-row .progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+}
+
+.progress-row .progress-meta {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.progress-row .progress-pct {
+  flex: none;
+  min-width: 40px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  text-align: right;
 }
 
 .stat-progress-fill {
