@@ -23,8 +23,20 @@ class ReviewCardOut(BaseModel):
     interval_days: int
     due_at: datetime | None = None
     review_count: int
+    suspended: bool = False
     created_at: datetime | None = None
 
 
 class ReviewCardListOut(BaseModel):
     items: list[ReviewCardOut]
+
+
+class ReviewCardUpdateIn(BaseModel):
+    """卡片管理:暂停 / 恢复(/ 手动改到期时间)。"""
+
+    suspended: bool | None = None
+    due_at: datetime | None = None
+
+
+class ReviewCardDeleteOut(BaseModel):
+    affected: int

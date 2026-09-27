@@ -335,3 +335,125 @@ def test_chapter_memo_save_and_read(client, auth_headers):
 
     missing = client.put("/api/v1/courses/chapters/no-such-chapter/memo", headers=auth_headers, json={"content_md": "x"})
     assert missing.status_code == 404
+
+
+def _seed_two_notes(client, auth_headers) -> tuple[str, list[str]]:
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    ids = [
+        client.post(
+            "/api/v1/notes",
+            headers=auth_headers,
+            json={"course_id": course_id, "content": content, "tags": ["考点"]},
+        ).json()["id"]
+        for content in ("笔记一", "笔记二")
+    ]
+    return course_id, ids
+
+
+def test_note_bulk_tags_add_remove_and_set(client, auth_headers):
+    _, ids = _seed_two_notes(client, auth_headers)
+
+    added = client.post("/api/v1/notes/bulk-tags", headers=auth_headers, json={"ids": ids, "tags": ["高频"], "mode": "add"})
+    assert added.status_code == 200
+    assert added.json()["affected"] == 2
+    items = client.get("/api/v1/notes", headers=auth_headers).json()["items"]
+    assert all(set(item["tags"]) == {"考点", "高频"} for item in items)
+
+    client.post("/api/v1/notes/bulk-tags", headers=auth_headers, json={"ids": ids, "tags": ["考点"], "mode": "remove"})
+    items = client.get("/api/v1/notes", headers=auth_headers).json()["items"]
+    assert all(item["tags"] == ["高频"] for item in items)
+
+    client.post("/api/v1/notes/bulk-tags", headers=auth_headers, json={"ids": ids, "tags": ["疑问"], "mode": "set"})
+    items = client.get("/api/v1/notes", headers=auth_headers).json()["items"]
+    assert all(item["tags"] == ["疑问"] for item in items)
+
+
+def test_note_bulk_delete_and_single_delete(client, auth_headers):
+    _, ids = _seed_two_notes(client, auth_headers)
+
+    removed = client.post("/api/v1/notes/bulk-delete", headers=auth_headers, json={"ids": [ids[0]]})
+    assert removed.status_code == 200
+    assert removed.json()["affected"] == 1
+    remaining = client.get("/api/v1/notes", headers=auth_headers).json()["items"]
+    assert [item["content"] for item in remaining] == ["笔记二"]
+
+    assert client.delete(f"/api/v1/notes/{ids[1]}", headers=auth_headers).status_code == 200
+    assert client.get("/api/v1/notes", headers=auth_headers).json()["items"] == []
+    # 再删同一条应 404
+    assert client.delete(f"/api/v1/notes/{ids[1]}", headers=auth_headers).status_code == 404
+
+
+def test_deleting_note_keeps_review_card_but_detaches_it(client, auth_headers):
+    """笔记删了,由它生成的复习卡片要保留(只是不再指向已删笔记),不能因外键报错。"""
+    course_id, ids = _seed_two_notes(client, auth_headers)
+    card_id = client.post("/api/v1/review/cards", headers=auth_headers, json={"note_id": ids[0]}).json()["id"]
+
+    assert client.delete(f"/api/v1/notes/{ids[0]}", headers=auth_headers).status_code == 200
+
+    cards = client.get("/api/v1/review/cards", headers=auth_headers).json()["items"]
+    kept = [card for card in cards if card["id"] == card_id]
+    assert len(kept) == 1
+    assert kept[0]["note_id"] is None
+    assert kept[0]["course_id"] == course_id
+
+
+def test_course_can_be_renamed_and_archived(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+
+    renamed = client.patch(f"/api/v1/courses/{course_id}", headers=auth_headers, json={"title": "供应链管理(2026)", "term": "第4学期"})
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "供应链管理(2026)"
+    assert renamed.json()["term"] == "第4学期"
+    assert renamed.json()["archived_at"] is None
+
+    archived = client.patch(f"/api/v1/courses/{course_id}", headers=auth_headers, json={"archived": True})
+    assert archived.status_code == 200
+    assert archived.json()["archived_at"] is not None
+    # 默认列表不显示归档课程
+    assert client.get("/api/v1/courses", headers=auth_headers).json()["items"] == []
+    # 显式要求时可见
+    with_archived = client.get("/api/v1/courses?include_archived=true", headers=auth_headers).json()["items"]
+    assert len(with_archived) == 1
+    assert with_archived[0]["title"] == "供应链管理(2026)"
+
+    restored = client.patch(f"/api/v1/courses/{course_id}", headers=auth_headers, json={"archived": False})
+    assert restored.status_code == 200
+    assert restored.json()["archived_at"] is None
+    assert len(client.get("/api/v1/courses", headers=auth_headers).json()["items"]) == 1
+
+
+def test_update_unknown_course_returns_404(client, auth_headers):
+    assert client.patch("/api/v1/courses/nope", headers=auth_headers, json={"title": "x"}).status_code == 404
+
+
+def test_review_card_can_be_suspended_rescheduled_and_deleted(client, auth_headers):
+    _, ids = _seed_two_notes(client, auth_headers)
+    card_id = client.post("/api/v1/review/cards", headers=auth_headers, json={"note_id": ids[0]}).json()["id"]
+
+    # 手动改到期时间
+    future = "2099-01-01T00:00:00+00:00"
+    rescheduled = client.patch(f"/api/v1/review/cards/{card_id}", headers=auth_headers, json={"due_at": future})
+    assert rescheduled.status_code == 200
+    assert rescheduled.json()["due_at"].startswith("2099-01-01")
+    assert rescheduled.json()["suspended"] is False
+
+    # 暂停后不再出现在"今日待复习"
+    suspended = client.patch(f"/api/v1/review/cards/{card_id}", headers=auth_headers, json={"suspended": True, "due_at": "2000-01-01T00:00:00+00:00"})
+    assert suspended.status_code == 200
+    assert suspended.json()["suspended"] is True
+    assert client.get("/api/v1/review/due", headers=auth_headers).json()["items"] == []
+    # 但仍在全部卡片里
+    assert len(client.get("/api/v1/review/cards", headers=auth_headers).json()["items"]) == 1
+
+    # 恢复后回到待复习
+    client.patch(f"/api/v1/review/cards/{card_id}", headers=auth_headers, json={"suspended": False})
+    assert len(client.get("/api/v1/review/due", headers=auth_headers).json()["items"]) == 1
+
+    # 删除
+    assert client.delete(f"/api/v1/review/cards/{card_id}", headers=auth_headers).json()["affected"] == 1
+    assert client.get("/api/v1/review/cards", headers=auth_headers).json()["items"] == []
+    assert client.delete(f"/api/v1/review/cards/{card_id}", headers=auth_headers).status_code == 404

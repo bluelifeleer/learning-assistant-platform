@@ -109,6 +109,8 @@ class Course(Base, TimestampMixin):
     external_course_id: Mapped[str] = mapped_column(String(255), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     term: Mapped[str | None] = mapped_column(String(120))
+    # 归档而非物理删除:课程下挂着章节/字幕/笔记/截图/会话,硬删的级联代价太大
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     extra: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     chapters: Mapped[list["Chapter"]] = relationship(back_populates="course")
@@ -260,6 +262,8 @@ class ReviewCard(Base, TimestampMixin):
     interval_days: Mapped[int] = mapped_column(Integer, default=0)
     due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     review_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 暂停的卡片不进入"今日待复习",但保留记录
+    suspended: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
 
 
 class ReviewLog(Base):

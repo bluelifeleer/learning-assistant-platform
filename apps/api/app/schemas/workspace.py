@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,15 @@ class CourseListItem(BaseModel):
     transcript_count: int
     note_count: int
     updated_at: datetime | None = None
+    archived_at: datetime | None = None
+
+
+class CourseUpdateIn(BaseModel):
+    """课程可编辑字段;只传需要改的项。archived=true 归档,false 取消归档。"""
+
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    term: str | None = Field(default=None, max_length=120)
+    archived: bool | None = None
 
 
 class CourseListOut(BaseModel):
@@ -176,6 +186,22 @@ class NoteCorrectionIn(BaseModel):
 
 class NoteTagsIn(BaseModel):
     tags: list[str] = Field(default_factory=list)
+
+
+class NoteBulkIdsIn(BaseModel):
+    """批量操作选中的笔记 id。"""
+
+    ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class NoteBulkTagsIn(NoteBulkIdsIn):
+    tags: list[str] = Field(default_factory=list, max_length=50)
+    # add = 追加(默认), remove = 去掉这几个标签, set = 直接覆盖
+    mode: Literal["add", "remove", "set"] = "add"
+
+
+class NoteBulkResultOut(BaseModel):
+    affected: int
 
 
 class ScreenshotImageUpdateIn(BaseModel):

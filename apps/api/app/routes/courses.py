@@ -21,9 +21,11 @@ from app.schemas.workspace import (
     CourseFullDetailOut,
     CourseListItem,
     CourseListOut,
+    CourseUpdateIn,
     CourseVideoSourcesOut,
 )
 from app.services.plugins import ensure_default_organization
+from app.services.review import utc_now
 from app.services.video_sources import latest_video_events_by_chapter, video_source_out
 
 router = APIRouter(prefix="/courses", tags=["courses"])
@@ -43,8 +45,15 @@ def _counts_by_course(db: Session, model, course_ids: list[str]) -> dict[str, in
 
 
 @router.get("", response_model=CourseListOut)
-def list_courses(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> CourseListOut:
-    courses = db.query(Course).order_by(Course.updated_at.desc()).all()
+def list_courses(
+    include_archived: bool = False,
+    _: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> CourseListOut:
+    query = db.query(Course)
+    if not include_archived:
+        query = query.filter(Course.archived_at.is_(None))
+    courses = query.order_by(Course.updated_at.desc()).all()
     course_ids = [course.id for course in courses]
     site_ids = {course.site_id for course in courses if course.site_id}
     sites = {row.id: row for row in db.query(Site).filter(Site.id.in_(site_ids)).all()} if site_ids else {}
@@ -65,9 +74,44 @@ def list_courses(_: User = Depends(require_current_user), db: Session = Depends(
                 transcript_count=transcript_counts.get(course.id, 0),
                 note_count=note_counts.get(course.id, 0),
                 updated_at=course.updated_at,
+                archived_at=course.archived_at,
             )
         )
     return CourseListOut(items=items)
+
+
+@router.patch("/{course_id}", response_model=CourseListItem)
+def update_course(
+    course_id: str,
+    payload: CourseUpdateIn,
+    _: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> CourseListItem:
+    """改名 / 改学期 / 归档(archived=true)/ 取消归档(archived=false)。"""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if payload.title is not None:
+        course.title = payload.title.strip()
+    if payload.term is not None:
+        course.term = payload.term.strip() or None
+    if payload.archived is not None:
+        course.archived_at = utc_now() if payload.archived else None
+    db.commit()
+    db.refresh(course)
+    site = db.query(Site).filter(Site.id == course.site_id).first()
+    return CourseListItem(
+        id=course.id,
+        title=course.title,
+        term=course.term,
+        site_name=site.name if site else "Unknown",
+        adapter_id=site.adapter_id if site else "unknown",
+        chapter_count=db.query(func.count(Chapter.id)).filter(Chapter.course_id == course.id).scalar() or 0,
+        transcript_count=db.query(func.count(TranscriptSegment.id)).filter(TranscriptSegment.course_id == course.id).scalar() or 0,
+        note_count=db.query(func.count(Note.id)).filter(Note.course_id == course.id).scalar() or 0,
+        updated_at=course.updated_at,
+        archived_at=course.archived_at,
+    )
 
 
 @router.get("/{course_id}", response_model=CourseDetailOut)
