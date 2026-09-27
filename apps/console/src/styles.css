@@ -10,6 +10,7 @@
   --primary-active: #1e40af;
   --primary-soft: #eff4ff;
   --primary-softer: #f6f9ff;
+  --primary-soft-active: #dbe7fd;
   --primary-ring: rgba(37, 99, 235, 0.16);
 
   /* 背景与表面 */
@@ -36,6 +37,7 @@
   /* 状态色 */
   --success: #16a34a;
   --success-soft: #f0fdf4;
+  --success-border: #bbf7d0;
   --warning: #d97706;
   --warning-soft: #fffbeb;
   --danger: #dc2626;
@@ -345,7 +347,7 @@ p {
 }
 
 .text-button:active {
-  background: #dbe7fd;
+  background: var(--primary-soft-active);
 }
 
 .status-row > .text-button {
@@ -1371,8 +1373,8 @@ p {
 }
 
 .setup-checks span[data-ok="yes"] {
-  border-color: #bbf7d0;
-  color: #15803d;
+  border-color: var(--success-border);
+  color: var(--success);
   background: var(--success-soft);
 }
 
@@ -2230,7 +2232,7 @@ p {
 
 .pill[data-tone="ok"] {
   background: var(--success-soft);
-  color: #15803d;
+  color: var(--success);
 }
 
 .pill[data-tone="ok"]::before {
@@ -2614,6 +2616,53 @@ button.stat-card-link:focus-visible {
   --shadow: var(--shadow-md);
 }
 
+/* ============ 深色主题 ============
+   由 <html data-theme="dark"> 触发(见 src/theme.ts)。
+   「跟随系统」在 JS 侧解析成 light/dark 后再写入,所以这里只需要一套深色变量。 */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* 主色:深色底上要更亮一点才够对比度;按钮上的白字仍有约 3.7:1 */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-active: #1d4ed8;
+  --primary-soft: rgba(59, 130, 246, 0.16);
+  --primary-softer: rgba(59, 130, 246, 0.09);
+  --primary-soft-active: rgba(59, 130, 246, 0.28);
+  --primary-ring: rgba(59, 130, 246, 0.3);
+
+  --bg: #0b1220;
+  --surface: #131b2b;
+  --surface-subtle: #18213a;
+  --surface-sunken: #0e1626;
+
+  --text-primary: #e8eef8;
+  --text-secondary: #a6b4c9;
+  --text-tertiary: #7b8ba4;
+
+  --border: #26324a;
+  --border-strong: #36445f;
+
+  --sidebar-bg: #0a111e;
+  --sidebar-bg-hover: rgba(148, 163, 184, 0.14);
+  --sidebar-text: #8ca3bd;
+  --sidebar-text-hover: #e8eef8;
+
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.14);
+  --success-border: rgba(74, 222, 128, 0.34);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.14);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.15);
+  --neutral-dot: #64748b;
+
+  /* 深色下阴影要靠纯黑加深,否则几乎看不见 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
 /* ============ 全局滚动条 ============ */
 
 ::-webkit-scrollbar {
@@ -2752,7 +2801,7 @@ input[type="checkbox"]:disabled {
 }
 
 .toast-action:hover {
-  background: #dbe7fd;
+  background: var(--primary-soft-active);
 }
 
 .toast-close {
@@ -2873,7 +2922,7 @@ input[type="checkbox"]:disabled {
 }
 
 .qa-citations .note-tag:hover {
-  background: #dbe7fd;
+  background: var(--primary-soft-active);
 }
 
 .qa-typing {
@@ -3226,4 +3275,126 @@ input[type="checkbox"]:disabled {
 
 .transcript-row:hover .text-button-sm {
   visibility: visible;
+}
+
+/* ============ 外观设置(设置页) ============ */
+
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 14px 0 10px;
+}
+
+.theme-options button {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 14px 16px;
+  text-align: left;
+  transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+}
+
+.theme-options button:hover {
+  border-color: var(--primary);
+}
+
+.theme-options button:focus-visible {
+  outline: 3px solid var(--primary-ring);
+  outline-offset: 1px;
+}
+
+.theme-options button strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.theme-options button span {
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.theme-options button[data-active="yes"] {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+
+.theme-options button[data-active="yes"] strong {
+  color: var(--primary);
+}
+
+.theme-current {
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+}
+
+/* ============ 深色主题:登录页 ============
+   登录页是整屏品牌页,底色与玻璃卡片需要单独一套深色,不能只靠变量。 */
+[data-theme="dark"] .auth-shell {
+  background:
+    radial-gradient(1200px 720px at 6% -18%, rgba(37, 99, 235, 0.32), transparent 58%),
+    radial-gradient(1040px 660px at 112% 118%, rgba(109, 40, 217, 0.3), transparent 56%),
+    radial-gradient(900px 560px at 94% -6%, rgba(6, 182, 212, 0.2), transparent 58%),
+    radial-gradient(780px 540px at 22% 122%, rgba(56, 189, 248, 0.16), transparent 60%),
+    linear-gradient(152deg, #0c1424 0%, #101a2e 38%, #151630 68%, #0e1a2b 100%);
+}
+
+[data-theme="dark"] .auth-landing .auth-panel {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: linear-gradient(180deg, rgba(24, 33, 52, 0.94), rgba(19, 27, 43, 0.88));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 20px 44px rgba(0, 0, 0, 0.45),
+    0 60px 120px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="dark"] .auth-landing .commercial-points article,
+[data-theme="dark"] .auth-landing .commercial-stats span {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(24, 33, 52, 0.72);
+}
+
+[data-theme="dark"] .point-icon,
+[data-theme="dark"] .auth-panel-badge {
+  background: linear-gradient(140deg, rgba(59, 130, 246, 0.22), rgba(124, 58, 237, 0.16));
+  box-shadow: none;
+}
+
+[data-theme="dark"] .auth-field input {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(14, 22, 38, 0.75);
+}
+
+[data-theme="dark"] .auth-field input:focus {
+  background: rgba(14, 22, 38, 0.96);
+}
+
+[data-theme="dark"] .auth-panel .segmented.auth-seg {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .auth-seg-thumb {
+  background: linear-gradient(180deg, #1f2b44 0%, #1a2438 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 1px 2px rgba(0, 0, 0, 0.45),
+    0 3px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* 自动填充的浅色内阴影在深色下同样要换成暗色,否则会出现一块白 */
+[data-theme="dark"] .auth-field input:-webkit-autofill,
+[data-theme="dark"] .auth-field input:-webkit-autofill:hover,
+[data-theme="dark"] .auth-field input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0e1626 inset;
+  box-shadow: 0 0 0 1000px #0e1626 inset;
 }

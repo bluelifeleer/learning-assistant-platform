@@ -16,6 +16,15 @@ import {
 } from "../api/client";
 import { aiActionErrorMessage, startAiTaskPolling } from "./aiTasks";
 import { toast } from "../components/toast";
+import {
+  THEME_OPTIONS,
+  applyTheme,
+  loadThemePreference,
+  resolveTheme,
+  saveThemePreference,
+  systemPrefersDark,
+  type ThemePreference,
+} from "../theme";
 
 interface AiPreset {
   id: string;
@@ -388,6 +397,57 @@ function EmailSettingsPanel() {
   );
 }
 
+function AppearancePanel() {
+  const [preference, setPreference] = useState<ThemePreference>(() => loadThemePreference());
+  const [systemDark, setSystemDark] = useState<boolean>(() => systemPrefersDark());
+
+  // 订阅系统配色变化,仅用于「跟随系统」时切换和更新下方文案
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (): void => setSystemDark(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  const resolved = resolveTheme(preference, systemDark);
+
+  useEffect(() => {
+    applyTheme(resolved);
+  }, [resolved]);
+
+  function choose(next: ThemePreference): void {
+    setPreference(next);
+    saveThemePreference(next);
+  }
+
+  return (
+    <article className="panel">
+      <h2>外观</h2>
+      <p>控制台配色。选择「跟随系统」时会随操作系统的浅色 / 深色设置自动切换。</p>
+      <div className="theme-options" role="radiogroup" aria-label="外观模式">
+        {THEME_OPTIONS.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={preference === option.id}
+            data-active={preference === option.id ? "yes" : "no"}
+            onClick={() => choose(option.id)}
+          >
+            <strong>{option.label}</strong>
+            <span>{option.hint}</span>
+          </button>
+        ))}
+      </div>
+      <p className="theme-current">
+        当前生效：{resolved === "dark" ? "深色" : "浅色"}
+        {preference === "system" ? `（跟随系统）` : ""}
+      </p>
+    </article>
+  );
+}
+
 export function Settings({ title = "系统设置", description = "维护组织信息、授权状态和本地运行配置。" }: SettingsProps) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [organizationName, setOrganizationName] = useState("");
@@ -450,6 +510,7 @@ export function Settings({ title = "系统设置", description = "维护组织�
         </form>
         {message ? <p>{message}</p> : null}
       </article>
+      <AppearancePanel />
       <article className="panel">
         <h2>开放注册</h2>
         <p>注册开关由 API 的 ALLOW_REGISTRATION 环境变量控制，默认关闭。</p>

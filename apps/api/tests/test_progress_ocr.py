@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -162,7 +162,10 @@ def test_learning_progress_streak_across_days(progress_client) -> None:
             )
             db.add(session)
             db.flush()
-            session.started_at = datetime.now() - timedelta(days=days_ago)
+            # 必须写 aware UTC:列是 timestamptz,生产代码也是写 datetime.now(UTC)。
+            # 以前这里写的是 naive 本地时间,SQLite 下能被 func.date() 直接取到本地日期,
+            # 换成按本地时区换算后就会偏移一天。
+            session.started_at = datetime.now(UTC) - timedelta(days=days_ago)
         db.commit()
     finally:
         db.close()
