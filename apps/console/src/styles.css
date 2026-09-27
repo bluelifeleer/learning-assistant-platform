@@ -54,6 +54,8 @@
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
   --shadow-md: 0 1px 3px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.05);
   --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.1), 0 2px 6px rgba(15, 23, 42, 0.05);
+  /* 卡片顶部内高光,给平面卡片一点"厚度" */
+  --card-highlight: rgba(255, 255, 255, 0.75);
 
   /* 动效 */
   --transition: 160ms ease;
@@ -2686,6 +2688,7 @@ button.stat-card-link:focus-visible {
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.35);
   --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --card-highlight: rgba(255, 255, 255, 0.05);
 }
 
 /* ============ 全局滚动条 ============ */
@@ -3469,4 +3472,263 @@ input[type="checkbox"]:disabled {
 [data-theme="dark"] .auth-field input:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0 1000px #0e1626 inset;
   box-shadow: 0 0 0 1000px #0e1626 inset;
+}
+
+/* ============ 列表工具条 / 行操作 / 批量条 ============ */
+
+.list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+}
+
+.list-search {
+  position: relative;
+  flex: 1 1 240px;
+  max-width: 360px;
+  min-width: 0;
+}
+
+.list-search svg {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+  transition: color var(--transition);
+}
+
+.list-search:focus-within svg {
+  color: var(--primary);
+}
+
+.list-search input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-primary);
+  padding: 0 34px 0 36px;
+  font: inherit;
+  font-size: 13px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+/* 用自绘的清空按钮,隐藏浏览器自带的那个 */
+.list-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.list-search input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+
+.list-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.list-search-clear:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.list-count {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+/* 行操作:平时隐藏,悬停/键盘聚焦时出现,避免长列表视觉噪音 */
+.row-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.record-row:hover .row-actions,
+.record-row:focus-within .row-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .row-actions {
+    opacity: 1;
+  }
+}
+
+.bulk-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 var(--card-highlight), var(--shadow-lg);
+  padding: 10px 14px;
+}
+
+.bulk-bar strong {
+  font-size: 13.5px;
+}
+
+.bulk-bar-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ============ 精致卡片:层次与悬停反馈 ============ */
+
+.panel {
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 var(--card-highlight), var(--shadow-sm);
+}
+
+.record-row {
+  transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+
+.record-row:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-subtle);
+  box-shadow: var(--shadow-sm);
+}
+
+/* 课程卡片网格 */
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.course-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 var(--card-highlight), var(--shadow-sm);
+  padding: 16px 18px;
+  cursor: pointer;
+  text-align: left;
+  transition: transform var(--transition), box-shadow var(--transition), border-color var(--transition);
+}
+
+.course-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+  box-shadow: inset 0 1px 0 var(--card-highlight), var(--shadow-md);
+}
+
+.course-card:focus-visible {
+  outline: 3px solid var(--primary-ring);
+  outline-offset: 2px;
+}
+
+.course-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.course-card-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.course-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.course-card-stats {
+  display: flex;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.course-card-stats b {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.course-card[data-archived="yes"] {
+  opacity: 0.62;
+}
+
+/* 笔记行:勾选框 + 定位按钮 + 行操作同排 */
+.note-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 链接保持内容宽度:拉满整行会看起来像一个输入框 */
+.note-row-head > .text-button {
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+
+/* 行操作始终靠右 */
+.note-row-head > .row-actions {
+  margin-left: auto;
+}
+
+.record-row[data-selected="yes"] {
+  border-color: var(--primary);
+  background: var(--primary-softer);
+}
+
+.danger-text {
+  color: var(--danger);
+}
+
+.danger-text:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
 }

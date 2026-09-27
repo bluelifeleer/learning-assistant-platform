@@ -52,7 +52,8 @@ describe("App", () => {
     const html = renderToString(<App initialSetupStatus={installed} initialPage="复习" initialSession={session} />);
 
     expect(html).toContain("复习");
-    expect(html).toContain("正在读取到期卡片");
+    // 文案随复习页重做而更新(现在读的是全部卡片,不只是到期卡片)
+    expect(html).toContain("正在读取复习卡片");
   });
 
   it("renders system settings with the general tab by default", () => {

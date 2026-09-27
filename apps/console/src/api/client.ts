@@ -100,6 +100,7 @@ export interface CourseItem {
   transcript_count: number;
   note_count: number;
   updated_at?: string | null;
+  archived_at?: string | null;
 }
 
 export interface TranscriptItem {
@@ -345,8 +346,9 @@ export async function updateMe(payload: UserUpdatePayload, token: string): Promi
   return postJson<UserProfile>("/auth/me", payload, token, "PUT");
 }
 
-export async function fetchCourses(token?: string): Promise<{ items: CourseItem[] }> {
-  return getJson<{ items: CourseItem[] }>("/courses", token);
+export async function fetchCourses(token?: string, includeArchived = false): Promise<{ items: CourseItem[] }> {
+  // 控制台需要同时看到在读与已归档课程(本地切换状态),所以默认还是只取在读
+  return getJson<{ items: CourseItem[] }>(includeArchived ? "/courses?include_archived=true" : "/courses", token);
 }
 
 export interface CourseChapterNote {
@@ -398,6 +400,52 @@ export async function updateScreenshotImage(screenshotId: string, imageBase64: s
 
 export async function deleteScreenshot(screenshotId: string, token?: string): Promise<void> {
   return deleteResource(`/screenshots/${screenshotId}`, token);
+}
+
+export interface BulkResult {
+  affected: number;
+}
+
+/** 删除单条笔记(服务端会同时摘掉复习卡片对它的引用)。 */
+export async function deleteNote(noteId: string, token?: string): Promise<void> {
+  return deleteResource(`/notes/${noteId}`, token);
+}
+
+/** 批量删除笔记。 */
+export async function bulkDeleteNotes(ids: string[], token?: string): Promise<BulkResult> {
+  return postJson<BulkResult>("/notes/bulk-delete", { ids }, token);
+}
+
+/** 批量打标签:add 追加 / remove 去掉 / set 覆盖。 */
+export async function bulkTagNotes(
+  ids: string[],
+  tags: string[],
+  mode: "add" | "remove" | "set" = "add",
+  token?: string,
+): Promise<BulkResult> {
+  return postJson<BulkResult>("/notes/bulk-tags", { ids, tags, mode }, token);
+}
+
+/** 课程改名 / 改学期 / 归档(archived=true)或取消归档(archived=false)。 */
+export async function updateCourse(
+  courseId: string,
+  payload: { title?: string; term?: string | null; archived?: boolean },
+  token?: string,
+): Promise<CourseItem> {
+  return postJson<CourseItem>(`/courses/${courseId}`, payload, token, "PATCH");
+}
+
+/** 暂停 / 恢复复习卡片,或手动改到期时间。 */
+export async function updateReviewCard(
+  cardId: string,
+  payload: { suspended?: boolean; due_at?: string },
+  token?: string,
+): Promise<ReviewCard> {
+  return postJson<ReviewCard>(`/review/cards/${cardId}`, payload, token, "PATCH");
+}
+
+export async function deleteReviewCard(cardId: string, token?: string): Promise<void> {
+  return deleteResource(`/review/cards/${cardId}`, token);
 }
 
 export async function fetchCourseDetail(id: string, token?: string): Promise<CourseDetail> {
@@ -498,6 +546,8 @@ export interface ReviewCard {
   back: string;
   due_at?: string | null;
   review_count: number;
+  suspended?: boolean;
+  created_at?: string | null;
 }
 
 export type ReviewAnswerResult = "good" | "again";
