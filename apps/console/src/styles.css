@@ -2119,11 +2119,55 @@ p {
   gap: 10px;
 }
 
+/* 轻量操作按钮:无边框,悬停才出底色。
+   必须自给自足地声明 border/background/color/font ——
+   它经常单独使用(不带 .text-button),少写一项就会露出浏览器默认按钮样式。 */
 .text-button-sm {
   flex: none;
-  border-radius: 6px;
-  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 9px;
+  font: inherit;
   font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.text-button-sm:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface-subtle);
+  color: var(--text-primary);
+}
+
+.text-button-sm:focus-visible {
+  outline: 2px solid var(--primary-ring);
+  outline-offset: 1px;
+}
+
+.text-button-sm:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 与 .text-button 叠加时(章节/课程跳转链接)按链接色显示 */
+.text-button.text-button-sm {
+  color: var(--primary);
+}
+
+/* 批量条里的次要操作也走无边框,避免一排放好几个描边盒子 */
+.bulk-bar .text-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.bulk-bar .text-button:hover {
+  background: var(--surface-subtle);
+  color: var(--text-primary);
 }
 
 .note-meta {
@@ -3730,5 +3774,18 @@ input[type="checkbox"]:disabled {
 
 .danger-text:hover {
   color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* 危险操作:hover 时必须仍是红色。
+   .text-button-sm:hover:not(:disabled) 的权重是 (0,3,0),
+   单靠 .danger-text:hover (0,2,0) 压不住,会变成灰色。 */
+.text-button-sm.danger-text,
+.text-button-sm.danger-text:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.text-button-sm.danger-text:hover:not(:disabled) {
+  border-color: transparent;
   background: var(--danger-soft);
 }
