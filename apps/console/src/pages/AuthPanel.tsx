@@ -224,7 +224,7 @@ export function AuthPanel({ session, onSessionChange }: AuthPanelProps) {
           </div>
 
           <label className="auth-field">
-            <span>{mode === "login" ? "邮箱或用户名" : "邮箱"}</span>
+            <span>邮箱</span>
             <span className="auth-input">
               <MailIcon />
               <input

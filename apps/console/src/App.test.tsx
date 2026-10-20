@@ -43,8 +43,8 @@ describe("App", () => {
     expect(html).toContain("数据中台");
     expect(html).toContain("浏览器插件托管");
     expect(html).toContain("私有化部署");
-    expect(html).toContain("邮箱或用户名");
-    expect(html).toContain("用户名");
+    // 登录框只认邮箱(这个部署从未设置 username,写「邮箱或用户名」会误导)
+    expect(html).toContain("邮箱");
     expect(html).not.toContain("插件状态:");
   });
 
