@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     allow_registration: bool = False
     digest_scheduler_enabled: bool = True
     digest_scheduler_interval_seconds: int = 900
+    # 大模型请求的 TLS / 代理选项:
+    # - llm_ca_bundle: 额外信任的 CA bundle 路径(本机开了 Charles / mitmproxy /
+    #   Fiddler 这类抓包代理时,它们用自己的根证书重签 TLS,Python 默认不信任)
+    # - llm_disable_proxy: 忽略系统代理直连,适合「代理只为抓包、并不需要出网代理」的场景
+    llm_ca_bundle: str | None = None
+    llm_disable_proxy: bool = False
 
     model_config = SettingsConfigDict(env_file=("../../.env", ".env"), extra="ignore")
 

@@ -4,12 +4,28 @@ from typing import Any
 
 import httpx
 
+from app.core.config import get_settings
 from app.models.entities import Organization
 
 REQUEST_TIMEOUT_SECONDS = 120.0
 MAX_RETRIES = 1
 
 JSON_OUTPUT_GUARD = "你必须只输出一个合法的 JSON 值(对象或数组),不要输出 markdown 代码围栏、解释或任何其他文字。"
+
+
+def _client() -> httpx.Client:
+    """构造 LLM 请求用的客户端,按配置决定是否信任额外 CA / 是否绕过系统代理。
+
+    本机开着 Charles、mitmproxy、Fiddler 这类抓包代理时,它们会用自签根证书重签
+    TLS,httpx 默认只信任 certifi,于是报 CERTIFICATE_VERIFY_FAILED。
+    """
+    settings = get_settings()
+    kwargs: dict[str, Any] = {"timeout": REQUEST_TIMEOUT_SECONDS}
+    if settings.llm_ca_bundle:
+        kwargs["verify"] = settings.llm_ca_bundle
+    if settings.llm_disable_proxy:
+        kwargs["trust_env"] = False
+    return httpx.Client(**kwargs)
 
 
 class LLMNotConfiguredError(Exception):
@@ -65,11 +81,13 @@ def extract_json(text: str) -> Any:
 def _post_chat_completion(config: LLMConfig, messages: list[dict]) -> str:
     url = f"{config.base_url}/chat/completions"
     headers = {"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"}
-    payload = {"model": config.model, "messages": messages, "temperature": 0.3}
+    payload: dict[str, Any] = {"model": config.model, "messages": messages, "temperature": 0.3}
     last_error: Exception | None = None
-    for _ in range(MAX_RETRIES + 1):
+    attempts_left = MAX_RETRIES + 1
+    while attempts_left > 0:
+        attempts_left -= 1
         try:
-            with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+            with _client() as client:
                 response = client.post(url, headers=headers, json=payload)
         except httpx.HTTPError as exc:
             last_error = exc
@@ -77,6 +95,13 @@ def _post_chat_completion(config: LLMConfig, messages: list[dict]) -> str:
 
         if response.status_code >= 400:
             message = f"LLM 请求失败: HTTP {response.status_code} {response.text[:500]}"
+            if response.status_code == 400 and "temperature" in payload and "temperature" in response.text.lower():
+                # Kimi K2.x / K3 等推理模型只接受默认温度 1,传了别的值会直接 400。
+                # 去掉该参数再试一次,且不占用普通重试预算;接受 temperature 的
+                # 供应商(DeepSeek、OpenAI 等)仍保持原来的低温度输出。
+                payload.pop("temperature", None)
+                attempts_left += 1
+                continue
             if response.status_code < 500:
                 # 客户端错误(如 401 坏 key、400 坏请求)重试无意义,直接失败
                 raise LLMRequestError(message)

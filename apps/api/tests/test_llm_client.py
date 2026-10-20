@@ -19,9 +19,11 @@ class FakeClient:
     calls: list[dict] = []
     queue: list = []
     timeouts: list = []
+    kwargs: list[dict] = []
 
     def __init__(self, timeout=None, **kwargs) -> None:
         FakeClient.timeouts.append(timeout)
+        FakeClient.kwargs.append(kwargs)
 
     def __enter__(self) -> "FakeClient":
         return self
@@ -30,7 +32,9 @@ class FakeClient:
         return None
 
     def post(self, url: str, headers: dict | None = None, json: dict | None = None) -> FakeResponse:
-        FakeClient.calls.append({"url": url, "headers": headers, "json": json})
+        # 真实 httpx 在发请求时就把 payload 序列化了;这里同样存一份快照,
+        # 否则调用方后续修改 payload(如去掉 temperature)会篡改已记录的调用。
+        FakeClient.calls.append({"url": url, "headers": headers, "json": dict(json) if json is not None else None})
         outcome = FakeClient.queue.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
@@ -46,6 +50,7 @@ def fake_httpx(monkeypatch) -> None:
     FakeClient.calls = []
     FakeClient.queue = []
     FakeClient.timeouts = []
+    FakeClient.kwargs = []
     monkeypatch.setattr(llm.httpx, "Client", FakeClient)
 
 
@@ -105,6 +110,31 @@ def test_chat_completion_raises_after_retry_exhausted() -> None:
     assert len(FakeClient.calls) == 2
 
 
+def test_chat_completion_drops_temperature_when_model_rejects_it() -> None:
+    """Kimi K2.x / K3 只接受默认温度,400 提到 temperature 时应去掉该参数重试。"""
+    FakeClient.queue = [
+        FakeResponse(status_code=400, text='{"error": {"message": "invalid temperature: only 1 is allowed for this model"}}'),
+        ok_response('{"a": 1}'),
+    ]
+
+    result = llm.chat_completion(make_config(), [{"role": "user", "content": "hi"}], json_mode=True)
+
+    assert result == '{"a": 1}'
+    assert len(FakeClient.calls) == 2
+    assert FakeClient.calls[0]["json"]["temperature"] == 0.3
+    assert "temperature" not in FakeClient.calls[1]["json"]
+
+
+def test_chat_completion_keeps_other_400_failures_immediate() -> None:
+    """其它 400(如模型不存在)不应被温度兜底逻辑吞掉或重试。"""
+    FakeClient.queue = [FakeResponse(status_code=400, text='{"error": {"message": "Not found the model"}}')]
+
+    with pytest.raises(llm.LLMRequestError, match="HTTP 400"):
+        llm.chat_completion(make_config(), [{"role": "user", "content": "hi"}], json_mode=False)
+
+    assert len(FakeClient.calls) == 1
+
+
 def test_llm_config_requires_full_configuration() -> None:
     organization = Organization(name="org")
     with pytest.raises(llm.LLMNotConfiguredError):
@@ -124,3 +154,34 @@ def test_test_connection_reports_error_string() -> None:
     detail = llm.test_connection(make_config())
     assert detail is not None
     assert "401" in detail
+
+
+def _stub_settings(monkeypatch, *, ca_bundle: str | None, disable_proxy: bool) -> None:
+    class StubSettings:
+        llm_ca_bundle = ca_bundle
+        llm_disable_proxy = disable_proxy
+
+    monkeypatch.setattr(llm, "get_settings", lambda: StubSettings())
+
+
+def test_llm_client_defaults_to_certifi_and_system_proxy(monkeypatch) -> None:
+    _stub_settings(monkeypatch, ca_bundle=None, disable_proxy=False)
+    FakeClient.queue = [ok_response("ok")]
+
+    llm.chat_completion(make_config(), [{"role": "user", "content": "hi"}], json_mode=False)
+
+    kwargs = FakeClient.kwargs[0]
+    assert "verify" not in kwargs
+    assert "trust_env" not in kwargs
+
+
+def test_llm_client_honours_ca_bundle_and_proxy_switch(monkeypatch) -> None:
+    """本机开着 Charles/mitmproxy 时，需要信任其根证书或干脆绕过系统代理。"""
+    _stub_settings(monkeypatch, ca_bundle="C:/certs/local-proxy-ca.pem", disable_proxy=True)
+    FakeClient.queue = [ok_response("ok")]
+
+    llm.chat_completion(make_config(), [{"role": "user", "content": "hi"}], json_mode=False)
+
+    kwargs = FakeClient.kwargs[0]
+    assert kwargs["verify"] == "C:/certs/local-proxy-ca.pem"
+    assert kwargs["trust_env"] is False
