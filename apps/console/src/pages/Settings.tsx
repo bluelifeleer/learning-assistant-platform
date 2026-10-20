@@ -34,9 +34,18 @@ interface AiPreset {
   visionModels?: string[];
 }
 
+// 模型名会随各厂商迭代下线,这里只做输入建议(datalist),仍允许手填。
+// Kimi 旧版 kimi-k2-0905-preview / moonshot-v1-* 已下线,调用会返回
+// 404 "Not found the model ... or Permission denied"。
 const AI_PRESETS: AiPreset[] = [
   { id: "deepseek", label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", models: ["deepseek-chat", "deepseek-reasoner"] },
-  { id: "kimi", label: "Kimi（月之暗面）", baseUrl: "https://api.moonshot.cn/v1", models: ["kimi-k2-0905-preview", "moonshot-v1-8k", "moonshot-v1-32k"], visionModels: ["moonshot-v1-8k-vision-preview"] },
+  {
+    id: "kimi",
+    label: "Kimi（月之暗面）",
+    baseUrl: "https://api.moonshot.cn/v1",
+    models: ["kimi-k3", "kimi-k2.6", "kimi-k2.7-code", "kimi-k2.7-code-highspeed"],
+    visionModels: ["kimi-k3", "kimi-k2.6"],
+  },
   { id: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", models: ["gpt-4o-mini", "gpt-4o"], visionModels: ["gpt-4o"] },
   { id: "qwen", label: "通义千问（阿里）", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", models: ["qwen-plus", "qwen-turbo", "qwen-max"], visionModels: ["qwen-vl-plus"] },
   { id: "glm", label: "智谱 GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4", models: ["glm-4-flash", "glm-4-plus"], visionModels: ["glm-4v-flash"] },
@@ -45,6 +54,69 @@ const AI_PRESETS: AiPreset[] = [
 interface SettingsProps {
   title?: string;
   description?: string;
+}
+
+const CUSTOM_MODEL_OPTION = "__custom__";
+
+/** 有预设时用下拉列表选模型，同时保留手填能力（预设里没有的模型名也能用）。 */
+export function ModelField({
+  options,
+  value,
+  onChange,
+  placeholder,
+  emptyLabel,
+}: {
+  options: string[];
+  value: string;
+  onChange: (next: string) => void;
+  placeholder: string;
+  emptyLabel?: string;
+}) {
+  const [typing, setTyping] = useState(false);
+
+  if (typing || options.length === 0) {
+    return (
+      <span className="model-field">
+        <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+        {options.length > 0 ? (
+          <button
+            type="button"
+            className="text-button text-button-sm"
+            onClick={() => {
+              setTyping(false);
+              if (!options.includes(value)) onChange(options[0]);
+            }}
+          >
+            用预设
+          </button>
+        ) : null}
+      </span>
+    );
+  }
+
+  return (
+    <select
+      value={value}
+      onChange={(event) => {
+        if (event.target.value === CUSTOM_MODEL_OPTION) {
+          setTyping(true);
+          return;
+        }
+        onChange(event.target.value);
+      }}
+    >
+      {emptyLabel ? <option value="">{emptyLabel}</option> : null}
+      {value && !options.includes(value) ? (
+        <option value={value}>{value}（当前值，不在预设中）</option>
+      ) : null}
+      {options.map((name) => (
+        <option key={name} value={name}>
+          {name}
+        </option>
+      ))}
+      <option value={CUSTOM_MODEL_OPTION}>自定义模型…</option>
+    </select>
+  );
 }
 
 function AiSettingsPanel() {
@@ -147,19 +219,19 @@ function AiSettingsPanel() {
         <input value={baseUrl} onChange={(event) => { setPresetId(""); setBaseUrl(event.target.value); }} placeholder="API 地址，如 https://api.deepseek.com/v1" />
       </form>
       <form className="inline-form">
-        <input list="ai-model-options" value={model} onChange={(event) => setModel(event.target.value)} placeholder="对话模型，如 deepseek-chat" />
-        <datalist id="ai-model-options">
-          {(AI_PRESETS.find((preset) => preset.id === presetId)?.models ?? []).map((name) => <option key={name} value={name} />)}
-        </datalist>
-        <input
-          list="ai-vision-model-options"
-          value={visionModel}
-          onChange={(event) => setVisionModel(event.target.value)}
-          placeholder="视觉模型（可选，用于截图 OCR），默认同对话模型"
+        <ModelField
+          options={AI_PRESETS.find((preset) => preset.id === presetId)?.models ?? []}
+          value={model}
+          onChange={setModel}
+          placeholder="对话模型，如 deepseek-chat"
         />
-        <datalist id="ai-vision-model-options">
-          {(AI_PRESETS.find((preset) => preset.id === presetId)?.visionModels ?? []).map((name) => <option key={name} value={name} />)}
-        </datalist>
+        <ModelField
+          options={AI_PRESETS.find((preset) => preset.id === presetId)?.visionModels ?? []}
+          value={visionModel}
+          onChange={setVisionModel}
+          placeholder="视觉模型（可选，用于截图 OCR）"
+          emptyLabel="（留空 = 与对话模型相同）"
+        />
       </form>
       <form className="inline-form">
         <input

@@ -485,6 +485,24 @@ p {
   align-items: start;
 }
 
+/* AI 模型字段:宽高跟 select 对齐,右侧可挂一个「用预设」按钮 */
+.model-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.model-field > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.model-field > button {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* ============ 卡片与页面结构 ============ */
 
 .panel {
@@ -1097,6 +1115,63 @@ p {
 }
 
 .auth-input:focus-within .auth-input-icon {
+  color: var(--primary);
+}
+
+/* 密码框右侧留出"显示/隐藏密码"开关的位置 */
+.auth-input-password input {
+  padding-right: 48px;
+}
+
+/* 开关必须用 .auth-panel 前缀提权,否则会被上面的 `.auth-panel button`
+   (实心主按钮:蓝底白字 + 阴影)覆盖成一块蓝色方块 */
+.auth-panel .auth-input-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  /* 和左侧图标一样要抬到带 backdrop-filter 的输入框之上 */
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+
+.auth-panel .auth-input-toggle svg {
+  width: 17px;
+  height: 17px;
+}
+
+.auth-panel .auth-input-toggle:hover {
+  background: rgba(15, 23, 42, 0.06);
+  box-shadow: none;
+  color: var(--text-secondary);
+  transform: translateY(-50%);
+}
+
+.auth-panel .auth-input-toggle:active {
+  background: rgba(15, 23, 42, 0.1);
+  box-shadow: none;
+  transform: translateY(-50%);
+}
+
+.auth-panel .auth-input-toggle:focus-visible {
+  outline: 2px solid var(--primary-ring);
+  outline-offset: 1px;
+  color: var(--primary);
+}
+
+.auth-panel .auth-input-toggle[data-active="yes"] {
   color: var(--primary);
 }
 
@@ -3495,6 +3570,15 @@ input[type="checkbox"]:disabled {
 
 [data-theme="dark"] .auth-field input:focus {
   background: rgba(14, 22, 38, 0.96);
+}
+
+[data-theme="dark"] .auth-panel .auth-input-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .auth-panel .auth-input-toggle:active {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 [data-theme="dark"] .auth-panel .segmented.auth-seg {

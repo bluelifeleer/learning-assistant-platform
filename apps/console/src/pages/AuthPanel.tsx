@@ -81,12 +81,35 @@ function LockIcon() {
   );
 }
 
+/** 明文状态用"睁眼"图标 */
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.6 12S6 5.8 12 5.8 21.4 12 21.4 12 18 18.2 12 18.2 2.6 12 2.6 12Z" />
+      <circle cx="12" cy="12" r="3.1" />
+    </svg>
+  );
+}
+
+/** 密文状态用"闭眼"图标 */
+function EyeOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10.6 6.1A7.7 7.7 0 0 1 12 6c6 0 9.4 6 9.4 6a16 16 0 0 1-2.6 3.4" />
+      <path d="M6.2 7.6A15.7 15.7 0 0 0 2.6 12S6 18 12 18a8.9 8.9 0 0 0 3.6-.7" />
+      <path d="M9.9 9.9a3.1 3.1 0 0 0 4.2 4.2" />
+      <path d="m3.5 3.5 17 17" />
+    </svg>
+  );
+}
+
 export function AuthPanel({ session, onSessionChange }: AuthPanelProps) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [account, setAccount] = useState("");
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -230,15 +253,31 @@ export function AuthPanel({ session, onSessionChange }: AuthPanelProps) {
 
           <label className="auth-field">
             <span>密码</span>
-            <span className="auth-input">
+            <span className="auth-input auth-input-password">
               <LockIcon />
               <input
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={mode === "login" ? "请输入密码" : "至少 6 位"}
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
               />
+              {/* 圆圈一多就分不清是自动填充还是手输错,给一个"显示密码"开关当场核对 */}
+              <button
+                type="button"
+                className="auth-input-toggle"
+                data-active={showPassword ? "yes" : "no"}
+                aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                aria-pressed={showPassword}
+                title={showPassword ? "隐藏密码" : "显示密码"}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setShowPassword((value) => !value)}
+              >
+                {showPassword ? <EyeIcon /> : <EyeOffIcon />}
+              </button>
             </span>
           </label>
 
