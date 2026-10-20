@@ -41,7 +41,7 @@ def login(payload: LoginIn, request: Request, service: AuthService = Depends(get
     if not login_limiter.allow(key):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many login attempts, please try again later")
     try:
-        result = service.login(payload)
+        result = service.login(payload, client_ip=_client_ip(request))
     except HTTPException:
         raise
     login_limiter.reset(key)

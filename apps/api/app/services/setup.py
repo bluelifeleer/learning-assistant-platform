@@ -231,5 +231,16 @@ def initialize_database(payload: SetupInitializeIn, env_path: Path | None = None
                 session.add_all([organization, user])
                 session.flush()
                 session.add(Membership(organization_id=organization.id, user_id=user.id, role="owner"))
+                from app.services import audit as audit_service
+
+                audit_service.record(
+                    session,
+                    audit_service.SETUP_ADMIN_CREATED,
+                    resource_type="user",
+                    resource_id=user.id,
+                    user_id=user.id,
+                    organization_id=organization.id,
+                    payload={"email": user.email},
+                )
                 session.commit()
     return read_setup_status(path)

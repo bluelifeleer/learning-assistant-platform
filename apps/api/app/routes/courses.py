@@ -24,6 +24,7 @@ from app.schemas.workspace import (
     CourseUpdateIn,
     CourseVideoSourcesOut,
 )
+from app.services import audit
 from app.services.plugins import ensure_default_organization
 from app.services.review import utc_now
 from app.services.video_sources import latest_video_events_by_chapter, video_source_out
@@ -84,7 +85,7 @@ def list_courses(
 def update_course(
     course_id: str,
     payload: CourseUpdateIn,
-    _: User = Depends(require_current_user),
+    user: User = Depends(require_current_user),
     db: Session = Depends(get_db),
 ) -> CourseListItem:
     """改名 / 改学期 / 归档(archived=true)/ 取消归档(archived=false)。"""
@@ -97,6 +98,19 @@ def update_course(
         course.term = payload.term.strip() or None
     if payload.archived is not None:
         course.archived_at = utc_now() if payload.archived else None
+    audit.record(
+        db,
+        audit.COURSE_UPDATED,
+        resource_type="course",
+        resource_id=course.id,
+        user_id=user.id,
+        organization_id=course.organization_id,
+        payload={
+            "title": payload.title,
+            "term": payload.term,
+            "archived": payload.archived,
+        },
+    )
     db.commit()
     db.refresh(course)
     site = db.query(Site).filter(Site.id == course.site_id).first()

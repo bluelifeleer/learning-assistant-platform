@@ -3873,3 +3873,32 @@ input[type="checkbox"]:disabled {
   border-color: transparent;
   background: var(--danger-soft);
 }
+
+/* ============ 操作日志 ============ */
+.audit-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.audit-time {
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-user {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.audit-detail {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}

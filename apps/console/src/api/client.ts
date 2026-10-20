@@ -406,6 +406,29 @@ export interface BulkResult {
   affected: number;
 }
 
+export interface AuditLogItem {
+  id: string;
+  action: string;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  user_id?: string | null;
+  user_email?: string | null;
+  organization_id?: string | null;
+  payload: Record<string, unknown>;
+  created_at?: string | null;
+}
+
+/** 最近的审计记录(仅 owner 可见)。 */
+export async function fetchAuditLogs(
+  params: { action?: string; limit?: number } = {},
+  token?: string,
+): Promise<{ items: AuditLogItem[] }> {
+  const search = new URLSearchParams();
+  if (params.action) search.set("action", params.action);
+  search.set("limit", String(params.limit ?? 100));
+  return getJson<{ items: AuditLogItem[] }>(`/audit-logs?${search.toString()}`, token);
+}
+
 /** 删除单条笔记(服务端会同时摘掉复习卡片对它的引用)。 */
 export async function deleteNote(noteId: string, token?: string): Promise<void> {
   return deleteResource(`/notes/${noteId}`, token);

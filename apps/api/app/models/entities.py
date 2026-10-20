@@ -235,10 +235,15 @@ class Export(Base, TimestampMixin):
 
 class AuditLog(Base, TimestampMixin):
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_action_created", "action", "created_at"),
+        Index("ix_audit_logs_user_created", "user_id", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"))
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # 登录失败时账号可能不存在 / 不存在该用户,所以允许为空
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     action: Mapped[str] = mapped_column(String(120), nullable=False)
     resource_type: Mapped[str | None] = mapped_column(String(120))
     resource_id: Mapped[str | None] = mapped_column(String(120))

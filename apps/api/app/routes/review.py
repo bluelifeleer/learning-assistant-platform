@@ -12,6 +12,7 @@ from app.schemas.review import (
     ReviewCardOut,
     ReviewCardUpdateIn,
 )
+from app.services import audit
 from app.services.review import ReviewService, utc_now
 
 router = APIRouter(prefix="/review", tags=["review"])
@@ -115,7 +116,7 @@ def answer_card(
 def update_card(
     card_id: str,
     payload: ReviewCardUpdateIn,
-    _: User = Depends(require_current_user),
+    user: User = Depends(require_current_user),
     db: Session = Depends(get_db),
 ) -> ReviewCardOut:
     """暂停 / 恢复卡片,或手动改到期时间(两者可同时传)。"""
@@ -126,18 +127,35 @@ def update_card(
         card.suspended = payload.suspended
     if payload.due_at is not None:
         card.due_at = payload.due_at
+    audit.record(
+        db,
+        audit.REVIEW_CARD_UPDATED,
+        resource_type="review_card",
+        resource_id=card.id,
+        user_id=user.id,
+        organization_id=card.organization_id,
+        payload={"suspended": payload.suspended, "due_at": card.due_at.isoformat() if card.due_at else None},
+    )
     db.commit()
     db.refresh(card)
     return card_out(card)
 
 
 @router.delete("/cards/{card_id}", response_model=ReviewCardDeleteOut)
-def delete_card(card_id: str, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ReviewCardDeleteOut:
+def delete_card(card_id: str, user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ReviewCardDeleteOut:
     card = db.query(ReviewCard).filter(ReviewCard.id == card_id).first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     # 复习记录一并清掉,否则会留下指向已删卡片的孤儿日志
     db.query(ReviewLog).filter(ReviewLog.card_id == card.id).delete(synchronize_session=False)
     db.delete(card)
+    audit.record(
+        db,
+        audit.REVIEW_CARD_DELETED,
+        resource_type="review_card",
+        resource_id=card_id,
+        user_id=user.id,
+        organization_id=card.organization_id,
+    )
     db.commit()
     return ReviewCardDeleteOut(affected=1)

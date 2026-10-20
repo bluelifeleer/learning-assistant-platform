@@ -1,5 +1,6 @@
 import type { AuthResponse, PluginClientStatus } from "../api/client";
 import type { SettingsTab } from "../navSlug";
+import { AuditLogPanel } from "./AuditLogPanel";
 import { Adapters } from "./Adapters";
 import { PluginPanel } from "./PluginPanel";
 import { Settings } from "./Settings";
@@ -10,6 +11,7 @@ const SETTINGS_TAB_ITEMS: { id: SettingsTab; label: string }[] = [
   { id: "plugins", label: "插件管理" },
   { id: "adapters", label: "站点适配器" },
   { id: "users", label: "用户与授权" },
+  { id: "audit", label: "操作日志" },
 ];
 
 interface SystemSettingsProps {
@@ -49,6 +51,7 @@ export function SystemSettings({ tab, onTabChange, session, onSessionChange, onP
       {activeTab === "plugins" ? <PluginPanel onStatusChange={onPluginStatusChange} /> : null}
       {activeTab === "adapters" ? <Adapters /> : null}
       {activeTab === "users" ? <UsersAuth session={session} onSessionChange={onSessionChange} /> : null}
+      {activeTab === "audit" ? <AuditLogPanel /> : null}
     </section>
   );
 }

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import require_current_user
 from app.db.session import get_db
 from app.models.entities import Chapter, Course, Note, ReviewCard, User
+from app.services import audit
 from app.schemas.workspace import (
     NoteBulkIdsIn,
     NoteBulkResultOut,
@@ -130,33 +131,55 @@ def _merge_tags(current: list[str], incoming: list[str], mode: str) -> list[str]
 
 
 @router.post("/bulk-tags", response_model=NoteBulkResultOut)
-def bulk_tag_notes(payload: NoteBulkTagsIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteBulkResultOut:
+def bulk_tag_notes(payload: NoteBulkTagsIn, user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteBulkResultOut:
     """给选中的笔记批量打标签 / 去标签 / 覆盖标签。"""
     notes = db.query(Note).filter(Note.id.in_(payload.ids)).all()
     for note in notes:
         note.tags = _merge_tags([tag for tag in (note.tags or []) if tag], payload.tags, payload.mode)
+    audit.record(
+        db,
+        audit.NOTES_BULK_TAGGED,
+        resource_type="note",
+        user_id=user.id,
+        payload={"count": len(notes), "tags": payload.tags, "mode": payload.mode, "note_ids": [n.id for n in notes]},
+    )
     db.commit()
     return NoteBulkResultOut(affected=len(notes))
 
 
 @router.post("/bulk-delete", response_model=NoteBulkResultOut)
-def bulk_delete_notes(payload: NoteBulkIdsIn, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteBulkResultOut:
+def bulk_delete_notes(payload: NoteBulkIdsIn, user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteBulkResultOut:
     notes = db.query(Note).filter(Note.id.in_(payload.ids)).all()
     ids = [note.id for note in notes]
     if ids:
         _detach_review_cards(db, ids)
         for note in notes:
             db.delete(note)
+        audit.record(
+            db,
+            audit.NOTES_BULK_DELETED,
+            resource_type="note",
+            user_id=user.id,
+            payload={"count": len(ids), "note_ids": ids},
+        )
         db.commit()
     return NoteBulkResultOut(affected=len(ids))
 
 
 @router.delete("/{note_id}", response_model=NoteBulkResultOut)
-def delete_note(note_id: str, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteBulkResultOut:
+def delete_note(note_id: str, user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> NoteBulkResultOut:
     note = db.query(Note).filter(Note.id == note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     _detach_review_cards(db, [note.id])
     db.delete(note)
+    audit.record(
+        db,
+        audit.NOTE_DELETED,
+        resource_type="note",
+        resource_id=note_id,
+        user_id=user.id,
+        payload={"course_id": note.course_id},
+    )
     db.commit()
     return NoteBulkResultOut(affected=1)

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.entities import ApiToken, Membership, User
 from app.schemas.auth import AuthTokenOut, LoginIn, PasswordChangeIn, RegisterIn, UserOut, UserUpdateIn
+from app.services import audit
 from app.services.auth_tokens import create_plain_token, hash_token
 from app.services.plugins import ensure_default_organization
 
@@ -73,6 +74,15 @@ class AuthService:
         # 开放注册时,新用户默认是普通成员,不具备修改工作区/AI/邮箱设置等管理权限;
         # 管理员只能通过安装向导创建,或由现有 owner 手动提升。
         self.db.add(Membership(organization_id=organization.id, user_id=user.id, role="member"))
+        audit.record(
+            self.db,
+            audit.USER_REGISTERED,
+            resource_type="user",
+            resource_id=user.id,
+            user_id=user.id,
+            organization_id=organization.id,
+            payload={"email": user.email},
+        )
         token = self.create_session_token(user)
         self.db.commit()
         self.db.refresh(user)
@@ -98,17 +108,52 @@ class AuthService:
         if not verify_password(payload.current_password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前密码不正确")
         user.password_hash = hash_password(payload.new_password)
+        audit.record(
+            self.db,
+            audit.PASSWORD_CHANGED,
+            resource_type="user",
+            resource_id=user.id,
+            user_id=user.id,
+            payload={"email": user.email, "via": "change-password"},
+        )
         self.db.commit()
         self.db.refresh(user)
         return user_out(user)
 
-    def login(self, payload: LoginIn) -> AuthTokenOut:
+    def login(self, payload: LoginIn, client_ip: str | None = None) -> AuthTokenOut:
         account = (payload.account or "").strip()
         user = self.db.query(User).filter(User.email == account.lower()).first()
         if not user:
             user = self.db.query(User).filter(User.username == account.lower()).first()
-        if not user or not verify_password(payload.password, user.password_hash):
+        if not user:
+            # 账号都找不到:常见于把显示名当账号输入 —— 记下来才能一眼看出
+            audit.record(
+                self.db,
+                audit.LOGIN_FAILED,
+                payload={"account": account, "ip": client_ip, "reason": "no_such_account"},
+            )
+            self.db.commit()
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        if not verify_password(payload.password, user.password_hash):
+            audit.record(
+                self.db,
+                audit.LOGIN_FAILED,
+                resource_type="user",
+                resource_id=user.id,
+                user_id=user.id,
+                organization_id=None,
+                payload={"account": account, "ip": client_ip, "reason": "bad_password"},
+            )
+            self.db.commit()
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        audit.record(
+            self.db,
+            audit.LOGIN_SUCCESS,
+            resource_type="user",
+            resource_id=user.id,
+            user_id=user.id,
+            payload={"account": account, "ip": client_ip},
+        )
         token = self.create_session_token(user)
         self.db.commit()
         self.db.refresh(user)
