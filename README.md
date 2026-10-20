@@ -19,7 +19,7 @@
    - Windows: `scripts\db-docker.ps1 postgresql`，或 `scripts\db-docker.ps1 mysql`
    - macOS / Linux: `./scripts/db-docker.sh postgresql`，或 `./scripts/db-docker.sh mysql`
 5. 启动 API 和控制台：
-   - Windows: `scripts\dev.ps1`
+   - Windows: `scripts\dev.cmd`（推荐，双击也行）或 `scripts\dev.ps1`
    - macOS / Linux: `./scripts/dev.sh`
 6. 打开控制台 `http://127.0.0.1:17891`，未安装时会进入“系统安装向导”。
 7. 在安装器里测试数据库连接，填写组织、管理员、License Key，然后初始化。
@@ -27,14 +27,22 @@
 
 如果你已有远端 PostgreSQL、MySQL 或 MariaDB，第 4 步可以跳过，直接在安装器里填写远端数据库地址。
 
+> **Windows 执行策略报错**：直接跑 `scripts\dev.ps1` 可能提示 `cannot be loaded. The file ... is not digitally signed`，这是因为当前终端的执行策略（如 AllSigned）不接受未签名脚本。用 `scripts\dev.cmd` 启动即可——它只对本进程加 `-ExecutionPolicy Bypass`，不改系统设置。等价的单次命令是：
+>
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File .\scripts\dev.ps1
+> ```
+>
+> 只想单独重启 API 时，可以完全绕开脚本：`cd apps\api` 后执行 `.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 17890`（注意 uvicorn 没开 `--reload`，改完后端代码要手动重启）。
+
 ## AI 配置
 
 AI 摘要和自动出题使用 **OpenAI 兼容端点**，在控制台"设置 → AI 设置"中填写：
 
 - **Base URL**：API 地址(不含 `/chat/completions`)
 - **API Key**：密钥只保存在服务端,界面上只显示掩码
-- **模型名**：如 `deepseek-chat`、`kimi-k2-0905-preview`、`qwen2.5:7b`
-- **视觉模型**(可选):截图 OCR 使用,需多模态模型,如 `kimi-latest`、`qwen-vl-max`;留空则与对话模型共用
+- **模型名**：从下拉预设里选,或选"自定义模型…"手填,如 `deepseek-chat`、`kimi-k3`、`qwen2.5:7b`
+- **视觉模型**(可选):截图 OCR 使用,需多模态模型,如 `kimi-k3`、`qwen-vl-max`;留空则与对话模型共用
 - **新章节自动生成**：开关默认关闭;开启后章节字幕满 20 段会自动生成章节摘要
 
 常见服务示例：
@@ -42,10 +50,24 @@ AI 摘要和自动出题使用 **OpenAI 兼容端点**，在控制台"设置 →
 | 服务 | Base URL | 说明 |
 |---|---|---|
 | DeepSeek | `https://api.deepseek.com/v1` | 模型 `deepseek-chat` |
-| Kimi(月之暗面) | `https://api.moonshot.cn/v1` | 模型 `kimi-k2-0905-preview` 等 |
+| Kimi(月之暗面) | `https://api.moonshot.cn/v1` | 模型 `kimi-k3`、`kimi-k2.6`、`kimi-k2.7-code` 等 |
 | Ollama(本地) | `http://127.0.0.1:11434/v1` | 任意已拉取模型,API Key 可填任意非空值 |
 
 填写后点"测试连接"验证可用性。未配置时 AI 相关按钮会提示先完成配置。课程问答同样使用这里的配置。
+
+> **测试连接报 `SSL: CERTIFICATE_VERIFY_FAILED` / `self-signed certificate in certificate chain`**
+>
+> 这是本机的抓包代理（Charles、mitmproxy、Fiddler 等）用自建根证书重签了 TLS，而 Python 只信任 `certifi` 里的证书（浏览器走 Windows 证书库，所以网页正常）。在 `.env` 里二选一：
+>
+> ```ini
+> # 1) 大模型请求直连，不走系统代理（代理只为调试其他流量时推荐）
+> LLM_DISABLE_PROXY=true
+>
+> # 2) 仍然走代理，但额外信任一个 CA bundle（代理根证书拼进 certifi 的 cacert.pem）
+> LLM_CA_BUNDLE=C:\path\to\ca-bundle.pem
+> ```
+>
+> 改完要重启 API。也可以直接关掉代理软件或在代理里把 `api.moonshot.cn` 设为直连。
 
 ## 邮箱配置
 
@@ -184,6 +206,27 @@ pnpm --filter @learn-assistant/extension build
 pnpm --filter @learn-assistant/console test
 pnpm --filter @learn-assistant/console build
 ```
+
+## 忘记密码 / 重置密码
+
+登录页没有"忘记密码"入口,密码忘记或登录不上时,在本机命令行重置(直接写数据库,不需要登录):
+
+```powershell
+Set-Location apps\api
+
+# 随机生成一个 16 位强密码并写入,终端会打印出来
+.\.venv\Scripts\python -m scripts.reset_password --account thebulelife@163.com --generate
+
+# 或者指定新密码(6 位以上),不加 --password 则交互输入
+.\.venv\Scripts\python -m scripts.reset_password --account thebulelife@163.com --password "你的新密码"
+
+# 保留已登录的会话(默认会吊销该账号全部控制台会话)
+.\.venv\Scripts\python -m scripts.reset_password --account thebulelife@163.com --generate --keep-sessions
+```
+
+macOS / Linux 用 `./.venv/bin/python -m scripts.reset_password ...`,`--account` 可填邮箱或用户名。重置成功后用新密码登录 `http://127.0.0.1:17891`,再在"系统设置 → 用户 → 修改密码"里换成自己记得住的密码。
+
+登录失败排查顺序:先确认账号密码输入无误(中文输入法可能打出全角 `＠` 或多余空格),再注意登录接口限制"同一账号 + IP 5 分钟内最多 10 次",连续试错会先返回 429,等 5 分钟或重启 API 后重试。
 
 ## 安装器流程
 
