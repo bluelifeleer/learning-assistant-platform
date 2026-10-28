@@ -1,10 +1,12 @@
 # 导入 / 导出包（.lapkg）设计
 
 - 日期：2026-10-28
-- 状态：**P0 已实现**（包格式 v1 + 完整包导出 + 组织隔离），P1（导入）待做
-- 关联：`apps/api/app/routes/exports.py`、`apps/api/app/services/export_payload.py`、
-  `apps/api/app/exporters/package.py`、`apps/console/src/pages/CourseDetail.tsx`
-- P0 落地记录见文末「附录 A」
+- 状态：**P0、P1 已实现**（包导出 + 导入后端），P2（前端导入向导、导出中心页）待做
+- 关联：`apps/api/app/routes/exports.py`、`apps/api/app/routes/imports.py`、
+  `apps/api/app/services/export_payload.py`、`apps/api/app/services/import_source.py`、
+  `apps/api/app/services/importer.py`、`apps/api/app/exporters/package.py`、
+  `apps/console/src/pages/CourseDetail.tsx`
+- P0 落地记录见「附录 A」，P1 见「附录 B」
 
 ## 1. 背景与目标
 
@@ -264,7 +266,7 @@ ALTER TABLE exports ADD COLUMN size_bytes INTEGER;
 ALTER TABLE exports ADD COLUMN scope_counts JSON DEFAULT '{}';
 ```
 
-**P1 待落地（迁移 0023）**：`import_jobs` 表。
+**P1 已落地（迁移 0023_import_jobs）**：`import_jobs` 表。
 
 ```sql
 CREATE TABLE import_jobs (
@@ -374,3 +376,38 @@ class ImportSource(Protocol):
 - `manifest.json` 最后写入（包缺 manifest 即视为损坏），规范原文未限定顺序
 - 章节 JSON 多一个 `video` 字段，供 Markdown/JSON 导出沿用
 - 「未指定课程」对 `report_pdf` 仍是全部课程汇总档案，对 `package` 是全部课程
+
+## 附录 B：P1 落地记录（2026-10-28）
+
+### 新增
+
+| 文件 | 作用 |
+|---|---|
+| `apps/api/app/services/import_source.py` | `ImportSource` 协议 + `LapkgSource`：读包、限额、路径安全、逐文件 checksum、解析成 `ImportPlan`（不碰库） |
+| `apps/api/app/services/importer.py` | `run_import`：merge 落库 + 媒体流式落盘；`dry_run=True` 全程只读 |
+| `apps/api/app/routes/imports.py` | 上传 / 列表 / 详情 / 取消 / 报告，后台任务 `run_import_job` |
+| `apps/api/alembic/versions/0023_import_jobs.py` | `import_jobs` 表 |
+| `apps/api/tests/test_imports.py` | 17 个用例 |
+
+### 实现要点
+
+- **校验顺序**：体积 → zip 结构 → 条目名（绝对路径 / `..` / 符号链接）→ 条目数与总解压量 → 扩展名白名单 → manifest 与 schema_version → 逐文件 checksum
+- **merge 去重键**：课程 / 章节走既有唯一约束；字幕 `(start_seconds, text)`；笔记 `(content, video_time_seconds)`；截图与笔记图片按 id；复习卡按 `front`；题目按 `(chapter_id, question)`
+- **id 策略**：包内 id 未被占用就沿用；`note_images` 必须沿用，否则笔记 Markdown 里的 `note-image:<id>` 会裂图；冲突时换新 id 并重写引用
+- **媒体**：按需从 zip 流式写出到 `SCREENSHOTS_DIR` / `NOTE_IMAGES_DIR`；目标已存在且 sha256 相同则跳过，不同则覆盖并在 `conflicts` 里留痕；包里缺媒体的截图不建记录（避免出现打不开的图）
+- **事务**：每门课程一个事务，一门失败不影响其它课程
+- **dry-run**：与正式导入共用同一份 `ImportPlan`，只是不写库，返回「将会新增多少」
+- **后台任务**：沿用 `ai_tasks` 的模式（`run_import_job(job_id, data, session_factory=None)`），测试可替换 session 工厂
+
+### 验收
+
+- `tests/test_imports.py`：**17 passed**，覆盖导出 → 清空 → 导入的完整往返（课程 / 章节 / 字幕 / 笔记 / 截图 / 卡片 / 媒体文件）、重复导入幂等、dry-run 只读、6 类校验拒绝、取消冲突、报告下载、未知任务 404
+- 真实库：11 门课程 / 172 章节 / 67 张截图 → 8.63 MB 包；
+  dry-run 与正式 merge 均为 **0 新增、11 课程匹配、172 章节匹配、67 截图跳过、0 冲突、0 媒体覆盖**
+- 后端全量回归：见提交时的测试结果
+
+### 未做（按计划留给 P2 / P3）
+
+- 前端导入向导、进度条、结果报告页
+- `replace` / `new` 策略（接口当前返回 400）
+- Anki / CSV 适配器（`ImportSource` 扩展点已就绪）

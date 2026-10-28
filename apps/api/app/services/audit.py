@@ -29,6 +29,9 @@ NOTES_BULK_DELETED = "notes_bulk_deleted"
 NOTES_BULK_TAGGED = "notes_bulk_tagged"
 REVIEW_CARD_UPDATED = "review_card_updated"
 REVIEW_CARD_DELETED = "review_card_deleted"
+IMPORT_CREATED = "import_created"
+IMPORT_COMPLETED = "import_completed"
+IMPORT_FAILED = "import_failed"
 
 
 def record(

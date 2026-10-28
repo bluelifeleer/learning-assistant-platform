@@ -408,3 +408,25 @@ class AiTask(Base, TimestampMixin):
     result_count: Mapped[int] = mapped_column(Integer, default=0)
     error: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ImportJob(Base, TimestampMixin):
+    """导入任务：与 ai_tasks 同一套「后台任务 + 轮询进度」的模式。"""
+
+    __tablename__ = "import_jobs"
+    __table_args__ = (Index("ix_import_jobs_org_created", "organization_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    organization_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), nullable=False)
+    source_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    checksum: Mapped[str | None] = mapped_column(String(80))
+    strategy: Mapped[str] = mapped_column(String(20), nullable=False, default="merge")
+    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    #: queued → validating → parsing → applying → done / failed / canceled
+    status: Mapped[str] = mapped_column(String(40), nullable=False, default="queued")
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    stats: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -306,6 +306,31 @@ class ExportListOut(BaseModel):
     items: list[ExportItem]
 
 
+class ImportJobItem(BaseModel):
+    id: str
+    source_filename: str
+    size_bytes: int = 0
+    checksum: str | None = None
+    strategy: str = "merge"
+    dry_run: bool = False
+    status: str
+    progress: int = 0
+    stats: dict | None = None
+    error: str | None = None
+    created_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class ImportJobListOut(BaseModel):
+    items: list[ImportJobItem]
+
+
+class ImportStartOut(BaseModel):
+    job_id: str
+    status: str
+    dry_run: bool = False
+
+
 class ScreenshotItem(BaseModel):
     id: str
     course_id: str
