@@ -50,7 +50,28 @@ interface CourseDetailPageProps {
   onSelectChapter?: (chapterId: string | null) => void;
 }
 
-const EXPORT_FILE_EXTENSIONS: Record<string, string> = { markdown: "md", json: "json", anki: "txt", report_pdf: "pdf" };
+const EXPORT_FILE_EXTENSIONS: Record<string, string> = {
+  markdown: "md",
+  json: "json",
+  anki: "txt",
+  report_pdf: "pdf",
+  package: "lapkg",
+};
+
+const EXPORT_FORMAT_LABELS: Record<string, string> = {
+  markdown: "Markdown",
+  json: "JSON",
+  anki: "Anki 卡片",
+  report_pdf: "学习档案 PDF",
+  package: "完整包",
+};
+
+function formatFileSize(size?: number | null): string {
+  if (!size) return "-";
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  if (size >= 1024) return `${Math.round(size / 1024)} KB`;
+  return `${size} B`;
+}
 
 async function downloadExportFile(item: ExportItem, token?: string): Promise<void> {
   const blob = await downloadExport(item.id, token);
@@ -88,10 +109,11 @@ function CourseExports({ courseId, token, refreshKey, onError }: { courseId: str
         <div><strong>格式</strong><strong>状态</strong><strong>文件</strong></div>
         {items.map((item) => (
           <div key={item.id}>
-            <span>{item.format}</span>
-            <span>{item.status}</span>
+            <span>{EXPORT_FORMAT_LABELS[item.format] ?? item.format}</span>
+            <span>{item.status === "failed" ? "失败" : item.status === "completed" ? "已完成" : "进行中"}</span>
             <span>
-              {item.file_path || "-"}
+              {item.file_path ? item.file_path.split(/[\\/]/).pop() : "-"}
+              {item.status === "completed" && item.size_bytes ? ` · ${formatFileSize(item.size_bytes)}` : ""}
               {item.status === "completed" ? (
                 <button type="button" className="text-button text-button-sm" onClick={() => void downloadExportFile(item, token).catch((error: unknown) => onError(error instanceof Error ? error.message : "导出文件下载失败"))}>下载</button>
               ) : null}
@@ -484,6 +506,7 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
   const [noteEditorOpen, setNoteEditorOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>("markdown");
+  const [exportIncludeMedia, setExportIncludeMedia] = useState(true);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportsRefreshKey, setExportsRefreshKey] = useState(0);
@@ -656,10 +679,18 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
     setExportBusy(true);
     setExportError("");
     try {
-      const created = await createExport({ course_id: courseId, export_format: exportFormat }, token);
+      const created = await createExport(
+        {
+          course_id: courseId,
+          export_format: exportFormat,
+          ...(exportFormat === "package" ? { include_media: exportIncludeMedia } : {}),
+        },
+        token,
+      );
       // 轮询任务状态,完成后直接触发下载
+      // 完整包要打包截图,比纯文本慢;给 40 次 × 800ms 的余量
       let finished = false;
-      for (let attempt = 0; attempt < 8; attempt++) {
+      for (let attempt = 0; attempt < 40; attempt++) {
         const list = await fetchExports();
         const item = list.items.find((entry) => entry.id === created.id);
         if (item?.status === "completed") {
@@ -667,7 +698,7 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
           finished = true;
           break;
         }
-        if (item?.status === "failed") throw new Error("导出任务失败");
+        if (item?.status === "failed") throw new Error(item.error || "导出任务失败");
         await new Promise((resolve) => setTimeout(resolve, 800));
       }
       if (!finished) {
@@ -835,10 +866,24 @@ export function CourseDetailPage({ courseId, initialChapterId, token, onBack, on
               <option value="json">JSON</option>
               <option value="anki">Anki 卡片</option>
               <option value="report_pdf">学习档案 PDF</option>
+              <option value="package">完整包（.lapkg）</option>
             </select>
           </label>
           {exportFormat === "report_pdf" ? (
             <p>学习档案 PDF 包含学习时长、笔记、截图、测验正确率和章节学习重点。</p>
+          ) : null}
+          {exportFormat === "package" ? (
+            <p>完整包包含章节、字幕、笔记、截图、复习卡、测验题与 AI 摘要，可直接带到另一台设备导入。</p>
+          ) : null}
+          {exportFormat === "package" ? (
+            <label className="filter-item">
+              <input
+                type="checkbox"
+                checked={exportIncludeMedia}
+                onChange={(event) => setExportIncludeMedia(event.target.checked)}
+              />
+              <span>包含截图与笔记图片（体积更大，迁移时需要保留）</span>
+            </label>
           ) : null}
           <p>导出完成后会自动下载文件,记录保留在详情页底部。</p>
         </Modal>

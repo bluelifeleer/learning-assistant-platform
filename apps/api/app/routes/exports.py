@@ -11,15 +11,27 @@ from app.db.session import get_db
 from app.exporters.anki import render_anki_tsv
 from app.exporters.json_export import render_course_json
 from app.exporters.markdown import render_course_markdown
+from app.exporters.package import write_package
 from app.exporters.study_report import build_study_report
-from app.models.entities import Chapter, Course, Export, Note, Organization, ReviewCard, TranscriptSegment, User
+from app.models.entities import Course, Export, Membership, Note, Organization, ReviewCard, User
 from app.schemas.workspace import ExportCreateIn, ExportItem, ExportListOut
+from app.services.export_payload import APP_VERSION, build_export_bundle, markdown_document
 from app.services.plugins import ensure_default_organization
-from app.services.video_sources import latest_video_events_by_chapter, video_export_info
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/exports", tags=["exports"])
+
+SUPPORTED_FORMATS = {"markdown", "json", "anki", "report_pdf", "package"}
+#: 这些格式的产物只描述一门课程，多选课程无从表达
+SINGLE_COURSE_FORMATS = {"markdown", "json", "anki"}
+
+DOWNLOAD_MEDIA_TYPES = {
+    "json": "application/json",
+    "anki": "text/tab-separated-values",
+    "report_pdf": "application/pdf",
+    "package": "application/zip",
+}
 
 
 def export_dir_path() -> Path:
@@ -29,40 +41,56 @@ def export_dir_path() -> Path:
     return directory
 
 
-def course_export_payload(db: Session, course: Course | None) -> dict:
-    if not course:
-        return {"title": "Workspace Export", "chapters": []}
-    chapters = db.query(Chapter).filter(Chapter.course_id == course.id).order_by(Chapter.sort_order.asc(), Chapter.title.asc()).all()
-    video_events = latest_video_events_by_chapter(db, course)
-    return {
-        "title": course.title,
-        "chapters": [
-            {
-                "title": chapter.title,
-                "video": video_export_info(video_events[chapter.external_chapter_id]) if chapter.external_chapter_id in video_events else None,
-                "transcripts": [
-                    {
-                        "start_seconds": float(segment.start_seconds) if segment.start_seconds is not None else None,
-                        "text": segment.text,
-                    }
-                    for segment in db.query(TranscriptSegment)
-                    .filter(TranscriptSegment.chapter_id == chapter.id)
-                    .order_by(TranscriptSegment.start_seconds.asc())
-                    .all()
-                ],
-                "notes": [
-                    {
-                        "video_time_seconds": float(note.video_time_seconds) if note.video_time_seconds is not None else None,
-                        "content": note.content,
-                        "corrected_content": note.corrected_content,
-                        "tags": list(note.tags or []),
-                    }
-                    for note in db.query(Note).filter(Note.chapter_id == chapter.id).order_by(Note.created_at.asc()).all()
-                ],
-            }
-            for chapter in chapters
-        ],
-    }
+def organization_for_user(db: Session, user: User) -> Organization:
+    """当前用户所属组织；没有成员关系时退回默认组织。
+
+    导出/导入必须以组织为边界，否则多组织部署下会互相看到对方的文件。
+    """
+    membership = db.query(Membership).filter(Membership.user_id == user.id).first()
+    if membership:
+        organization = db.get(Organization, membership.organization_id)
+        if organization:
+            return organization
+    return ensure_default_organization(db)
+
+
+def _resolve_courses(db: Session, organization: Organization, requested: ExportCreateIn) -> list[Course]:
+    if requested.course_ids:
+        wanted = list(dict.fromkeys(requested.course_ids))
+        found = {
+            course.id: course
+            for course in db.query(Course)
+            .filter(Course.organization_id == organization.id, Course.id.in_(wanted))
+            .all()
+        }
+        missing = [course_id for course_id in wanted if course_id not in found]
+        if missing:
+            raise HTTPException(status_code=404, detail=f"Course not found: {missing[0]}")
+        return [found[course_id] for course_id in wanted]
+    if requested.course_id:
+        course = (
+            db.query(Course)
+            .filter(Course.id == requested.course_id, Course.organization_id == organization.id)
+            .first()
+        )
+        if not course:
+            raise HTTPException(status_code=404, detail="Course not found")
+        return [course]
+    # 不指定课程 = 全部课程（仅包格式与学习档案 PDF 支持）
+    return (
+        db.query(Course)
+        .filter(Course.organization_id == organization.id)
+        .order_by(Course.title.asc(), Course.id.asc())
+        .all()
+    )
+
+
+def _anki_rows(db: Session, course: Course) -> list[dict]:
+    cards = db.query(ReviewCard).filter(ReviewCard.course_id == course.id).order_by(ReviewCard.created_at.asc()).all()
+    if cards:
+        return [{"front": card.front, "back": card.back} for card in cards]
+    notes = db.query(Note).filter(Note.course_id == course.id).order_by(Note.created_at.asc()).all()
+    return [{"front": note.content, "back": ""} for note in notes]
 
 
 @router.post("")
@@ -73,56 +101,74 @@ def create_export(
 ) -> dict[str, str]:
     requested = payload or ExportCreateIn()
     export_format = requested.export_format
-    if export_format not in {"markdown", "json", "anki", "report_pdf"}:
+    if export_format not in SUPPORTED_FORMATS:
         raise HTTPException(status_code=400, detail="Unsupported export format")
-    course = db.query(Course).filter(Course.id == requested.course_id).first() if requested.course_id else None
-    if requested.course_id and not course:
-        raise HTTPException(status_code=404, detail="Course not found")
-    organization_id = course.organization_id if course else ensure_default_organization(db).id
+
+    organization = organization_for_user(db, user)
+    courses = _resolve_courses(db, organization, requested)
+    # 没有指定课程 = 全部课程：仅 package / report_pdf 支持这种范围
+    explicit_selection = bool(requested.course_id or requested.course_ids)
+
+    if export_format in SINGLE_COURSE_FORMATS and len(courses) != 1:
+        raise HTTPException(status_code=400, detail="该格式一次只能导出一门课程")
+    if export_format == "report_pdf" and requested.course_ids and len(courses) > 1:
+        raise HTTPException(status_code=400, detail="学习档案 PDF 一次只能导出一门课程")
+    if export_format == "package" and not courses:
+        raise HTTPException(status_code=400, detail="没有可导出的课程")
+
     export = Export(
-        organization_id=organization_id,
+        organization_id=organization.id,
         user_id=user.id,
-        course_id=requested.course_id,
+        # 只导一门课时保留课程关联，方便列表展示课程名
+        course_id=courses[0].id if len(courses) == 1 else None,
         format=export_format,
         status="queued",
+        progress=0,
         file_path=None,
     )
     db.add(export)
     db.flush()
+
+    scope_counts: dict = {}
     try:
         if export_format == "report_pdf":
-            organization = db.get(Organization, organization_id)
-            content = build_study_report(db, organization, user, course)
-            scope = course.id if course else "all"
+            # 未指定课程 = 全部课程的汇总档案（沿用原有语义）
+            target = courses[0] if explicit_selection and courses else None
+            content = build_study_report(db, organization, user, target)
+            scope = target.id if target else "all"
             # 文件名用 export.id 保证唯一,避免同秒同范围导出互相覆盖
             path = export_dir_path() / f"study-report-{scope}-{export.id}.pdf"
             path.write_bytes(content)
         elif export_format == "anki":
-            if not course:
-                raise HTTPException(status_code=400, detail="Anki export requires a course")
-            cards = db.query(ReviewCard).filter(ReviewCard.course_id == course.id).order_by(ReviewCard.created_at.asc()).all()
-            if cards:
-                rows = [{"front": card.front, "back": card.back} for card in cards]
-            else:
-                notes = db.query(Note).filter(Note.course_id == course.id).order_by(Note.created_at.asc()).all()
-                rows = [{"front": note.content, "back": ""} for note in notes]
-            content = render_anki_tsv(rows)
+            content = render_anki_tsv(_anki_rows(db, courses[0]))
             path = export_dir_path() / f"{export.id}.tsv"
             path.write_text(content, encoding="utf-8", newline="")
+        elif export_format == "package":
+            bundle = build_export_bundle(db, organization, courses, include_media=requested.include_media)
+            path = export_dir_path() / f"{export.id}.lapkg"
+            scope_counts = write_package(path, bundle, app_version=APP_VERSION)
         else:
-            document = course_export_payload(db, course)
+            # markdown / json 保持精简输出，不含媒体
+            bundle = build_export_bundle(db, organization, courses, include_media=False)
+            document = markdown_document(bundle)
             content = render_course_markdown(document) if export_format == "markdown" else render_course_json(document)
             suffix = ".md" if export_format == "markdown" else ".json"
             path = export_dir_path() / f"{export.id}{suffix}"
             path.write_text(content, encoding="utf-8", newline="")
+
         export.file_path = str(path)
+        export.size_bytes = path.stat().st_size if path.is_file() else None
+        export.scope_counts = scope_counts
+        export.progress = 100
         export.status = "completed"
     except HTTPException:
         export.status = "failed"
+        export.error = "unsupported export request"
         db.commit()
         raise
     except Exception as exc:
         export.status = "failed"
+        export.error = str(exc)[:1000]
         db.commit()
         logger.exception("export %s failed", export.id)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="导出失败") from exc
@@ -131,9 +177,32 @@ def create_export(
     return {"id": export.id, "status": export.status, "format": export.format}
 
 
+def _export_item(export: Export, course_titles: dict[str, str]) -> ExportItem:
+    return ExportItem(
+        id=export.id,
+        course_id=export.course_id,
+        course_title=course_titles.get(export.course_id) if export.course_id else None,
+        format=export.format,
+        status=export.status,
+        file_path=export.file_path,
+        progress=export.progress or 0,
+        error=export.error,
+        size_bytes=export.size_bytes,
+        scope_counts=export.scope_counts or None,
+        created_at=export.created_at,
+    )
+
+
 @router.get("", response_model=ExportListOut)
-def list_exports(_: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ExportListOut:
-    exports = db.query(Export).order_by(Export.created_at.desc()).limit(200).all()
+def list_exports(user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ExportListOut:
+    organization = organization_for_user(db, user)
+    exports = (
+        db.query(Export)
+        .filter(Export.organization_id == organization.id)
+        .order_by(Export.created_at.desc())
+        .limit(200)
+        .all()
+    )
     # 批量取课程标题,避免每行一次查询
     course_ids = {row.course_id for row in exports if row.course_id}
     course_titles = (
@@ -141,29 +210,35 @@ def list_exports(_: User = Depends(require_current_user), db: Session = Depends(
         if course_ids
         else {}
     )
-    items: list[ExportItem] = []
-    for export in exports:
-        items.append(
-            ExportItem(
-                id=export.id,
-                course_id=export.course_id,
-                course_title=course_titles.get(export.course_id) if export.course_id else None,
-                format=export.format,
-                status=export.status,
-                file_path=export.file_path,
-                created_at=export.created_at,
-            )
-        )
-    return ExportListOut(items=items)
+    return ExportListOut(items=[_export_item(export, course_titles) for export in exports])
+
+
+@router.get("/{export_id}", response_model=ExportItem)
+def read_export(export_id: str, user: User = Depends(require_current_user), db: Session = Depends(get_db)) -> ExportItem:
+    organization = organization_for_user(db, user)
+    export = db.query(Export).filter(Export.id == export_id, Export.organization_id == organization.id).first()
+    if not export:
+        raise HTTPException(status_code=404, detail="Export not found")
+    course = db.get(Course, export.course_id) if export.course_id else None
+    return _export_item(export, {course.id: course.title} if course else {})
 
 
 @router.get("/{export_id}/download")
-def download_export(export_id: str, _: User = Depends(require_current_user), db: Session = Depends(get_db)) -> FileResponse:
-    export = db.query(Export).filter(Export.id == export_id).first()
+def download_export(
+    export_id: str,
+    user: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    organization = organization_for_user(db, user)
+    export = (
+        db.query(Export)
+        .filter(Export.id == export_id, Export.organization_id == organization.id)
+        .first()
+    )
     if not export or not export.file_path:
         raise HTTPException(status_code=404, detail="Export not found")
     path = Path(export.file_path)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Export file not found")
-    media_type = {"json": "application/json", "anki": "text/tab-separated-values", "report_pdf": "application/pdf"}.get(export.format, "text/markdown")
+    media_type = DOWNLOAD_MEDIA_TYPES.get(export.format, "text/markdown")
     return FileResponse(path, media_type=media_type, filename=path.name)

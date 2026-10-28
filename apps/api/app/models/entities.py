@@ -231,6 +231,12 @@ class Export(Base, TimestampMixin):
     format: Mapped[str] = mapped_column(String(40), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     file_path: Mapped[str | None] = mapped_column(Text)
+    # 任务进度(0-100)。当前生成是同步的,成功即 100;为后续异步化预留
+    progress: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    error: Mapped[str | None] = mapped_column(Text)
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    # 本次导出的对象统计(课程/章节/字幕/笔记/截图…),导出中心与导入校验都用它
+    scope_counts: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class AuditLog(Base, TimestampMixin):

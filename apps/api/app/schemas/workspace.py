@@ -279,8 +279,13 @@ class WorkspaceSettingsUpdateIn(BaseModel):
 
 
 class ExportCreateIn(BaseModel):
+    #: 单课程导出（markdown / json / anki / report_pdf 沿用）
     course_id: str | None = None
+    #: 多课程导出（仅 .lapkg 包）；为空且未给 course_id 时导出全部课程
+    course_ids: list[str] | None = None
     export_format: str = "markdown"
+    #: 包格式是否打包截图与笔记图片
+    include_media: bool = True
 
 
 class ExportItem(BaseModel):
@@ -290,6 +295,10 @@ class ExportItem(BaseModel):
     format: str
     status: str
     file_path: str | None = None
+    progress: int = 0
+    error: str | None = None
+    size_bytes: int | None = None
+    scope_counts: dict | None = None
     created_at: datetime | None = None
 
 

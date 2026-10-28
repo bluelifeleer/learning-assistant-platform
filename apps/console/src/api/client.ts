@@ -177,14 +177,22 @@ export interface ExportItem {
   format: string;
   status: string;
   file_path?: string | null;
+  progress?: number;
+  error?: string | null;
+  size_bytes?: number | null;
+  scope_counts?: Record<string, unknown> | null;
   created_at?: string | null;
 }
 
-export type ExportFormat = "markdown" | "json" | "anki" | "report_pdf";
+export type ExportFormat = "markdown" | "json" | "anki" | "report_pdf" | "package";
 
 export interface ExportCreatePayload {
   course_id?: string | null;
+  /** 仅 .lapkg 包支持多门课程；为空表示全部课程 */
+  course_ids?: string[] | null;
   export_format: ExportFormat;
+  /** 包格式是否打包截图与笔记图片，默认 true */
+  include_media?: boolean;
 }
 
 export interface WorkspaceSettings {
