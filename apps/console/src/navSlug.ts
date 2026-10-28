@@ -1,4 +1,4 @@
-export const navItems = ["总览", "课程", "笔记", "复习", "测验", "搜索", "系统设置"] as const;
+export const navItems = ["总览", "课程", "笔记", "复习", "测验", "搜索", "导入导出", "系统设置"] as const;
 export type ConsolePage = (typeof navItems)[number];
 
 export const settingsTabs = ["general", "plugins", "adapters", "users", "audit"] as const;
@@ -11,6 +11,7 @@ const PAGE_TO_SLUG: Record<ConsolePage, string> = {
   复习: "review",
   测验: "quiz",
   搜索: "search",
+  导入导出: "transfer",
   系统设置: "settings",
 };
 

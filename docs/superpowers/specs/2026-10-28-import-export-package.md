@@ -1,12 +1,12 @@
 # 导入 / 导出包（.lapkg）设计
 
 - 日期：2026-10-28
-- 状态：**P0、P1 已实现**（包导出 + 导入后端），P2（前端导入向导、导出中心页）待做
+- 状态：**P0 / P1 / P2 已实现**（包导出、导入后端、导入导出页面）；P3（清理策略、replace/new、Anki 适配）待做
 - 关联：`apps/api/app/routes/exports.py`、`apps/api/app/routes/imports.py`、
   `apps/api/app/services/export_payload.py`、`apps/api/app/services/import_source.py`、
   `apps/api/app/services/importer.py`、`apps/api/app/exporters/package.py`、
-  `apps/console/src/pages/CourseDetail.tsx`
-- P0 落地记录见「附录 A」，P1 见「附录 B」
+  `apps/console/src/pages/DataTransfer.tsx`、`apps/console/src/pages/CourseDetail.tsx`
+- P0 落地记录见「附录 A」，P1 见「附录 B」，P2 见「附录 C」
 
 ## 1. 背景与目标
 
@@ -411,3 +411,40 @@ class ImportSource(Protocol):
 - 前端导入向导、进度条、结果报告页
 - `replace` / `new` 策略（接口当前返回 400）
 - Anki / CSV 适配器（`ImportSource` 扩展点已就绪）
+
+## 附录 C：P2 落地记录（2026-10-28）
+
+### 新增
+
+| 文件 | 作用 |
+|---|---|
+| `apps/console/src/pages/DataTransfer.tsx` | 「导入导出」页：导出中心 + 导入向导 |
+| `apps/console/src/pages/DataTransfer.test.tsx` | 页面结构用例 |
+| `DELETE /api/v1/exports/{id}` | 删除导出记录与其文件（导出中心的「删除」） |
+
+### 改动
+
+| 文件 | 改动 |
+|---|---|
+| `apps/console/src/navSlug.ts` | 导航新增「导入导出」（`#/transfer`） |
+| `apps/console/src/components/icons.tsx` | 新增该页面的导航图标 |
+| `apps/console/src/App.tsx` | 路由到 `DataTransfer` 并传入 session token |
+| `apps/console/src/api/client.ts` | `startImport`（multipart，5 分钟超时）/ `fetchImports` / `fetchImport` / `cancelImport` / `fetchImportReport` / `deleteExport` |
+| `apps/console/src/styles.css` | 课程选择胶囊、导入进度条、统计网格、冲突列表等样式 |
+| `apps/api/app/routes/exports.py` | 新增删除接口（按组织过滤；顺带删文件） |
+
+### 交互设计
+
+- **导出**：课程多选（全选/清空）→ 选格式（完整包 / Markdown / JSON / Anki / PDF）→
+  完整包可关掉媒体 → 创建后自动下载；下表是历史记录（格式、内容规模、状态、体积、时间、下载、删除）
+- 单选格式（Markdown/JSON/Anki/PDF）选了多门课程时自动只用第一门并给出提示
+- **导入**：选择 .lapkg → 「预览（不写入）」跑 dry-run，展示 8 项统计与冲突列表 →
+  「确认导入（merge）」复用同一个文件正式落库；运行中可取消；完成可下载 JSON 报告
+- 导入记录表展示文件名、状态（预览会标「（预览）」）、进度、体积、时间
+
+### 验收
+
+- 前端：`tsc` 通过，**176 passed**（新增 5 个：页面 2 个 + client 3 个）
+- 后端：`tests/test_exports.py` 19 passed（含新增的删除用例）、`tests/test_imports.py` 17 passed
+- 真实渲染（无头 Edge + 临时 API/控制台实例）：导航出现「导入导出」，页面加载 11 门课程、
+  2 条真实导出记录、导入区空态正常；截图见提交说明

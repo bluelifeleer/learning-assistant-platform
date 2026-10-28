@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -221,6 +221,28 @@ def read_export(export_id: str, user: User = Depends(require_current_user), db: 
         raise HTTPException(status_code=404, detail="Export not found")
     course = db.get(Course, export.course_id) if export.course_id else None
     return _export_item(export, {course.id: course.title} if course else {})
+
+
+@router.delete("/{export_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_export(
+    export_id: str,
+    user: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    """删除导出记录及其文件（导出中心用）。"""
+    organization = organization_for_user(db, user)
+    export = db.query(Export).filter(Export.id == export_id, Export.organization_id == organization.id).first()
+    if not export:
+        raise HTTPException(status_code=404, detail="Export not found")
+    if export.file_path:
+        path = Path(export.file_path)
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("删除导出文件失败: %s", path, exc_info=True)
+    db.delete(export)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{export_id}/download")

@@ -340,6 +340,21 @@ def test_export_download_rejects_unknown_id(client, auth_headers) -> None:
     assert client.get("/api/v1/exports/does-not-exist", headers=auth_headers).status_code == 404
 
 
+def test_delete_export_removes_record_and_file(client, auth_headers) -> None:
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    item, _ = _export_and_download(client, auth_headers, {"export_format": "json"})
+    path = Path(item["file_path"])
+    assert path.is_file()
+
+    removed = client.delete(f"/api/v1/exports/{item['id']}", headers=auth_headers)
+
+    assert removed.status_code == 204
+    assert not path.exists()
+    assert client.get(f"/api/v1/exports/{item['id']}", headers=auth_headers).status_code == 404
+    assert client.delete("/api/v1/exports/does-not-exist", headers=auth_headers).status_code == 404
+
+
 def test_app_version_matches_pyproject() -> None:
     """包里写的 app_version 必须和真实版本一致，否则迁移时会误判来源。"""
     pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"

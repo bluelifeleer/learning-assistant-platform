@@ -75,6 +75,15 @@ const NAV_ICON_PATHS: Record<string, ReactElement> = {
       <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0" />
     </>
   ),
+  导入导出: (
+    <>
+      <path d="M12 3.2v10.4" />
+      <path d="M8.4 6.8 12 3.2l3.6 3.6" />
+      <path d="M12 20.8V10.4" />
+      <path d="M8.4 17.2 12 20.8l3.6-3.6" />
+      <path d="M4.2 12h2.4M17.4 12h2.4" />
+    </>
+  ),
   系统设置: (
     <>
       <circle cx="12" cy="12" r="3.1" />

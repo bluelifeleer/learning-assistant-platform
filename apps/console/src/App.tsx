@@ -8,6 +8,7 @@ import { AuthPanel } from "./pages/AuthPanel";
 import { CourseDetailPage } from "./pages/CourseDetail";
 import { Courses } from "./pages/Courses";
 import { Dashboard } from "./pages/Dashboard";
+import { DataTransfer } from "./pages/DataTransfer";
 import { Installer } from "./pages/Installer";
 import { Notes } from "./pages/Notes";
 import { Quiz } from "./pages/Quiz";
@@ -58,6 +59,7 @@ function WorkspacePage({ page, session, courseDetailId, courseChapterId, setting
   if (page === "笔记") return <Notes />;
   if (page === "测验") return <Quiz token={session?.token} />;
   if (page === "搜索") return <Search />;
+  if (page === "导入导出") return <DataTransfer token={session?.token} />;
   return <SystemSettings tab={settingsTab} onTabChange={onSettingsTabChange} session={session} onSessionChange={onSessionChange} onPluginStatusChange={onPluginStatusChange} />;
 }
 

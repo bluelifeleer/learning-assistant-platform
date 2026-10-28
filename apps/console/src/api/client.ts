@@ -684,6 +684,83 @@ export async function downloadExport(id: string, token?: string): Promise<Blob> 
   return getBlob(`/exports/${id}/download`, token);
 }
 
+export async function deleteExport(id: string, token?: string): Promise<void> {
+  await deleteResource(`/exports/${id}`, token);
+}
+
+export interface ImportJobItem {
+  id: string;
+  source_filename: string;
+  size_bytes?: number;
+  checksum?: string | null;
+  strategy?: string;
+  dry_run?: boolean;
+  status: string;
+  progress?: number;
+  stats?: Record<string, unknown> | null;
+  error?: string | null;
+  created_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface ImportStartResponse {
+  job_id: string;
+  status: string;
+  dry_run: boolean;
+}
+
+/** 上传导入包（multipart）。包可能很大，单独给 5 分钟超时。 */
+async function postForm<T>(path: string, form: FormData, token?: string): Promise<T> {
+  let signal: AbortSignal | undefined;
+  try {
+    signal = AbortSignal.timeout(300000);
+  } catch {
+    signal = undefined;
+  }
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    signal,
+    // 不要手写 content-type，浏览器要自己带 boundary
+    headers: authHeaders(resolveToken(token)),
+    body: form,
+  });
+  checkResponse(response, path);
+  return response.json() as Promise<T>;
+}
+
+export async function startImport(
+  file: File,
+  options: { dryRun?: boolean; strategy?: string } = {},
+  token?: string,
+): Promise<ImportStartResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("strategy", options.strategy ?? "merge");
+  form.append("dry_run", options.dryRun ? "true" : "false");
+  return postForm<ImportStartResponse>("/imports", form, token);
+}
+
+export async function fetchImports(token?: string): Promise<{ items: ImportJobItem[] }> {
+  return getJson<{ items: ImportJobItem[] }>("/imports", token);
+}
+
+export async function fetchImport(id: string, token?: string): Promise<ImportJobItem> {
+  return getJson<ImportJobItem>(`/imports/${id}`, token);
+}
+
+export async function cancelImport(id: string, token?: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/imports/${id}/cancel`, {
+    method: "POST",
+    signal: requestSignal(),
+    headers: authHeaders(resolveToken(token)),
+  });
+  checkResponse(response, `/imports/${id}/cancel`);
+}
+
+export async function fetchImportReport(id: string, token?: string): Promise<Blob> {
+  return getBlob(`/imports/${id}/report`, token);
+}
+
 export interface ScreenshotItem {
   id: string;
   course_id: string;

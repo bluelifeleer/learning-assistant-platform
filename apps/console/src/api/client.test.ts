@@ -6,10 +6,14 @@ import {
   createExport,
   createPluginToken,
   createReviewCard,
+  deleteExport,
   downloadExport,
   downloadExtensionPackage,
   fetchAdapters,
   fetchAiSettings,
+  fetchImport,
+  fetchImportReport,
+  fetchImports,
   fetchAiTask,
   fetchChapterMemo,
   fetchChapterSummary,
@@ -43,6 +47,7 @@ import {
   sendNoteEmail,
   setSessionToken,
   setUnauthorizedHandler,
+  startImport,
   submitQuizAttempts,
   testAiConnection,
   testEmailSettings,
@@ -630,6 +635,57 @@ describe("quiz attempts and mastery client", () => {
         headers: expect.objectContaining({ authorization: "Bearer la_session" }),
       }),
     );
+  });
+
+  it("deletes an export by id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteExport("exp-1", "la_session");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:17890/api/v1/exports/exp-1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+});
+
+describe("import client", () => {
+  it("uploads a package as multipart without a manual content-type", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ job_id: "job-1", status: "queued", dry_run: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File([new Uint8Array([1, 2, 3])], "course.lapkg");
+    const result = await startImport(file, { dryRun: true }, "la_session");
+
+    expect(result.job_id).toBe("job-1");
+    const [, init] = fetchMock.mock.calls[0];
+    const body = init.body as FormData;
+    expect(body).toBeInstanceOf(FormData);
+    expect(body.get("dry_run")).toBe("true");
+    expect(body.get("strategy")).toBe("merge");
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer la_session");
+    expect((init.headers as Record<string, string>)["content-type"]).toBeUndefined();
+  });
+
+  it("reads import jobs and reports", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "job-1", status: "done" }) })
+      .mockResolvedValueOnce({ ok: true, blob: async () => new Blob(["{}"]) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchImports("la_session");
+    await fetchImport("job-1", "la_session");
+    await fetchImportReport("job-1", "la_session");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://127.0.0.1:17890/api/v1/imports");
+    expect(fetchMock.mock.calls[1][0]).toBe("http://127.0.0.1:17890/api/v1/imports/job-1");
+    expect(fetchMock.mock.calls[2][0]).toBe("http://127.0.0.1:17890/api/v1/imports/job-1/report");
   });
 });
 
