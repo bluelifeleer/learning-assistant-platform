@@ -1,6 +1,6 @@
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ModelField } from "./Settings";
+import { ModelField, Settings } from "./Settings";
 
 const noop = () => undefined;
 
@@ -41,5 +41,21 @@ describe("AI 模型字段", () => {
 
     expect(html).toContain("<select");
     expect(html).toContain("留空 = 与对话模型相同");
+  });
+});
+
+describe("学习总结定时发送", () => {
+  it("默认关闭时给出说明、频率与时间不可编辑，并显示上次发送时间", () => {
+    const html = renderToString(<Settings />);
+
+    expect(html).toContain("自动发送学习总结");
+    expect(html).toContain("digest-schedule");
+    // 关闭状态 → 频率下拉与时间输入都禁用
+    expect(html).toMatch(/<select[^>]*disabled/);
+    expect(html).toMatch(/type="number"[^>]*disabled/);
+    expect(html).toContain("每天 8 点后，发送当天首封学习总结");
+    // React SSR 会在静态文本与插值之间插入注释节点，这里分段断言
+    expect(html).toContain("上次发送学习总结：");
+    expect(html).toContain("尚未发送");
   });
 });

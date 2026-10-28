@@ -434,25 +434,51 @@ function EmailSettingsPanel() {
           <button type="button" className="text-button text-button-sm" disabled={saving} onClick={() => void clearPassword()}>清除已保存的密码</button>
         </div>
       ) : null}
-      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-        <label className="filter-item" style={{ margin: 0 }}>
+      <section className="digest-schedule" data-enabled={digestAuto ? "yes" : "no"} aria-label="学习总结定时发送">
+        <label className="digest-toggle">
           <input type="checkbox" checked={digestAuto} onChange={(event) => setDigestAuto(event.target.checked)} />
-          <span>自动发送学习总结</span>
+          <span>
+            <strong>自动发送学习总结</strong>
+            <small>按设定时间把学习总结发到上面的收件邮箱，API 每 15 分钟检查一次是否到期。</small>
+          </span>
         </label>
-        <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-          频率
-          <select value={digestFrequency} onChange={(event) => setDigestFrequency(event.target.value as DigestFrequency)}>
-            <option value="daily">每天</option>
-            <option value="weekly">每周</option>
-          </select>
-        </label>
-        <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-          发送时间
-          <input type="number" min={0} max={23} value={digestHour} onChange={(event) => setDigestHour(event.target.value)} style={{ width: 72 }} />
-          点
-        </label>
-      </div>
-      <p>上次发送学习总结：{emailSettings?.last_digest_at ?? "尚未发送"}</p>
+
+        <div className="digest-schedule-fields">
+          <label className="digest-field">
+            <span>频率</span>
+            <select
+              value={digestFrequency}
+              disabled={!digestAuto}
+              onChange={(event) => setDigestFrequency(event.target.value as DigestFrequency)}
+            >
+              <option value="daily">每天</option>
+              <option value="weekly">每周</option>
+            </select>
+          </label>
+          <label className="digest-field">
+            <span>发送时间</span>
+            <span className="digest-time">
+              <input
+                type="number"
+                min={0}
+                max={23}
+                inputMode="numeric"
+                value={digestHour}
+                disabled={!digestAuto}
+                onChange={(event) => setDigestHour(event.target.value)}
+              />
+              <span className="digest-time-unit">点</span>
+            </span>
+          </label>
+          <small className="digest-hint">
+            {digestFrequency === "weekly"
+              ? `每周一 ${digestHour || "8"} 点后，发送最近一份学习总结`
+              : `每天 ${digestHour || "8"} 点后，发送当天首封学习总结`}
+          </small>
+        </div>
+
+        <p className="digest-last">上次发送学习总结：{emailSettings?.last_digest_at ?? "尚未发送"}</p>
+      </section>
       <div className="inline-form">
         <button type="button" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存邮箱设置"}</button>
         <button type="button" className="text-button" disabled={testing || !emailSettings?.configured} onClick={() => void sendTest()}>
