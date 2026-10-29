@@ -211,6 +211,20 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
             </button>
           ))}
         </nav>
+        {/* 账号区固定在侧边栏底部:让整列有收尾,也把顶栏让给状态信息 */}
+        <div className="sidebar-footer">
+          <span className="sidebar-user" title={`${session.user.display_name} · ${session.user.email}`}>
+            <span className="sidebar-avatar" aria-hidden="true">{(session.user.display_name || session.user.email).slice(0, 1).toUpperCase()}</span>
+            <span className="sidebar-user-text">
+              <strong>{session.user.display_name}</strong>
+              <span>{session.user.email}</span>
+            </span>
+          </span>
+          <button type="button" className="sidebar-logout" title="退出登录" aria-label="退出登录" onClick={() => handleSessionChange(null)}>
+            <span className="nav-label">退出</span>
+            <span className="sidebar-logout-icon" aria-hidden="true">⏻</span>
+          </button>
+        </div>
       </aside>
       <main className="workspace">
         <section className="status-row">
@@ -222,8 +236,6 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
           <span className="status-pill" data-tone={apiOnline === null ? "muted" : apiOnline ? "ok" : "danger"}>API 服务: {apiOnline === null ? "检测中" : apiOnline ? "已连接" : "未连接"}</span>
           <button type="button" className="status-pill status-pill-button" data-tone={pluginState === "online" ? "ok" : pluginState === "offline" ? "warn" : "muted"} title="查看插件管理" onClick={() => { setActivePage("系统设置"); setSettingsTab("plugins"); }}>插件状态: {formatPluginBindingState(pluginState)}</button>
           <span className="status-pill" data-tone="muted">组织: Local Workspace</span>
-          <span className="user-chip">{session.user.display_name} · {session.user.email}</span>
-          <button type="button" className="text-button" onClick={() => handleSessionChange(null)}>退出</button>
         </section>
         <WorkspacePage page={activePage} session={session} courseDetailId={courseDetailId} courseChapterId={courseChapterId} settingsTab={settingsTab} onOpenCourseDetail={(id) => { setCourseDetailId(id); setCourseChapterId(null); }} onCloseCourseDetail={() => { setCourseDetailId(null); setCourseChapterId(null); }} onSelectChapter={setCourseChapterId} onSettingsTabChange={setSettingsTab} onSessionChange={handleSessionChange} onPluginStatusChange={(clients: PluginClientStatus[]) => setPluginState(getPluginBindingState(clients))} />
       </main>
