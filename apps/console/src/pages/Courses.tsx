@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchCourses, updateCourse, type CourseItem } from "../api/client";
+import { bulkArchiveCourses, deleteCourse, fetchCourses, updateCourse, type CourseItem } from "../api/client";
 import { ListToolbar, RowActions, ToolbarSearch, ToolbarSelect } from "../components/ListControls";
 import { matchesKeyword, sortItems } from "../listQuery";
 import { toast } from "../components/toast";
@@ -35,6 +35,9 @@ export function Courses({ onOpenDetail }: CoursesProps) {
   const [sort, setSort] = useState("updated");
   const [message, setMessage] = useState("正在读取课程...");
   const [busyId, setBusyId] = useState<string | null>(null);
+  // 删除是不可逆操作：第一次点只是"上膛"，按钮变成「确认删除」，再点才真删
+  const [deleteArmed, setDeleteArmed] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // 归档状态在客户端切换,所以一次把全部课程取回来,由筛选器决定显示哪些
   useEffect(() => {
@@ -113,6 +116,42 @@ export function Courses({ onOpenDetail }: CoursesProps) {
     }
   }
 
+  async function requestDelete(course: CourseItem): Promise<void> {
+    if (deleteArmed !== course.id) {
+      setDeleteArmed(course.id);
+      toast.info(`再点一次「确认删除」会永久删除《${course.title}》及其章节、笔记、截图`);
+      return;
+    }
+    setDeleteArmed(null);
+    setBusyId(course.id);
+    try {
+      const result = await deleteCourse(course.id);
+      setItems((current) => current.filter((item) => item.id !== course.id));
+      toast.success(`已删除《${course.title}》（${result.chapters} 章节，清理 ${result.files_removed} 个文件）`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "删除失败");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function bulkArchive(archived: boolean): Promise<void> {
+    const ids = visible.map((course) => course.id);
+    if (!ids.length) return;
+    if (!window.confirm(`${archived ? "归档" : "恢复"}当前列表里的 ${ids.length} 门课程？`)) return;
+    setBulkBusy(true);
+    try {
+      const result = await bulkArchiveCourses(ids, archived);
+      const updated = await fetchCourses(undefined, true);
+      setItems(updated.items);
+      toast.success(`已${archived ? "归档" : "恢复"} ${result.updated} 门课程`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "批量操作失败");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   return (
     <section className="panel">
       <h2>课程</h2>
@@ -121,6 +160,24 @@ export function Courses({ onOpenDetail }: CoursesProps) {
         <ToolbarSearch value={keyword} onChange={setKeyword} placeholder="搜索课程名 / 学期 / 站点" />
         <ToolbarSelect label="状态" value={status} onChange={setStatus} options={STATUS_OPTIONS} />
         <ToolbarSelect label="排序" value={sort} onChange={setSort} options={SORT_OPTIONS} />
+        <div className="inline-form">
+          <button
+            type="button"
+            className="text-button-sm"
+            disabled={bulkBusy || !visible.length}
+            onClick={() => void bulkArchive(true)}
+          >
+            归档当前 {visible.length} 门
+          </button>
+          <button
+            type="button"
+            className="text-button-sm"
+            disabled={bulkBusy || !visible.length}
+            onClick={() => void bulkArchive(false)}
+          >
+            恢复当前 {visible.length} 门
+          </button>
+        </div>
       </ListToolbar>
 
       {visible.length ? (
@@ -175,6 +232,19 @@ export function Courses({ onOpenDetail }: CoursesProps) {
                     }}
                   >
                     {course.archived_at ? "恢复" : "归档"}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button-sm"
+                    data-tone={deleteArmed === course.id ? "danger" : undefined}
+                    title="永久删除课程及其章节、笔记、截图"
+                    disabled={busyId === course.id}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void requestDelete(course);
+                    }}
+                  >
+                    {deleteArmed === course.id ? "确认删除" : "删除"}
                   </button>
                 </RowActions>
               </div>

@@ -1,22 +1,45 @@
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_current_user
+from app.core.deps import require_current_user, require_owner
 from app.db.session import get_db
-from app.models.entities import Chapter, ChapterMemo, ChapterSummary, Course, Note, QuizQuestion, Screenshot, Site, TranscriptSegment, User, VideoSession
+from app.models.entities import (
+    AiTask,
+    Chapter,
+    ChapterMemo,
+    ChapterSummary,
+    Course,
+    CourseSummary,
+    Export,
+    ImportJob,
+    Note,
+    Organization,
+    QuizAttempt,
+    QuizQuestion,
+    ReviewCard,
+    Screenshot,
+    Site,
+    TranscriptSegment,
+    User,
+    VideoSession,
+)
 from app.schemas.workspace import (
     ChapterDetailOut,
     ChapterFlagsOut,
     ChapterMemoIn,
     ChapterMemoOut,
+    CourseBulkArchiveIn,
+    CourseBulkArchiveOut,
     CourseCreateIn,
     ChapterNoteOut,
     ChapterOut,
     ChapterTranscriptOut,
     ChapterVideoSourceOut,
+    CourseDeleteOut,
     CourseDetailOut,
     CourseFullDetailOut,
     CourseListItem,
@@ -27,6 +50,7 @@ from app.schemas.workspace import (
 from app.services import audit
 from app.services.plugins import ensure_default_organization
 from app.services.review import utc_now
+from app.services.tenancy import course_in_org, organization_for_user
 from app.services.video_sources import latest_video_events_by_chapter, video_source_out
 
 router = APIRouter(prefix="/courses", tags=["courses"])
@@ -345,3 +369,100 @@ def save_chapter_memo(chapter_id: str, payload: ChapterMemoIn, _: User = Depends
     db.commit()
     db.refresh(memo)
     return ChapterMemoOut(chapter_id=memo.chapter_id, content_md=memo.content_md, updated_at=memo.updated_at)
+
+
+@router.delete("/{course_id}", response_model=CourseDeleteOut)
+def delete_course(
+    course_id: str,
+    user: User = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> CourseDeleteOut:
+    """真正删除课程：章节、字幕、笔记、截图、卡片、题目、会话一并清理，磁盘截图也删掉。
+
+    归档（PATCH archived=true）是可逆的日常操作；这个是不可逆的清理入口，只给 owner。
+    """
+    organization = organization_for_user(db, user)
+    course = course_in_org(db, course_id, organization)
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    chapter_ids = [row[0] for row in db.query(Chapter.id).filter(Chapter.course_id == course.id).all()]
+    media_paths = [
+        row[0]
+        for row in db.query(Screenshot.file_path).filter(Screenshot.course_id == course.id).all()
+        if row[0]
+    ]
+
+    # 先删子表再删主表：SQLite 默认不开外键级联，PG 上也没有 ON DELETE CASCADE
+    db.query(TranscriptSegment).filter(TranscriptSegment.course_id == course.id).delete(synchronize_session=False)
+    if chapter_ids:
+        db.query(ChapterSummary).filter(ChapterSummary.chapter_id.in_(chapter_ids)).delete(synchronize_session=False)
+        db.query(ChapterMemo).filter(ChapterMemo.chapter_id.in_(chapter_ids)).delete(synchronize_session=False)
+    db.query(CourseSummary).filter(CourseSummary.course_id == course.id).delete(synchronize_session=False)
+    db.query(ReviewCard).filter(ReviewCard.course_id == course.id).delete(synchronize_session=False)
+    db.query(QuizAttempt).filter(QuizAttempt.course_id == course.id).delete(synchronize_session=False)
+    db.query(QuizQuestion).filter(QuizQuestion.course_id == course.id).delete(synchronize_session=False)
+    db.query(AiTask).filter(AiTask.course_id == course.id).delete(synchronize_session=False)
+    db.query(Note).filter(Note.course_id == course.id).delete(synchronize_session=False)
+    db.query(Screenshot).filter(Screenshot.course_id == course.id).delete(synchronize_session=False)
+    db.query(VideoSession).filter(VideoSession.course_id == course.id).delete(synchronize_session=False)
+    if chapter_ids:
+        db.query(Chapter).filter(Chapter.course_id == course.id).delete(synchronize_session=False)
+    # 引用型外键置空，别把导出记录/导入任务一起删掉
+    db.query(Export).filter(Export.course_id == course.id).update({"course_id": None}, synchronize_session=False)
+    db.query(ImportJob).filter(ImportJob.target_course_id == course.id).update(
+        {"target_course_id": None}, synchronize_session=False
+    )
+
+    db.delete(course)
+    audit.record(
+        db,
+        audit.COURSE_DELETED,
+        resource_type="course",
+        resource_id=course_id,
+        user_id=user.id,
+        organization_id=organization.id,
+        payload={"title": course.title, "chapters": len(chapter_ids), "screenshots": len(media_paths)},
+    )
+    db.commit()
+
+    removed_files = 0
+    for raw_path in media_paths:
+        path = Path(raw_path)
+        try:
+            if path.is_file():
+                path.unlink()
+                removed_files += 1
+        except OSError:
+            # 文件删不掉只留孤儿文件，不回滚数据库删除
+            continue
+    return CourseDeleteOut(deleted=1, chapters=len(chapter_ids), files_removed=removed_files)
+
+
+@router.post("/bulk-archive", response_model=CourseBulkArchiveOut)
+def bulk_archive_courses(
+    payload: CourseBulkArchiveIn,
+    user: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> CourseBulkArchiveOut:
+    """批量归档 / 取消归档；归档可逆，所以 member 也能用。"""
+    organization = organization_for_user(db, user)
+    archived_at = utc_now() if payload.archived else None
+    courses = (
+        db.query(Course)
+        .filter(Course.id.in_(payload.ids), Course.organization_id == organization.id)
+        .all()
+    )
+    for course in courses:
+        course.archived_at = archived_at
+    audit.record(
+        db,
+        audit.COURSES_ARCHIVED,
+        resource_type="course",
+        resource_id="bulk",
+        user_id=user.id,
+        organization_id=organization.id,
+        payload={"updated": len(courses), "requested": len(payload.ids), "archived": payload.archived},
+    )
+    db.commit()
+    return CourseBulkArchiveOut(updated=len(courses), archived=payload.archived)

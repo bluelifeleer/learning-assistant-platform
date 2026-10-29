@@ -34,6 +34,10 @@ IMPORT_COMPLETED = "import_completed"
 IMPORT_FAILED = "import_failed"
 EXPORT_CREATED = "export_created"
 EXPORT_FAILED = "export_failed"
+QUIZ_QUESTION_UPDATED = "quiz_question_updated"
+QUIZ_QUESTION_DELETED = "quiz_question_deleted"
+COURSE_DELETED = "course_deleted"
+COURSES_ARCHIVED = "courses_archived"
 
 
 def record(

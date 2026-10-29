@@ -29,6 +29,22 @@ class CourseListOut(BaseModel):
     items: list[CourseListItem]
 
 
+class CourseDeleteOut(BaseModel):
+    deleted: int
+    chapters: int = 0
+    files_removed: int = 0
+
+
+class CourseBulkArchiveIn(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=500)
+    archived: bool = True
+
+
+class CourseBulkArchiveOut(BaseModel):
+    updated: int
+    archived: bool
+
+
 class ChapterOut(BaseModel):
     id: str
     parent_id: str | None = None

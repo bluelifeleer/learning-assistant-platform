@@ -3,10 +3,14 @@ import {
   ApiError,
   answerReviewCard,
   askCourseQuestion,
+  bulkArchiveCourses,
+  bulkDeleteQuizQuestions,
   createExport,
   createPluginToken,
   createReviewCard,
+  deleteCourse,
   deleteExport,
+  deleteQuizQuestion,
   downloadExport,
   downloadExtensionPackage,
   fetchAdapters,
@@ -26,6 +30,7 @@ import {
   fetchNotes,
   fetchPluginStatus,
   fetchQuizQuestions,
+  updateQuizQuestion,
   fetchReviewCards,
   fetchScreenshots,
   fetchScreenshotImageUrl,
@@ -829,5 +834,61 @@ describe("session token and unauthorized handling", () => {
     await expect(fetchNotes()).rejects.toMatchObject({ status: 500 });
 
     expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+});
+
+describe("quiz admin client", () => {
+  it("patches a question and deletes it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "q-1", question: "改过", answer: "B" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ deleted: 1 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const updated = await updateQuizQuestion("q-1", { question: "改过", answer: "B" }, "la_session");
+    const removed = await deleteQuizQuestion("q-1", "la_session");
+
+    expect(updated.question).toBe("改过");
+    expect(removed.deleted).toBe(1);
+    expect(fetchMock.mock.calls[0][0]).toContain("/ai/quiz/q-1");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "PATCH" });
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("bulk deletes questions in one request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ deleted: 2 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await bulkDeleteQuizQuestions(["a", "b"], "la_session");
+
+    expect(result.deleted).toBe(2);
+    expect(fetchMock.mock.calls[0][0]).toContain("/ai/quiz/bulk-delete");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({ ids: ["a", "b"] });
+  });
+});
+
+describe("course maintenance client", () => {
+  it("deletes a course and returns cleanup stats", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({ deleted: 1, chapters: 3, files_removed: 2 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await deleteCourse("course-1", "la_session");
+
+    expect(result).toEqual({ deleted: 1, chapters: 3, files_removed: 2 });
+    expect(fetchMock.mock.calls[0][0]).toContain("/courses/course-1");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("bulk archives courses", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ updated: 2, archived: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await bulkArchiveCourses(["c1", "c2"], true, "la_session");
+
+    expect(result).toEqual({ updated: 2, archived: true });
+    expect(fetchMock.mock.calls[0][0]).toContain("/courses/bulk-archive");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({ ids: ["c1", "c2"], archived: true });
   });
 });

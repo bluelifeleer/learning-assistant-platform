@@ -14,12 +14,12 @@ from app.exporters.json_export import render_course_json
 from app.exporters.markdown import render_course_markdown
 from app.exporters.package import write_package
 from app.exporters.study_report import build_study_report
-from app.models.entities import Course, Export, Membership, Note, Organization, ReviewCard, User
+from app.models.entities import Course, Export, Note, Organization, ReviewCard, User
 from app.schemas.workspace import ExportCreateIn, ExportItem, ExportListOut
 from app.services import audit
 from app.services.export_payload import APP_VERSION, build_export_bundle, markdown_document
 from app.services.export_cleanup import cleanup_exports as run_export_cleanup
-from app.services.plugins import ensure_default_organization
+from app.services.tenancy import organization_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +42,6 @@ def export_dir_path() -> Path:
     directory = configured if configured.is_absolute() else Path(__file__).resolve().parents[2] / configured
     directory.mkdir(parents=True, exist_ok=True)
     return directory
-
-
-def organization_for_user(db: Session, user: User) -> Organization:
-    """当前用户所属组织；没有成员关系时退回默认组织。
-
-    导出/导入必须以组织为边界，否则多组织部署下会互相看到对方的文件。
-    """
-    membership = db.query(Membership).filter(Membership.user_id == user.id).first()
-    if membership:
-        organization = db.get(Organization, membership.organization_id)
-        if organization:
-            return organization
-    return ensure_default_organization(db)
 
 
 def _resolve_courses(db: Session, organization: Organization, requested: ExportCreateIn) -> list[Course]:

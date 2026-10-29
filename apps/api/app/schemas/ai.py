@@ -89,6 +89,24 @@ class QuizQuestionListOut(BaseModel):
     items: list[QuizQuestionOut]
 
 
+class QuizQuestionUpdateIn(BaseModel):
+    """只传需要改的字段；选择题的 answer 必须落在 options 里，判断题固定正确/错误。"""
+
+    question: str | None = Field(default=None, max_length=2000)
+    options: list[str] | None = Field(default=None, max_length=10)
+    answer: str | None = Field(default=None, max_length=500)
+    explanation: str | None = Field(default=None, max_length=2000)
+    question_type: Literal["choice", "truefalse"] | None = None
+
+
+class QuizQuestionBulkDeleteIn(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class QuizQuestionDeleteOut(BaseModel):
+    deleted: int
+
+
 class FlashcardsRequestIn(BaseModel):
     chapter_id: str = Field(min_length=1)
     count: int = Field(default=10, ge=1, le=50)

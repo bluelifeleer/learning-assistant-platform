@@ -3,7 +3,18 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_current_user, require_owner
 from app.db.session import get_db
-from app.models.entities import AiTask, Chapter, ChapterSummary, Course, CourseSummary, QuizQuestion, Screenshot, TranscriptSegment, User
+from app.models.entities import (
+    AiTask,
+    Chapter,
+    ChapterSummary,
+    Course,
+    CourseSummary,
+    Organization,
+    QuizQuestion,
+    Screenshot,
+    TranscriptSegment,
+    User,
+)
 from app.schemas.ai import (
     AiSettingsOut,
     AiSettingsTestOut,
@@ -15,15 +26,21 @@ from app.schemas.ai import (
     ChapterSummaryOut,
     CourseSummaryOut,
     FlashcardsRequestIn,
+    QuizQuestionBulkDeleteIn,
+    QuizQuestionDeleteOut,
     QuizQuestionListOut,
     QuizQuestionOut,
+    QuizQuestionUpdateIn,
     QuizRequestIn,
     ScreenshotOcrOut,
 )
-from app.services import ai_ocr, ai_qa, ai_tasks, llm
+from app.services import ai_ocr, ai_qa, ai_tasks, audit, llm
 from app.services.plugins import ensure_default_organization
+from app.services.tenancy import course_in_org, organization_for_user
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+TRUEFALSE_OPTIONS = ("正确", "错误")
 
 
 def mask_api_key(api_key: str | None) -> str | None:
@@ -194,34 +211,157 @@ def request_quiz(
 def list_quiz_questions(
     chapter_id: str | None = None,
     course_id: str | None = None,
-    _: User = Depends(require_current_user),
+    user: User = Depends(require_current_user),
     db: Session = Depends(get_db),
 ) -> QuizQuestionListOut:
+    organization = organization_for_user(db, user)
     query = db.query(QuizQuestion)
     if chapter_id:
+        chapter = get_chapter_or_404(db, chapter_id)
+        _require_course_in_org(db, chapter.course_id, organization)
         query = query.filter(QuizQuestion.chapter_id == chapter_id)
     elif course_id:
+        _require_course_in_org(db, course_id, organization)
         query = query.filter(QuizQuestion.course_id == course_id)
     else:
         raise HTTPException(status_code=422, detail="chapter_id 或 course_id 至少提供一个")
     questions = query.order_by(QuizQuestion.created_at.asc()).all()
-    return QuizQuestionListOut(
-        items=[
-            QuizQuestionOut(
-                id=question.id,
-                course_id=question.course_id,
-                chapter_id=question.chapter_id,
-                question_type=question.question_type,
-                question=question.question,
-                options=question.options or [],
-                answer=question.answer,
-                explanation=question.explanation,
-                model=question.model,
-                created_at=question.created_at,
-            )
-            for question in questions
-        ]
+    return QuizQuestionListOut(items=[_question_out(question) for question in questions])
+
+
+def _require_course_in_org(db: Session, course_id: str, organization: Organization) -> Course:
+    course = course_in_org(db, course_id, organization)
+    if course is None:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return course
+
+
+def _question_or_404(db: Session, question_id: str, user: User) -> QuizQuestion:
+    question = db.get(QuizQuestion, question_id)
+    if question is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    organization = organization_for_user(db, user)
+    if course_in_org(db, question.course_id, organization) is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return question
+
+
+def _question_out(question: QuizQuestion) -> QuizQuestionOut:
+    return QuizQuestionOut(
+        id=question.id,
+        course_id=question.course_id,
+        chapter_id=question.chapter_id,
+        question_type=question.question_type,
+        question=question.question,
+        options=question.options or [],
+        answer=question.answer,
+        explanation=question.explanation,
+        model=question.model,
+        created_at=question.created_at,
     )
+
+
+@router.patch("/quiz/{question_id}", response_model=QuizQuestionOut)
+def update_quiz_question(
+    question_id: str,
+    payload: QuizQuestionUpdateIn,
+    user: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> QuizQuestionOut:
+    question = _question_or_404(db, question_id, user)
+    if payload.question is not None:
+        text = payload.question.strip()
+        if not text:
+            raise HTTPException(status_code=422, detail="题目内容不能为空")
+        question.question = text
+    if payload.options is not None:
+        options = [option.strip() for option in payload.options if option.strip()]
+        question.options = options
+    if payload.answer is not None:
+        question.answer = payload.answer.strip()
+    if payload.explanation is not None:
+        question.explanation = payload.explanation.strip() or None
+    if payload.question_type is not None:
+        question.question_type = payload.question_type
+
+    question.question_type = _normalize_question_type_and_answer(question)
+    audit.record(
+        db,
+        audit.QUIZ_QUESTION_UPDATED,
+        resource_type="quiz_question",
+        resource_id=question.id,
+        user_id=user.id,
+        organization_id=organization_for_user(db, user).id,
+        payload={"fields": sorted(payload.model_fields_set)},
+    )
+    db.commit()
+    db.refresh(question)
+    return _question_out(question)
+
+
+def _normalize_question_type_and_answer(question: QuizQuestion) -> str:
+    """判断题固定两个选项；选择题的答案必须落在选项里，否则拒绝。"""
+    if question.question_type == "truefalse":
+        question.options = list(TRUEFALSE_OPTIONS)
+        if question.answer not in TRUEFALSE_OPTIONS:
+            raise HTTPException(status_code=422, detail="判断题答案只能是「正确」或「错误」")
+        return "truefalse"
+    if not question.options:
+        raise HTTPException(status_code=422, detail="选择题至少要有一个选项")
+    if question.answer not in question.options:
+        raise HTTPException(status_code=422, detail="答案必须是选项之一")
+    return "choice" if question.question_type not in ("choice", "truefalse") else question.question_type
+
+
+@router.delete("/quiz/{question_id}", response_model=QuizQuestionDeleteOut)
+def delete_quiz_question(
+    question_id: str,
+    user: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> QuizQuestionDeleteOut:
+    question = _question_or_404(db, question_id, user)
+    organization_id = question.course_id and organization_for_user(db, user).id
+    db.delete(question)
+    audit.record(
+        db,
+        audit.QUIZ_QUESTION_DELETED,
+        resource_type="quiz_question",
+        resource_id=question_id,
+        user_id=user.id,
+        organization_id=organization_id,
+        payload={"question": question.question[:200]},
+    )
+    db.commit()
+    return QuizQuestionDeleteOut(deleted=1)
+
+
+@router.post("/quiz/bulk-delete", response_model=QuizQuestionDeleteOut)
+def bulk_delete_quiz_questions(
+    payload: QuizQuestionBulkDeleteIn,
+    user: User = Depends(require_current_user),
+    db: Session = Depends(get_db),
+) -> QuizQuestionDeleteOut:
+    organization = organization_for_user(db, user)
+    deleted = 0
+    for question_id in payload.ids:
+        question = db.get(QuizQuestion, question_id)
+        if question is None:
+            continue
+        if course_in_org(db, question.course_id, organization) is None:
+            continue
+        db.delete(question)
+        deleted += 1
+    audit.record(
+        db,
+        audit.QUIZ_QUESTION_DELETED,
+        resource_type="quiz_question",
+        resource_id="bulk",
+        user_id=user.id,
+        organization_id=organization.id,
+        payload={"deleted": deleted, "requested": len(payload.ids)},
+    )
+    db.commit()
+    return QuizQuestionDeleteOut(deleted=deleted)
 
 
 @router.post("/flashcards", response_model=AiTaskCreatedOut)

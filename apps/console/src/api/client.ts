@@ -284,6 +284,17 @@ async function deleteResource(path: string, token?: string): Promise<void> {
   checkResponse(response, path);
 }
 
+/** 删除并返回响应体（例如删除课程要拿到清理了多少章节/文件）。 */
+async function deleteJson<T>(path: string, token?: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+    signal: requestSignal(),
+    headers: authHeaders(resolveToken(token)),
+  });
+  checkResponse(response, path);
+  return (await response.json()) as T;
+}
+
 async function getJson<T>(path: string, token?: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     signal: requestSignal(signal),
@@ -464,6 +475,26 @@ export async function updateCourse(
   token?: string,
 ): Promise<CourseItem> {
   return postJson<CourseItem>(`/courses/${courseId}`, payload, token, "PATCH");
+}
+
+export interface CourseDeleteResult {
+  deleted: number;
+  chapters: number;
+  files_removed: number;
+}
+
+/** 真正删除课程（仅 owner）。归档请用 updateCourse({ archived })，那是可逆的。 */
+export async function deleteCourse(courseId: string, token?: string): Promise<CourseDeleteResult> {
+  return deleteJson<CourseDeleteResult>(`/courses/${courseId}`, token);
+}
+
+/** 批量归档 / 取消归档，只影响本组织的课程。 */
+export async function bulkArchiveCourses(
+  ids: string[],
+  archived: boolean,
+  token?: string,
+): Promise<{ updated: number; archived: boolean }> {
+  return postJson<{ updated: number; archived: boolean }>("/courses/bulk-archive", { ids, archived }, token);
 }
 
 /** 暂停 / 恢复复习卡片,或手动改到期时间。 */
@@ -933,6 +964,30 @@ export async function requestQuiz(payload: QuizGeneratePayload, token?: string):
 
 export async function fetchQuizQuestions(chapterId: string, token?: string): Promise<{ items: QuizQuestion[] }> {
   return getJson<{ items: QuizQuestion[] }>(`/ai/quiz?chapter_id=${encodeURIComponent(chapterId)}`, token);
+}
+
+export interface QuizQuestionUpdatePayload {
+  question?: string;
+  options?: string[];
+  answer?: string;
+  explanation?: string | null;
+  question_type?: "choice" | "truefalse";
+}
+
+export async function updateQuizQuestion(
+  questionId: string,
+  payload: QuizQuestionUpdatePayload,
+  token?: string,
+): Promise<QuizQuestion> {
+  return postJson<QuizQuestion>(`/ai/quiz/${questionId}`, payload, token, "PATCH");
+}
+
+export async function deleteQuizQuestion(questionId: string, token?: string): Promise<{ deleted: number }> {
+  return deleteJson<{ deleted: number }>(`/ai/quiz/${questionId}`, token);
+}
+
+export async function bulkDeleteQuizQuestions(ids: string[], token?: string): Promise<{ deleted: number }> {
+  return postJson<{ deleted: number }>("/ai/quiz/bulk-delete", { ids }, token);
 }
 
 export async function requestFlashcards(payload: FlashcardsGeneratePayload, token?: string): Promise<AITaskCreateResponse> {
