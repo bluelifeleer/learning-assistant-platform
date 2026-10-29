@@ -127,9 +127,11 @@ def test_notes_and_exports_have_workspace_lists(client, auth_headers):
         json={"course_id": course_id, "export_format": "markdown"},
     )
     assert export_response.status_code == 200
-    assert export_response.json()["status"] == "completed"
+    # 生成在后台任务里完成：创建时是 queued，随后列表里应为 completed
+    assert export_response.json()["status"] == "queued"
     item = client.get("/api/v1/exports", headers=auth_headers).json()["items"][0]
     assert item["format"] == "markdown"
+    assert item["status"] == "completed"
     assert item["file_path"]
 
     download = client.get(f"/api/v1/exports/{item['id']}/download", headers=auth_headers)

@@ -1,12 +1,12 @@
 # 导入 / 导出包（.lapkg）设计
 
 - 日期：2026-10-28
-- 状态：**全部实现**（P0–P3 + Anki TSV / CSV 适配器）；`.apkg` 二进制明确不做
+- 状态：**全部实现**（P0–P3 + Anki TSV / CSV 适配器 + 导出异步化）；`.apkg` 二进制明确不做
 - 关联：`apps/api/app/routes/exports.py`、`apps/api/app/routes/imports.py`、
   `apps/api/app/services/export_payload.py`、`apps/api/app/services/import_source.py`、
   `apps/api/app/services/importer.py`、`apps/api/app/exporters/package.py`、
   `apps/console/src/pages/DataTransfer.tsx`、`apps/console/src/pages/CourseDetail.tsx`
-- P0 落地记录见「附录 A」，P1 见「附录 B」，P2 见「附录 C」，P3 见「附录 D」，适配器见「附录 E」
+- 落地记录：P0 见「附录 A」、P1「附录 B」、P2「附录 C」、P3「附录 D」、适配器「附录 E」、导出异步化「附录 F」
 
 ## 1. 背景与目标
 
@@ -515,3 +515,33 @@ class ImportSource(Protocol):
   扩展名映射、合成课程落库、重复导入幂等、课程级笔记落库、不支持类型 400）
 - 全量后端 253 passed；前端 178 passed，`tsc` 通过
 - 真实库：TSV → 2 张卡片、CSV → 2 条笔记（标签与时间点正确），验证后测试数据已清理
+
+## 附录 F：导出异步化与审计（2026-10-29）
+
+此前 `POST /exports` 在请求内直接生成文件：几百 MB 的包会因为前端 30s 默认超时被掐断，
+`exports.progress` 也只在完成时置 100 —— 规范 §11 第 2 条要求「导出也走 job + 真实进度」，
+这次补齐。
+
+### 改动
+
+| 文件 | 改动 |
+|---|---|
+| `app/routes/exports.py` | `POST /exports` 只落 `queued` 记录后立即返回，生成交给 `run_export_job`（`BackgroundTasks`）；抽出 `_generate_export_file` 供前后台共用；失败时写 `failed` + `error` + 审计 |
+| `app/exporters/package.py` | `write_package` 增加 `on_progress(0-100)`，按「课程 + 媒体文件」逐步上报 |
+| `app/services/audit.py` | 新增 `EXPORT_CREATED` / `EXPORT_FAILED`，补上规范 §12 要求的导出审计 |
+| `app/tests/conftest.py` | 新增 autouse fixture，把 `exports` / `imports` 的后台任务 `SessionLocal` 指向测试库（此前导出任务会写真实库） |
+| 控制台 | 导出创建后轮询到完成/失败并显示百分比；记录表在 `queued/running` 时显示进度；`STATUS_LABELS` 增加「处理中」 |
+
+进度分段：置 5% → 生成过程映射到 10–95% → 完成 100%；失败时归 0 并记录错误。
+
+### 验收
+
+- `tests/test_exports.py` 22 passed（新增失败路径用例：生成抛错 → 记录变 `failed`、
+  `error` 带原始信息、`progress` 归 0、`file_path` 为空）
+- 全量后端 259 passed；前端 178 passed，`tsc` 通过
+- 真实库：11 门课程 / 67 张截图导出仍能生成完整包（异步流程与同步结果一致）
+
+### 顺带修掉
+
+- 后台任务默认使用真实 `SessionLocal`，测试里若不替换会写进真实数据库 —— 现在 conftest
+  统一替换，避免以后写测试时踩坑

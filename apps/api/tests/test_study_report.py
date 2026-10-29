@@ -16,7 +16,7 @@ from app.services.plugins import ensure_default_organization
 
 
 @pytest.fixture
-def report_client() -> Generator[tuple[TestClient, sessionmaker], None, None]:
+def report_client(monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None, None]:
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -34,6 +34,10 @@ def report_client() -> Generator[tuple[TestClient, sessionmaker], None, None]:
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    # 导出生成在后台任务里跑，它用的是 exports 模块的 SessionLocal，必须指向本 fixture 的库
+    from app.routes import exports as exports_route
+
+    monkeypatch.setattr(exports_route, "SessionLocal", TestingSessionLocal)
     with TestClient(app) as test_client:
         yield test_client, TestingSessionLocal
     app.dependency_overrides.clear()
@@ -131,7 +135,7 @@ def test_report_pdf_export_generates_file(report_client) -> None:
     response = client.post("/api/v1/exports", headers=headers, json={"course_id": ids["course_id"], "export_format": "report_pdf"})
 
     assert response.status_code == 200
-    assert response.json()["status"] == "completed"
+    assert response.json()["status"] == "queued"
     item = client.get("/api/v1/exports", headers=headers).json()["items"][0]
     assert item["format"] == "report_pdf"
     assert item["status"] == "completed"
@@ -156,7 +160,7 @@ def test_report_pdf_all_courses_includes_empty_course(report_client) -> None:
     response = client.post("/api/v1/exports", headers=headers, json={"export_format": "report_pdf"})
 
     assert response.status_code == 200
-    assert response.json()["status"] == "completed"
+    assert response.json()["status"] == "queued"
     item = client.get("/api/v1/exports", headers=headers).json()["items"][0]
     path = Path(item["file_path"])
     assert path.name.startswith("study-report-all-")
@@ -181,7 +185,7 @@ def test_report_pdf_escapes_xml_metacharacters(report_client) -> None:
     response = client.post("/api/v1/exports", headers=headers, json={"course_id": ids["course_id"], "export_format": "report_pdf"})
 
     assert response.status_code == 200
-    assert response.json()["status"] == "completed"
+    assert response.json()["status"] == "queued"
 
 
 def test_report_pdf_course_not_found(report_client) -> None:

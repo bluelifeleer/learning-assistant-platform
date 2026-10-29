@@ -1,13 +1,14 @@
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.deps import require_current_user, require_owner
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.exporters.anki import render_anki_tsv
 from app.exporters.json_export import render_course_json
 from app.exporters.markdown import render_course_markdown
@@ -15,6 +16,7 @@ from app.exporters.package import write_package
 from app.exporters.study_report import build_study_report
 from app.models.entities import Course, Export, Membership, Note, Organization, ReviewCard, User
 from app.schemas.workspace import ExportCreateIn, ExportItem, ExportListOut
+from app.services import audit
 from app.services.export_payload import APP_VERSION, build_export_bundle, markdown_document
 from app.services.export_cleanup import cleanup_exports as run_export_cleanup
 from app.services.plugins import ensure_default_organization
@@ -96,6 +98,7 @@ def _anki_rows(db: Session, course: Course) -> list[dict]:
 
 @router.post("")
 def create_export(
+    background_tasks: BackgroundTasks,
     payload: ExportCreateIn | None = Body(default=None),
     user: User = Depends(require_current_user),
     db: Session = Depends(get_db),
@@ -129,53 +132,146 @@ def create_export(
     )
     db.add(export)
     db.flush()
+    audit.record(
+        db,
+        audit.EXPORT_CREATED,
+        resource_type="export",
+        resource_id=export.id,
+        user_id=user.id,
+        organization_id=organization.id,
+        payload={
+            "format": export_format,
+            "courses": len(courses),
+            "include_media": requested.include_media,
+        },
+    )
+    db.commit()
+    db.refresh(export)
 
-    scope_counts: dict = {}
+    # 生成放到后台：几百 MB 的包不该把请求拖到超时，进度写回 exports.progress
+    background_tasks.add_task(
+        run_export_job,
+        export.id,
+        [course.id for course in courses],
+        requested.include_media,
+        courses[0].id if (export_format == "report_pdf" and explicit_selection and courses) else None,
+    )
+    return {"id": export.id, "status": export.status, "format": export.format}
+
+
+def run_export_job(
+    export_id: str,
+    course_ids: list[str],
+    include_media: bool,
+    report_course_id: str | None = None,
+    session_factory: Callable[[], Session] | None = None,
+) -> None:
+    """后台生成导出文件。TestClient 下会随响应同步跑完，进程内是异步的。"""
+    factory = session_factory or SessionLocal
+    db = factory()
+    export: Export | None = None
     try:
-        if export_format == "report_pdf":
-            # 未指定课程 = 全部课程的汇总档案（沿用原有语义）
-            target = courses[0] if explicit_selection and courses else None
-            content = build_study_report(db, organization, user, target)
-            scope = target.id if target else "all"
-            # 文件名用 export.id 保证唯一,避免同秒同范围导出互相覆盖
-            path = export_dir_path() / f"study-report-{scope}-{export.id}.pdf"
-            path.write_bytes(content)
-        elif export_format == "anki":
-            content = render_anki_tsv(_anki_rows(db, courses[0]))
-            path = export_dir_path() / f"{export.id}.tsv"
-            path.write_text(content, encoding="utf-8", newline="")
-        elif export_format == "package":
-            bundle = build_export_bundle(db, organization, courses, include_media=requested.include_media)
-            path = export_dir_path() / f"{export.id}.lapkg"
-            scope_counts = write_package(path, bundle, app_version=APP_VERSION)
-        else:
-            # markdown / json 保持精简输出，不含媒体
-            bundle = build_export_bundle(db, organization, courses, include_media=False)
-            document = markdown_document(bundle)
-            content = render_course_markdown(document) if export_format == "markdown" else render_course_json(document)
-            suffix = ".md" if export_format == "markdown" else ".json"
-            path = export_dir_path() / f"{export.id}{suffix}"
-            path.write_text(content, encoding="utf-8", newline="")
+        export = db.get(Export, export_id)
+        if export is None or export.status not in {"queued", "running"}:
+            return
+        export.status = "running"
+        export.progress = 5
+        db.commit()
 
+        organization = db.get(Organization, export.organization_id)
+        user = db.get(User, export.user_id)
+        if organization is None or user is None:
+            raise RuntimeError("组织或用户已不存在")
+
+        courses = _courses_in_order(db, course_ids)
+        report_course = db.get(Course, report_course_id) if report_course_id else None
+
+        def on_progress(percent: int) -> None:
+            export.progress = min(10 + int(percent * 0.85), 95)
+            db.commit()
+
+        path, scope_counts = _generate_export_file(
+            db,
+            export,
+            organization,
+            user,
+            courses,
+            report_course,
+            include_media=include_media,
+            on_progress=on_progress,
+        )
         export.file_path = str(path)
         export.size_bytes = path.stat().st_size if path.is_file() else None
         export.scope_counts = scope_counts
-        export.progress = 100
         export.status = "completed"
-    except HTTPException:
-        export.status = "failed"
-        export.error = "unsupported export request"
+        export.progress = 100
         db.commit()
-        raise
-    except Exception as exc:
-        export.status = "failed"
-        export.error = str(exc)[:1000]
-        db.commit()
-        logger.exception("export %s failed", export.id)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="导出失败") from exc
-    db.commit()
-    db.refresh(export)
-    return {"id": export.id, "status": export.status, "format": export.format}
+    except Exception as exc:  # noqa: BLE001 - 后台任务必须把异常落到任务记录上
+        logger.exception("export %s failed", export_id)
+        db.rollback()
+        failed = db.get(Export, export_id)
+        if failed is not None:
+            failed.status = "failed"
+            failed.error = str(exc)[:1000]
+            failed.progress = 0
+            db.commit()
+            audit.record(
+                db,
+                audit.EXPORT_FAILED,
+                resource_type="export",
+                resource_id=failed.id,
+                user_id=failed.user_id,
+                organization_id=failed.organization_id,
+                payload={"error": failed.error},
+            )
+            db.commit()
+    finally:
+        db.close()
+
+
+def _courses_in_order(db: Session, course_ids: list[str]) -> list[Course]:
+    if not course_ids:
+        return []
+    found = {course.id: course for course in db.query(Course).filter(Course.id.in_(course_ids)).all()}
+    return [found[course_id] for course_id in course_ids if course_id in found]
+
+
+def _generate_export_file(
+    db: Session,
+    export: Export,
+    organization: Organization,
+    user: User,
+    courses: list[Course],
+    report_course: Course | None,
+    *,
+    include_media: bool,
+    on_progress: Callable[[int], None] | None = None,
+) -> tuple[Path, dict]:
+    export_format = export.format
+    scope_counts: dict = {}
+    if export_format == "report_pdf":
+        content = build_study_report(db, organization, user, report_course)
+        scope = report_course.id if report_course else "all"
+        # 文件名用 export.id 保证唯一,避免同秒同范围导出互相覆盖
+        path = export_dir_path() / f"study-report-{scope}-{export.id}.pdf"
+        path.write_bytes(content)
+    elif export_format == "anki":
+        content = render_anki_tsv(_anki_rows(db, courses[0]))
+        path = export_dir_path() / f"{export.id}.tsv"
+        path.write_text(content, encoding="utf-8", newline="")
+    elif export_format == "package":
+        bundle = build_export_bundle(db, organization, courses, include_media=include_media)
+        path = export_dir_path() / f"{export.id}.lapkg"
+        scope_counts = write_package(path, bundle, app_version=APP_VERSION, on_progress=on_progress)
+    else:
+        # markdown / json 保持精简输出，不含媒体
+        bundle = build_export_bundle(db, organization, courses, include_media=False)
+        document = markdown_document(bundle)
+        content = render_course_markdown(document) if export_format == "markdown" else render_course_json(document)
+        suffix = ".md" if export_format == "markdown" else ".json"
+        path = export_dir_path() / f"{export.id}{suffix}"
+        path.write_text(content, encoding="utf-8", newline="")
+    return path, scope_counts
 
 
 def _export_item(export: Export, course_titles: dict[str, str]) -> ExportItem:

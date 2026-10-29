@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -39,11 +40,28 @@ def _add_file(archive: zipfile.ZipFile, arcname: str, path: Path, checksums: dic
     return written
 
 
-def write_package(path: Path, bundle: ExportBundle, *, app_version: str) -> dict[str, Any]:
-    """写出包文件，返回写入统计（供 exports.scope_counts 使用）。"""
+def write_package(
+    path: Path,
+    bundle: ExportBundle,
+    *,
+    app_version: str,
+    on_progress: Callable[[int], None] | None = None,
+) -> dict[str, Any]:
+    """写出包文件，返回写入统计（供 exports.scope_counts 使用）。
+
+    `on_progress(0-100)` 会在每门课程与每个媒体文件之后被调用，供后台任务上报进度。
+    """
     checksums: dict[str, str] = {}
     media_bytes = 0
     path.parent.mkdir(parents=True, exist_ok=True)
+    total_steps = max(len(bundle.courses) + len(bundle.media), 1)
+    done_steps = 0
+
+    def step() -> None:
+        nonlocal done_steps
+        done_steps += 1
+        if on_progress is not None:
+            on_progress(min(int(done_steps * 100 / total_steps), 100))
 
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
         for course in bundle.courses:
@@ -60,9 +78,11 @@ def write_package(path: Path, bundle: ExportBundle, *, app_version: str) -> dict
                 _add_bytes(archive, f"courses/{course_id}/cards.json", _json_bytes(course.cards), checksums)
             if course.quiz:
                 _add_bytes(archive, f"courses/{course_id}/quiz.json", _json_bytes(course.quiz), checksums)
+            step()
 
         for media in bundle.media:
             media_bytes += _add_file(archive, media.arcname, media.path, checksums)
+            step()
 
         manifest = {
             "schema_version": SCHEMA_VERSION,

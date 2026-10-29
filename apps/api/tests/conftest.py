@@ -65,6 +65,16 @@ def isolated_export_dir(tmp_path, monkeypatch) -> Generator[None, None, None]:
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def background_jobs_use_test_db(session_factory, monkeypatch) -> None:
+    """导入/导出的后台任务默认用 SessionLocal，测试里必须换成测试库，否则会写到真实数据库。"""
+    from app.routes import exports as exports_route
+    from app.routes import imports as imports_route
+
+    monkeypatch.setattr(exports_route, "SessionLocal", session_factory)
+    monkeypatch.setattr(imports_route, "SessionLocal", session_factory)
+
+
 @pytest.fixture
 def auth_headers(client: TestClient, session_factory) -> dict[str, str]:
     response = client.post(

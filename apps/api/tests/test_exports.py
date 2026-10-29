@@ -122,9 +122,12 @@ def test_anki_export_uses_review_cards(client, auth_headers) -> None:
     export_response = client.post("/api/v1/exports", headers=auth_headers, json={"course_id": course_id, "export_format": "anki"})
 
     assert export_response.status_code == 200
-    assert export_response.json()["status"] == "completed"
+    # 生成在后台任务里完成：创建时是 queued，随响应跑完后才是 completed
+    assert export_response.json()["status"] == "queued"
     item = client.get("/api/v1/exports", headers=auth_headers).json()["items"][0]
     assert item["format"] == "anki"
+    assert item["status"] == "completed"
+    assert item["progress"] == 100
     assert item["file_path"].endswith(".tsv")
     download = client.get(f"/api/v1/exports/{item['id']}/download", headers=auth_headers)
     assert download.status_code == 200
@@ -230,9 +233,11 @@ def _zip_of(blob: bytes) -> zipfile.ZipFile:
 def _export_and_download(client, headers, payload: dict) -> tuple[dict, bytes]:
     created = client.post("/api/v1/exports", headers=headers, json=payload)
     assert created.status_code == 200, created.text
-    assert created.json()["status"] == "completed"
+    # 创建时是 queued；TestClient 会让后台任务随响应跑完，所以查列表时已经完成
+    assert created.json()["status"] == "queued"
     listing = client.get("/api/v1/exports", headers=headers).json()["items"]
     item = next(row for row in listing if row["id"] == created.json()["id"])
+    assert item["status"] == "completed", item
     download = client.get(f"/api/v1/exports/{item['id']}/download", headers=headers)
     assert download.status_code == 200
     return item, download.content
@@ -338,6 +343,31 @@ def test_export_read_endpoint_returns_job_details(client, auth_headers) -> None:
 def test_export_download_rejects_unknown_id(client, auth_headers) -> None:
     assert client.get("/api/v1/exports/does-not-exist/download", headers=auth_headers).status_code == 404
     assert client.get("/api/v1/exports/does-not-exist", headers=auth_headers).status_code == 404
+
+
+def test_export_job_marks_failure_when_generation_raises(client, auth_headers, monkeypatch) -> None:
+    from app.routes import exports as exports_route
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("磁盘写满了")
+
+    monkeypatch.setattr(exports_route, "write_package", boom)
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+
+    created = client.post(
+        "/api/v1/exports",
+        headers=auth_headers,
+        json={"course_id": course_id, "export_format": "package"},
+    )
+
+    assert created.status_code == 200
+    item = client.get(f"/api/v1/exports/{created.json()['id']}", headers=auth_headers).json()
+    assert item["status"] == "failed"
+    assert "磁盘写满了" in (item["error"] or "")
+    assert item["progress"] == 0
+    assert item["file_path"] is None
 
 
 def test_delete_export_removes_record_and_file(client, auth_headers) -> None:

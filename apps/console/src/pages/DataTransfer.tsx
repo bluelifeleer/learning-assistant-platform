@@ -52,6 +52,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   queued: "排队中",
+  running: "处理中",
   validating: "校验中",
   parsing: "解析中",
   applying: "导入中",
@@ -112,6 +113,24 @@ async function waitForImport(
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   throw new Error("导入仍在进行，可稍后在导入记录里查看结果");
+}
+
+/** 导出在后台生成，这里轮询到完成或失败，顺便把进度回传给调用方。 */
+async function waitForExport(
+  exportId: string,
+  token: string | undefined,
+  onUpdate: (item: ExportItem) => void,
+): Promise<ExportItem> {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const listing = await fetchExports(token);
+    const item = listing.items.find((row) => row.id === exportId);
+    if (item) {
+      onUpdate(item);
+      if (item.status === "completed" || item.status === "failed") return item;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error("导出仍在进行，可稍后在导出记录里下载");
 }
 
 export function DataTransfer({ token }: { token?: string }) {
@@ -181,13 +200,18 @@ export function DataTransfer({ token }: { token?: string }) {
         ...(needsSingleCourse && effectiveSelection.length ? { course_id: effectiveSelection[0] } : {}),
       };
       const created = await createExport(payload, token);
-      const listing = await fetchExports(token);
-      const item = listing.items.find((row) => row.id === created.id);
-      if (item?.status === "completed") {
+      setExportMessage("已创建导出任务，正在生成…");
+      const item = await waitForExport(created.id, token, (next) => {
+        if (mountedRef.current) {
+          setExportMessage(`正在生成… ${next.progress ?? 0}%`);
+          setExports((current) => [next, ...current.filter((row) => row.id !== next.id)]);
+        }
+      });
+      if (item.status === "completed") {
         const blob = await downloadExport(item.id, token);
         downloadBlob(blob, item.file_path?.split(/[\\/]/).pop() || `${item.id}.lapkg`);
         setExportMessage(`导出完成：${formatBytes(item.size_bytes)}`);
-      } else if (item?.status === "failed") {
+      } else if (item.status === "failed") {
         setExportMessage(`导出失败：${item.error || "未知原因"}`);
       } else {
         setExportMessage("导出已创建，可在下方记录中下载");
@@ -357,7 +381,10 @@ export function DataTransfer({ token }: { token?: string }) {
             <div key={item.id}>
               <span>{EXPORT_FORMATS.find((format) => format.value === item.format)?.label ?? item.format}</span>
               <span>{describeCounts(item.scope_counts)}</span>
-              <span>{statusLabel(item.status)}</span>
+              <span>
+                {statusLabel(item.status)}
+                {["queued", "running"].includes(item.status) ? ` ${item.progress ?? 0}%` : ""}
+              </span>
               <span>{formatBytes(item.size_bytes)}</span>
               <span>{formatTime(item.created_at)}</span>
               <span>

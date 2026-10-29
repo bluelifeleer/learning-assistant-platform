@@ -32,6 +32,8 @@ REVIEW_CARD_DELETED = "review_card_deleted"
 IMPORT_CREATED = "import_created"
 IMPORT_COMPLETED = "import_completed"
 IMPORT_FAILED = "import_failed"
+EXPORT_CREATED = "export_created"
+EXPORT_FAILED = "export_failed"
 
 
 def record(
