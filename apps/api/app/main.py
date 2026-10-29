@@ -4,8 +4,30 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings
-from app.routes import adapters, ai, audit, auth, capture, courses, email, exports, health, note_images, notes, plugins, quiz, review, screenshots, search, settings, setup, stats, transcripts, video_events
+from app.core.config import ensure_safe_config, get_settings
+from app.routes import (
+    adapters,
+    ai,
+    audit,
+    auth,
+    capture,
+    courses,
+    email,
+    exports,
+    health,
+    note_images,
+    notes,
+    plugins,
+    quiz,
+    review,
+    screenshots,
+    search,
+    settings,
+    setup,
+    stats,
+    transcripts,
+    video_events,
+)
 from app.routes import course_merge as course_merge_route
 from app.routes import imports as imports_route
 from app.services.digest_scheduler import start_digest_scheduler
@@ -25,6 +47,8 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app() -> FastAPI:
+    # 生产环境先自检：默认 pepper 之类的不安全配置直接拒绝启动
+    ensure_safe_config()
     app = FastAPI(title="Learning Assistant API", version="0.1.0", lifespan=lifespan)
     # CORS:浏览器插件的内容脚本会从任意学习站点页面(如 wencai/mooc 等)直接调用本 API,
     # 这些请求携带的是页面自身 Origin,无法预先枚举,因此必须放开 Origin。

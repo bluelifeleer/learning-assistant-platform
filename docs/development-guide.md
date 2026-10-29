@@ -121,17 +121,24 @@ apps/extension/src
 - 迁移：新增迁移后要保证 `alembic upgrade head` 在**空库**与**已有库**上都通过（`tests/test_setup.py` 覆盖空库路径）。
 - 后台任务：写测试时断言"任务结束后 DB 的状态"，不要依赖执行时序；TestClient 会等后台任务跑完再返回。
 
-## 5. 代码风格与 lint（🚧 计划中）
+## 5. 代码风格与 lint（✅ 已接入）
 
-目前没有 lint 配置（✅ 已有的是 `tsc --noEmit` 与 pytest）。计划：
+```powershell
+cd apps\api; .\.venv\Scripts\python -m ruff check app tests   # macOS/Linux: .venv/bin/python -m ruff check app tests
+pnpm --filter @learn-assistant/console lint                   # 根目录：pnpm lint
+```
 
-| 语言 | 工具 | 规则 | 命令 |
+| 语言 | 工具 | 规则 | 说明 |
 |---|---|---|---|
-| Python | ruff | `E,F,I,B,UP,SIM`（先去掉 E501 的强约束，行宽 120） | `ruff check app tests` / `ruff format --check` |
-| TS/React | eslint（flat config）+ typescript-eslint | recommended + `react-hooks`；不引 prettier（避免与现有格式大改） | `pnpm -r lint` |
+| Python | ruff（`apps/api/pyproject.toml`） | `E,F,I,B,UP`，行宽 120 | 忽略 `B008`（FastAPI `Depends()` 的误报）与 `E501`（行宽留给后续 `ruff format` 单独一轮） |
+| TS/React | eslint 9 flat config（`apps/console/eslint.config.js`） | recommended + typescript-eslint + `react-hooks` | 未开类型感知；`no-explicit-any` 为 warning；`pnpm lint` 以"零 error"为通过 |
 
-落地顺序：先 `ruff check --fix` / `eslint --fix` 自动修，再人工处理剩余（预计几十处，主要是未使用导入、
-长行、`== None` 之类）。**lint 通过作为 CI 门禁**，但不要在同一次提交里既改逻辑又格式化。
+现状：ruff 全绿，eslint 0 error / 4 warning（`react-hooks/exhaustive-deps` 的历史遗留，集中在
+App.tsx、CourseDetail.tsx、PluginPanel.tsx，属于刻意省略依赖的写法）。**lint 门禁只看 error**，
+warning 留作后续清理，不要在修 bug 的提交里顺手改依赖数组。
+
+格式化统一留给各语言的 formatter，不要在同一次提交里既改逻辑又排版。
+
 
 ## 6. CI：GitHub Actions（🚧 计划中）
 
@@ -215,7 +222,10 @@ e2e/
 - CI 上 `workers: 1`（后台任务与 DB 有共享状态），本地可并行
 - 扩展用例只在 chromium 上跑（其他浏览器不支持 `--load-extension`）
 
-## 8. 部署：单机 compose（🚧 计划中）
+## 8. 部署：单机 compose（✅ 已落地）
+
+本地开发方式**没有变**：仍然是 `scripts\dev.cmd` / `./scripts/dev.sh`（uvicorn 17890 + vite 17891）。
+Docker 是另一条路径，用 `docker-compose.prod.yml`，不改任何 dev 脚本。
 
 ### 拓扑
 
@@ -227,23 +237,34 @@ e2e/
                                         │ volumes: exports / screenshots / note_images
 ```
 
-### 新增文件
+### 文件
 
 | 文件 | 内容 |
 |---|---|
-| `apps/api/Dockerfile` | `python:3.12-slim`；非 root 用户；`pip install --no-cache-dir .`；入口脚本先 `alembic upgrade head` 再 `uvicorn --proxy-headers`；`HEALTHCHECK` 打 `/api/v1/health` |
-| `apps/console/Dockerfile` | 多阶段：`node:20` 构建（`VITE_API_BASE_URL=/api/v1`）→ `nginx:alpine` 托管 `dist` |
-| `apps/console/nginx.conf` | SPA fallback（`try_files $uri /index.html`）+ `location /api/ { proxy_pass http://api:17890; }` |
-| `docker-compose.prod.yml` | postgres + api + web；`env_file: .env.production`；`restart: unless-stopped`；卷挂三个媒体目录 |
-| `scripts/backup.sh` / `restore.sh` | `pg_dump` + 打包三个媒体目录；恢复脚本校验后再落库 |
+| `apps/api/Dockerfile` | `python:3.12-slim`；非 root（uid 10001）；`pip install .`；三个媒体目录指向 `/data/*` 卷；`HEALTHCHECK` 打 `/api/v1/health` |
+| `apps/api/docker-entrypoint.sh` | 先 `alembic upgrade head` 再 `exec uvicorn`；迁移失败容器直接退出 |
+| `apps/console/Dockerfile` | 多阶段：node:20 + pnpm workspace 构建 → nginx:alpine（构建参数 `VITE_API_BASE_URL=/api/v1`） |
+| `apps/console/nginx.conf` | SPA fallback + `/api/` 反代 `api:17890` + `client_max_body_size 210m`（导入包上限） |
+| `docker-compose.prod.yml` | postgres + api + web；`env_file: .env.production`；四个命名卷；健康检查依赖顺序 |
+| `.env.production.example` | 部署用环境变量模板（含 pepper 与密码说明） |
+| `.dockerignore` | 构建上下文是仓库根，排除 `.venv` / `node_modules` / `dist` / 媒体目录 |
 
-### 前置代码改动（必须先做，否则 P0 跑不通）
+### 启动
 
-1. **`client.ts` 支持相对基址**：同源部署时用 `/api/v1`，本地开发仍默认 `http://127.0.0.1:17890/api/v1`。
-   否则 nginx 反代后前端仍打 127.0.0.1，直接失效。
-2. **生产环境校验 `API_TOKEN_PEPPER`**：现在是 `change-me-token-pepper` 也能启动，等于没有 pepper。
-   非 `development` 环境下遇到默认值应拒绝启动。
-3. **`/api/v1/health` 已存在**，直接用于容器健康检查，无需新增。
+```bash
+cp .env.production.example .env.production
+# 改 POSTGRES_PASSWORD 与 API_TOKEN_PEPPER（openssl rand -hex 32）
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+### 部署相关的代码约束
+
+1. **前端基址**：`client.ts` 读 `VITE_API_BASE_URL`，未设置时用 `http://127.0.0.1:17890/api/v1`（本地开发行为不变）。
+2. **生产自检**：`APP_ENV=production` 且 pepper 仍是默认值/过短时，`create_app()` 直接抛错拒绝启动；
+   开发/测试环境跳过（`app/core/config.py: ensure_safe_config`，`tests/test_config_guard.py` 覆盖）。
+3. **单副本假设**：迁移在容器入口执行，多副本同时启动会并发迁移；要扩副本时改成独立迁移 job，
+   并把 `JOB_RECOVERY_GRACE_SECONDS` 调大。
+
 
 ### 关键环境变量（`.env.production`）
 
@@ -286,10 +307,11 @@ EXPORT_RETENTION_COUNT=50           # 按需
 
 ## 11. 工程化路线图
 
-| 阶段 | 内容 | 验收标准 |
+| 阶段 | 内容 | 状态 |
 |---|---|---|
-| P1 | GitHub Actions：`api`（3.11–3.13 + Postgres 迁移）+ `api-mysql` + `web` | 任一 push 自动跑完；PR 需绿才可合并 |
-| P2 | lint：ruff + eslint，存量清理，接入 CI | `ruff check` / `eslint` 零告警 |
-| P3 | 部署前置改动 + Dockerfile + `docker-compose.prod.yml` + 备份脚本 | 新机器 `docker compose up -d` 后能登录使用 |
-| P4 | Playwright e2e（控制台 8 组 + 插件 4 组）+ `seed_e2e.py` | CI 里 `e2e` job 稳定通过（连续 10 次不 flake） |
-| P5（可选） | 单容器交付形态（API 托管 console dist）、Caddy TLS、多副本共享队列 | 按交付需要 |
+| P1 | lint：ruff + eslint 接入（存量已清理） | ✅ 完成（eslint 4 个历史 warning 待清） |
+| P2 | 单机 Docker 部署：Dockerfile + `docker-compose.prod.yml` + 生产配置自检 | ✅ 文件已就绪（本机无 Docker，镜像构建待在有 Docker 的机器上验证一次） |
+| P3 | 备份脚本 `scripts/backup.sh` / `restore.sh` | 🚧 待做 |
+| P4 | Playwright e2e（控制台 8 组 + 插件 4 组）+ `seed_e2e.py` | 🚧 待做 |
+| P5 | GitHub Actions CI（`api` 矩阵 + 真 Postgres 迁移、`api-mysql`、`web`、`lint`、`e2e`） | 🚧 最后做 |
+| P6（可选） | 单容器交付形态（API 托管 console dist）、Caddy TLS、多副本共享队列 | 按交付需要 |

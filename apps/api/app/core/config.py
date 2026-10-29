@@ -39,3 +39,27 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+#: 安装向导会随机生成 pepper；这两个值说明还没生成过
+INSECURE_PEPPERS = frozenset({"", "change-me-token-pepper"})
+SAFE_ENVS = frozenset({"development", "test"})
+
+
+def ensure_safe_config(settings: Settings | None = None) -> None:
+    """生产环境启动前自检，避免用默认密钥跑起来。
+
+    开发/测试环境直接放行（本地 `.env` 里的默认值就是为了方便）。
+    容器部署时 `APP_ENV=production`，这里不通过会直接启动失败并打印原因。
+    """
+    effective = settings or get_settings()
+    if effective.app_env in SAFE_ENVS:
+        return
+    problems: list[str] = []
+    pepper = (effective.api_token_pepper or "").strip()
+    if pepper in INSECURE_PEPPERS:
+        problems.append("API_TOKEN_PEPPER 仍是默认值（用 `openssl rand -hex 32` 生成一个）")
+    elif len(pepper) < 16:
+        problems.append("API_TOKEN_PEPPER 太短，至少 16 位随机串")
+    if problems:
+        raise RuntimeError("生产环境配置不安全：" + "；".join(problems))

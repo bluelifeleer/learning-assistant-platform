@@ -1,0 +1,25 @@
+# 构建上下文是仓库根目录（见 docker-compose.prod.yml），因此忽略规则都按根目录写
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.pytest-tmp
+.pytest-tmp
+**/.ruff_cache
+**/.vite
+.tmp
+exports
+screenshots
+note_images
+.env
+.env.*
+!.env.production.example
+*.md
+!README.md

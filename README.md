@@ -35,6 +35,32 @@
 >
 > 只想单独重启 API 时，可以完全绕开脚本：`cd apps\api` 后执行 `.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 17890`（注意 uvicorn 没开 `--reload`，改完后端代码要手动重启）。
 
+## Docker 部署（单机）
+
+本地开发仍然用上面的 `scripts\dev.cmd` / `./scripts/dev.sh`，**部署是另一条路径**，两者互不影响。
+
+```bash
+cp .env.production.example .env.production     # 改掉 POSTGRES_PASSWORD 与 API_TOKEN_PEPPER
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+打开 `http://<主机>:8080`（`WEB_PORT` 可改）。组成三个容器：
+
+| 容器 | 作用 |
+|---|---|
+| `web` | nginx 托管控制台静态文件，并把 `/api/*` 反代到 `api:17890`（同源，无跨域） |
+| `api` | uvicorn；入口先 `alembic upgrade head` 再启动；`healthcheck` 打 `/api/v1/health` |
+| `postgres` | 数据卷 `pgdata`；导出与截图分别挂 `exports` / `screenshots` / `note_images` 卷 |
+
+要点：
+
+- **必须改 `API_TOKEN_PEPPER`**：`APP_ENV=production` 时用默认值会直接拒绝启动（有测试覆盖）。
+- `POSTGRES_PASSWORD` 不要含 `@ : /`，compose 会把它拼进 `DATABASE_URL`。
+- 升级：`docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build`，迁移随容器启动自动执行；**单副本**部署才安全，多副本要改成独立迁移 job。
+- 备份：`pg_dump -Fc` + 打包三个媒体卷；恢复前先确认目标库为空。
+- 控制台构建时注入 `VITE_API_BASE_URL=/api/v1`；本地开发不设这个变量，仍默认打 `http://127.0.0.1:17890/api/v1`。
+- 没装 Docker 的机器无法验证镜像构建，首次部署请先在本机 `docker compose ... build` 跑通再上线。
+
 ## AI 配置
 
 AI 摘要和自动出题使用 **OpenAI 兼容端点**，在控制台"设置 → AI 设置"中填写：
