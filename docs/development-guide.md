@@ -265,6 +265,24 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 3. **单副本假设**：迁移在容器入口执行，多副本同时启动会并发迁移；要扩副本时改成独立迁移 job，
    并把 `JOB_RECOVERY_GRACE_SECONDS` 调大。
 
+### 备份与恢复
+
+```powershell
+.\scripts\backup.ps1 -Out D:\backups -Keep 7
+.\scripts\restore.ps1 .\backups\learn-assistant-20261029-200000
+```
+
+```bash
+./scripts/backup.sh --out /var/backups --keep 7
+./scripts/restore.sh backups/learn-assistant-20261029-200000
+```
+
+- 逻辑只有一份：`scripts/backup.py` / `scripts/restore.py`；`.ps1` 与 `.sh` 只是找 Python 的入口
+- 备份 = `pg_dump -Fc` + `tar -czf /data/{exports,screenshots,note_images}` + `checksums.sha256` + `manifest.json`
+- 恢复前强制校验 checksums；中途失败会中止，不会"悄悄恢复一半"
+- 恢复流程：停 `api`/`web` → `DROP SCHEMA public CASCADE` → `pg_restore --no-owner` → 解包媒体 → 重新拉起
+- 纯逻辑（env 解析、校验和、清理策略、清单字段）有单测：`apps/api/tests/test_backup_scripts.py`
+
 
 ### 关键环境变量（`.env.production`）
 
@@ -311,7 +329,7 @@ EXPORT_RETENTION_COUNT=50           # 按需
 |---|---|---|
 | P1 | lint：ruff + eslint 接入（存量已清理） | ✅ 完成（eslint 4 个历史 warning 待清） |
 | P2 | 单机 Docker 部署：Dockerfile + `docker-compose.prod.yml` + 生产配置自检 | ✅ 文件已就绪（本机无 Docker，镜像构建待在有 Docker 的机器上验证一次） |
-| P3 | 备份脚本 `scripts/backup.sh` / `restore.sh` | 🚧 待做 |
+| P3 | 备份脚本 `scripts/backup.*` / `restore.*`（Windows 与 macOS/Linux 入口） | ✅ 完成（pg_dump/pg_restore 部分需 Docker 环境实跑） |
 | P4 | Playwright e2e（控制台 8 组 + 插件 4 组）+ `seed_e2e.py` | 🚧 待做 |
 | P5 | GitHub Actions CI（`api` 矩阵 + 真 Postgres 迁移、`api-mysql`、`web`、`lint`、`e2e`） | 🚧 最后做 |
 | P6（可选） | 单容器交付形态（API 托管 console dist）、Caddy TLS、多副本共享队列 | 按交付需要 |

@@ -61,6 +61,41 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 - 控制台构建时注入 `VITE_API_BASE_URL=/api/v1`；本地开发不设这个变量，仍默认打 `http://127.0.0.1:17890/api/v1`。
 - 没装 Docker 的机器无法验证镜像构建，首次部署请先在本机 `docker compose ... build` 跑通再上线。
 
+### 备份与恢复
+
+备份内容是「数据库 dump + 三个媒体目录」，产物是一个带校验和与清单的目录：
+
+```powershell
+.\scripts\backup.ps1                                  # 写到 .\backups\learn-assistant-<时间戳>\
+.\scripts\backup.ps1 -Out D:\backups -Keep 7          # 指定目录，只留最近 7 份
+```
+
+```bash
+./scripts/backup.sh --out /var/backups --keep 7
+```
+
+产物：`db.dump`（`pg_dump -Fc`）、`media.tar.gz`、`checksums.sha256`、`manifest.json`（时间、库名、alembic 版本、媒体文件数）。
+
+恢复会**覆盖当前数据库**，需要显式确认：
+
+```powershell
+.\scripts\restore.ps1 .\backups\learn-assistant-20261029-200000
+```
+
+```bash
+./scripts/restore.sh backups/learn-assistant-20261029-200000
+```
+
+流程固定：校验 `checksums.sha256` → 停 `api` / `web` → 重建 `public` schema → `pg_restore` → 用一次性容器把媒体解回 `/data` → 重新拉起（入口自动 `alembic upgrade head`）。
+
+注意：
+
+- 脚本通过 `docker compose` 操作容器，备份机要能跑 compose；dump 用自定义格式，跨 PostgreSQL 小版本可恢复。
+- **校验和不通过会直接中止**，不会半途覆盖数据库。
+- 恢复前先跑一次备份，留一条退路；恢复后打开控制台抽查课程与截图。
+- 非 Docker 环境没有脚本可用：`pg_dump -Fc` + 直接拷 `exports` / `screenshots` / `note_images` 三个目录即可。
+- 定时备份：Windows 用「任务计划程序」调 `backup.ps1`，Linux 用 cron 调 `backup.sh`；建议配 `-Keep` / `--keep`。
+
 ## AI 配置
 
 AI 摘要和自动出题使用 **OpenAI 兼容端点**，在控制台"设置 → AI 设置"中填写：

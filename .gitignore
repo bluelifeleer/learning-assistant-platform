@@ -17,3 +17,9 @@ note_images/
 .DS_Store
 .pytest-tmp/
 .tmp/
+
+# pytest 临时目录（沙箱下会落在仓库根）
+pytest-of-*/
+pytest-*/
+.pytest-tmp/
+
