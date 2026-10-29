@@ -1,6 +1,6 @@
 import hashlib
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import JSONResponse
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_current_user
 from app.db.session import SessionLocal, get_db
-from app.models.entities import ImportJob, Organization, User
+from app.models.entities import Course, ImportJob, Organization, User
 from app.routes.exports import organization_for_user
 from app.schemas.workspace import ImportJobItem, ImportJobListOut, ImportStartOut
 from app.services import audit
@@ -31,6 +31,7 @@ def _job_item(job: ImportJob) -> ImportJobItem:
         checksum=job.checksum,
         strategy=job.strategy,
         dry_run=job.dry_run,
+        target_course_id=job.target_course_id,
         status=job.status,
         progress=job.progress or 0,
         stats=job.stats or None,
@@ -113,6 +114,7 @@ def run_import_job(job_id: str, data: bytes, session_factory=None) -> None:
             db.refresh(job)
             return job.status == "canceled"
 
+        target_course = db.get(Course, job.target_course_id) if job.target_course_id else None
         stats = run_import(
             db,
             organization,
@@ -120,6 +122,7 @@ def run_import_job(job_id: str, data: bytes, session_factory=None) -> None:
             plan,
             dry_run=job.dry_run,
             strategy=job.strategy or "merge",
+            target_course=target_course,
             on_progress=on_progress,
             should_cancel=should_cancel,
         )
@@ -167,6 +170,7 @@ async def create_import(
     file: UploadFile = File(...),
     strategy: str = Form("merge"),
     dry_run: bool = Form(False),
+    course_id: str = Form(""),
     user: User = Depends(require_current_user),
     db: Session = Depends(get_db),
 ) -> ImportStartOut:
@@ -175,14 +179,47 @@ async def create_import(
     data = await _read_upload(file)
 
     organization = organization_for_user(db, user)
+    source = source_for_filename(file.filename or "")
+    target_course = None
+    if course_id.strip():
+        if source.source_type == "lapkg":
+            raise HTTPException(
+                status_code=400,
+                detail="完整包自带课程结构，不能指定目标课程（只有 Anki TSV / CSV 可以）",
+            )
+        target_course = (
+            db.query(Course)
+            .filter(Course.id == course_id.strip(), Course.organization_id == organization.id)
+            .first()
+        )
+        if target_course is None:
+            raise HTTPException(status_code=404, detail="目标课程不存在")
+
+    checksum = "sha256:" + hashlib.sha256(data).hexdigest()
+    # 同一个包 24 小时内已经导入过就提示一下（仍然允许再导，merge 会去重）
+    duplicate = (
+        db.query(ImportJob)
+        .filter(
+            ImportJob.organization_id == organization.id,
+            ImportJob.checksum == checksum,
+            ImportJob.status == "done",
+            # 预览没有真正写入，不能算"已经导入过"
+            ImportJob.dry_run.is_(False),
+            ImportJob.created_at >= datetime.now(UTC) - timedelta(hours=24),
+        )
+        .order_by(ImportJob.created_at.desc())
+        .first()
+    )
+
     job = ImportJob(
         organization_id=organization.id,
         user_id=user.id,
         source_filename=(file.filename or "package.lapkg")[:255],
         size_bytes=len(data),
-        checksum="sha256:" + hashlib.sha256(data).hexdigest(),
+        checksum=checksum,
         strategy=strategy,
         dry_run=dry_run,
+        target_course_id=target_course.id if target_course else None,
         status="queued",
         progress=0,
     )
@@ -195,13 +232,25 @@ async def create_import(
         resource_id=job.id,
         user_id=user.id,
         organization_id=organization.id,
-        payload={"filename": job.source_filename, "size": len(data), "dry_run": dry_run, "strategy": strategy},
+        payload={
+            "filename": job.source_filename,
+            "size": len(data),
+            "dry_run": dry_run,
+            "strategy": strategy,
+            "source_type": source.source_type,
+            "target_course_id": job.target_course_id,
+        },
     )
     db.commit()
     db.refresh(job)
 
     background_tasks.add_task(run_import_job, job.id, data)
-    return ImportStartOut(job_id=job.id, status=job.status, dry_run=job.dry_run)
+    return ImportStartOut(
+        job_id=job.id,
+        status=job.status,
+        dry_run=job.dry_run,
+        duplicate_of=duplicate.id if duplicate else None,
+    )
 
 
 @router.get("", response_model=ImportJobListOut)
@@ -255,6 +304,7 @@ def download_import_report(
         "checksum": job.checksum,
         "strategy": job.strategy,
         "dry_run": job.dry_run,
+        "target_course_id": job.target_course_id,
         "status": job.status,
         "progress": job.progress,
         "error": job.error,

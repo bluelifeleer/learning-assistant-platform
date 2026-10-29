@@ -149,6 +149,8 @@ export function DataTransfer({ token }: { token?: string }) {
   const [importJob, setImportJob] = useState<ImportJobItem | null>(null);
   const [importStrategy, setImportStrategy] = useState<ImportStrategy>("merge");
   const [replaceArmed, setReplaceArmed] = useState(false);
+  const [targetCourseId, setTargetCourseId] = useState("");
+  const [duplicateHint, setDuplicateHint] = useState("");
   const [importHistory, setImportHistory] = useState<ImportJobItem[]>([]);
   const [importBusy, setImportBusy] = useState(false);
   const [importMessage, setImportMessage] = useState("");
@@ -185,6 +187,9 @@ export function DataTransfer({ token }: { token?: string }) {
   const needsSingleCourse = SINGLE_COURSE_FORMATS.includes(exportFormat);
   const effectiveSelection = needsSingleCourse && selectedIds.length > 1 ? selectedIds.slice(0, 1) : selectedIds;
   const selectedFormat = EXPORT_FORMATS.find((item) => item.value === exportFormat);
+  // 只有卡片/笔记类来源能指定目标课程；完整包自带课程结构
+  const isPackageFile = importFile ? /\.(lapkg|zip)$/i.test(importFile.name) : false;
+  const canTargetCourse = Boolean(importFile) && !isPackageFile;
 
   function toggleCourse(id: string): void {
     setSelectedIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
@@ -266,8 +271,20 @@ export function DataTransfer({ token }: { token?: string }) {
     }
     setImportBusy(true);
     setImportMessage(dryRun ? "正在解析并预估…" : "正在导入…");
+    setDuplicateHint("");
     try {
-      const started = await startImport(importFile, { dryRun, strategy: importStrategy }, token);
+      const started = await startImport(
+        importFile,
+        {
+          dryRun,
+          strategy: importStrategy,
+          courseId: isPackageFile ? undefined : targetCourseId || undefined,
+        },
+        token,
+      );
+      if (started.duplicate_of) {
+        setDuplicateHint("这个包 24 小时内已经导入过；继续导入会按策略去重，不会产生副本。");
+      }
       const job = await waitForImport(started.job_id, token, (next) => {
         if (mountedRef.current) setImportJob(next);
       });
@@ -494,6 +511,31 @@ export function DataTransfer({ token }: { token?: string }) {
             </label>
           </div>
           <p className="transfer-muted">{IMPORT_STRATEGIES.find((item) => item.value === importStrategy)?.hint}</p>
+          <div className="transfer-row">
+            <label className="modal-field">
+              <span>导入到课程</span>
+              <select
+                value={targetCourseId}
+                disabled={!canTargetCourse}
+                onChange={(event) => setTargetCourseId(event.target.value)}
+              >
+                <option value="">自动（按来源新建课程）</option>
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="transfer-muted">
+            {!importFile
+              ? "选择文件后可指定课程"
+              : isPackageFile
+                ? "完整包自带课程结构，不能指定目标课程"
+                : "Anki 卡片 / CSV 笔记可以直接挂到已有课程；不选则新建一门按来源命名的课程"}
+          </p>
+          {duplicateHint ? <p className="transfer-muted">{duplicateHint}</p> : null}
           <div className="inline-form">
             <button type="button" className="text-button" disabled={importBusy || !importFile} onClick={() => void runImport(true)}>
               {importBusy ? "处理中…" : "预览（不写入）"}

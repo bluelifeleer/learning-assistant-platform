@@ -427,6 +427,8 @@ class ImportJob(Base, TimestampMixin):
     #: queued → validating → parsing → applying → done / failed / canceled
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="queued")
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    #: 卡片/笔记类来源（Anki TSV、CSV）可指定导进哪门已有课程；为空则落到按来源命名的合成课程
+    target_course_id: Mapped[str | None] = mapped_column(ForeignKey("courses.id"))
     stats: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -313,6 +313,7 @@ class ImportJobItem(BaseModel):
     checksum: str | None = None
     strategy: str = "merge"
     dry_run: bool = False
+    target_course_id: str | None = None
     status: str
     progress: int = 0
     stats: dict | None = None
@@ -329,6 +330,8 @@ class ImportStartOut(BaseModel):
     job_id: str
     status: str
     dry_run: bool = False
+    #: 24 小时内导入过同一个包时，指向那次的任务 id（仍然允许再导）
+    duplicate_of: str | None = None
 
 
 class ScreenshotItem(BaseModel):

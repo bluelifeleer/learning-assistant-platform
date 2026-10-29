@@ -713,6 +713,7 @@ export interface ImportJobItem {
   checksum?: string | null;
   strategy?: string;
   dry_run?: boolean;
+  target_course_id?: string | null;
   status: string;
   progress?: number;
   stats?: Record<string, unknown> | null;
@@ -725,6 +726,8 @@ export interface ImportStartResponse {
   job_id: string;
   status: string;
   dry_run: boolean;
+  /** 24 小时内导入过同一个包时，指向那次的任务 id */
+  duplicate_of?: string | null;
 }
 
 /** 上传导入包（multipart）。包可能很大，单独给 5 分钟超时。 */
@@ -748,13 +751,15 @@ async function postForm<T>(path: string, form: FormData, token?: string): Promis
 
 export async function startImport(
   file: File,
-  options: { dryRun?: boolean; strategy?: string } = {},
+  options: { dryRun?: boolean; strategy?: string; courseId?: string } = {},
   token?: string,
 ): Promise<ImportStartResponse> {
   const form = new FormData();
   form.append("file", file);
   form.append("strategy", options.strategy ?? "merge");
   form.append("dry_run", options.dryRun ? "true" : "false");
+  // 只有 Anki TSV / CSV 用得上：把卡片/笔记挂到指定课程
+  if (options.courseId) form.append("course_id", options.courseId);
   return postForm<ImportStartResponse>("/imports", form, token);
 }
 

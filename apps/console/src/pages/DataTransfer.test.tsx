@@ -54,4 +54,14 @@ describe("导入导出页", () => {
     expect(html).toContain("保留最近");
     expect(html).toContain("清理更早的导出");
   });
+
+  it("导入区提供「导入到课程」，未选文件时处于禁用态", () => {
+    const html = renderToString(<DataTransfer />);
+
+    expect(html).toContain("导入到课程");
+    expect(html).toContain("自动（按来源新建课程）");
+    expect(html).toContain("选择文件后可指定课程");
+    // 未选文件时下拉是禁用的（不能给完整包指定目标课程）
+    expect(html).toMatch(/<select[^>]*disabled[^>]*>[\s\S]*自动（按来源新建课程）/);
+  });
 });

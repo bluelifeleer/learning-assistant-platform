@@ -496,21 +496,19 @@ def _import_cards_and_quiz(
         )
 
 
-def _import_course(
+def _match_or_create_course(
     db: Session,
     organization: Organization,
-    user: User,
+    document: dict,
     bundle: CourseDocument,
-    media: _MediaWriter,
     stats: ImportStats,
     dry_run: bool,
-    strategy: str = "merge",
-) -> None:
-    document = bundle.document
+    strategy: str,
+) -> Course | SimpleNamespace:
+    """按（站点, external_course_id）匹配课程；new 策略则强制新建副本。"""
     site_info = document.get("site") or {}
     adapter_id = str(site_info.get("adapter_id") or "").strip() or "imported"
     external_course_id = str(document.get("external_course_id") or "")
-    # new：强制新建一份副本，外部 id 加后缀避免撞唯一约束
     if strategy == "new":
         external_course_id = f"{external_course_id}-import-{uuid4().hex[:8]}"
 
@@ -548,22 +546,45 @@ def _import_course(
             course.term = str(document["term"])
         if not (course.extra or {}) and document.get("metadata"):
             course.extra = dict(document["metadata"])
+        return course
+
+    stats.courses_created += 1
+    if dry_run:
+        return SimpleNamespace(id=f"dry-course-{document.get('id') or external_course_id}")
+    created = Course(
+        id=_pick_id(db, Course, document.get("id")),
+        organization_id=organization.id,
+        site_id=site.id,
+        external_course_id=external_course_id,
+        title=str(document.get("title") or external_course_id or "未命名课程"),
+        term=document.get("term"),
+        extra=dict(document.get("metadata") or {}),
+    )
+    db.add(created)
+    db.flush()
+    return created
+
+
+def _import_course(
+    db: Session,
+    organization: Organization,
+    user: User,
+    bundle: CourseDocument,
+    media: _MediaWriter,
+    stats: ImportStats,
+    dry_run: bool,
+    strategy: str = "merge",
+    target_course: Course | None = None,
+) -> None:
+    document = bundle.document
+
+    if target_course is not None:
+        # 卡片/笔记类来源（Anki TSV、CSV）：直接挂到用户在界面上选的课程，
+        # 不参与课程匹配与创建，也不再建合成课程。
+        course: Course | SimpleNamespace = target_course
+        stats.courses_matched += 1
     else:
-        stats.courses_created += 1
-        if dry_run:
-            course = SimpleNamespace(id=f"dry-course-{document.get('id') or external_course_id}")
-        else:
-            course = Course(
-                id=_pick_id(db, Course, document.get("id")),
-                organization_id=organization.id,
-                site_id=site.id,
-                external_course_id=external_course_id,
-                title=str(document.get("title") or external_course_id or "未命名课程"),
-                term=document.get("term"),
-                extra=dict(document.get("metadata") or {}),
-            )
-            db.add(course)
-            db.flush()
+        course = _match_or_create_course(db, organization, document, bundle, stats, dry_run, strategy)
 
     if strategy == "replace" and not dry_run and stats.courses_matched:
         # 覆盖模式：课程级的卡片/题目/无章节笔记与截图整体换成本包的
@@ -632,6 +653,7 @@ def run_import(
     *,
     dry_run: bool = False,
     strategy: str = "merge",
+    target_course: Course | None = None,
     on_progress: Callable[[int], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -641,6 +663,8 @@ def run_import(
     - merge（默认）只增不覆盖
     - new   强制新建副本，课程外部 id 加后缀
     - replace 复用同名课程/章节，但章节内容与课程级卡片/题目整体换成包里的
+
+    target_course: 指定后卡片/笔记直接挂到这门课程（Anki TSV / CSV 用）。
     """
     if strategy not in SUPPORTED_STRATEGIES:
         raise ValueError(f"不支持的导入策略：{strategy}")
@@ -652,7 +676,17 @@ def run_import(
             if should_cancel is not None and should_cancel():
                 stats.conflict("导入被取消，已完成的课程保留")
                 raise CancelledError()
-            _import_course(db, organization, user, bundle, media, stats, dry_run, strategy)
+            _import_course(
+                db,
+                organization,
+                user,
+                bundle,
+                media,
+                stats,
+                dry_run,
+                strategy,
+                target_course=target_course,
+            )
             if dry_run:
                 db.rollback()
             else:

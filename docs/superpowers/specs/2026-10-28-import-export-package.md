@@ -6,7 +6,7 @@
   `apps/api/app/services/export_payload.py`、`apps/api/app/services/import_source.py`、
   `apps/api/app/services/importer.py`、`apps/api/app/exporters/package.py`、
   `apps/console/src/pages/DataTransfer.tsx`、`apps/console/src/pages/CourseDetail.tsx`
-- 落地记录：P0「附录 A」、P1「附录 B」、P2「附录 C」、P3「附录 D」、适配器「附录 E」、导出异步化「附录 F」、任务恢复与清理入口「附录 G」
+- 落地记录：P0「附录 A」、P1「附录 B」、P2「附录 C」、P3「附录 D」、适配器「附录 E」、导出异步化「附录 F」、任务恢复与清理入口「附录 G」、目标课程与重复提示「附录 H」
 
 ## 1. 背景与目标
 
@@ -574,3 +574,33 @@ class ImportSource(Protocol):
 - 全量后端 258 passed；前端 179 passed，`tsc` 通过
 - 真实库：插入 1 条卡住的导入 + 1 条卡住的导出 + 1 条已完成导出 → 启动 API 后前两条变
   `failed`（原因含「服务重启」、进度 0），已完成那条仍为 `completed`；验证后已清理测试数据
+
+## 附录 H：指定目标课程与重复导入提示（2026-10-29）
+
+### 指定目标课程（`target_course_id`）
+
+此前 Anki TSV / CSV 这类没有课程结构的来源，只能落到按来源命名的合成课程里，
+用户还得自己把卡片挪走（而应用并不支持挪动）。
+
+- `import_jobs` 增加 `target_course_id`（迁移 0024_import_target_course）
+- `POST /imports` 接受 `course_id` 表单字段：
+  - 只在 `anki_tsv` / `csv` 来源上生效；`lapkg` 传了会直接 400（包自带课程结构）
+  - 课程必须属于当前组织，否则 404
+- `run_import(target_course=...)`：命中目标课程时跳过课程匹配/创建，卡片与课程级笔记直接挂上去
+- 抽出 `_match_or_create_course()`，让「目标课程」与「自动匹配」两条路径共用同一段站点/课程逻辑
+- 控制台：导入区新增「导入到课程」下拉，选项为「自动（按来源新建课程）」+ 课程列表；
+  未选文件或选的是完整包时禁用并给出原因
+
+### 重复导入提示
+
+- `POST /imports` 响应新增 `duplicate_of`：同一组织下 24 小时内已成功导入过
+  **相同 checksum** 的包（且不是预览）时，指向上一次的任务 id
+- 仍然允许继续导入（merge 会去重），控制台只给一行提示
+- 预览任务不计入，避免「先预览一次就被判定为已导入」
+
+### 验收
+
+- `tests/test_imports.py` 33 passed（新增 5 个：TSV 指定课程后卡片挂在目标课程且不建合成课程、
+  lapkg 带 course_id 返回 400、未知课程 404、重复包返回 `duplicate_of`、预览不计入重复）
+- 全量后端 263 passed；前端 181 passed，`tsc` 通过
+- README 新增「跨设备迁移」操作章节（导出 → 传输 → 预览 → 策略 → 报告，以及注意事项）

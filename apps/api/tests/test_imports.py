@@ -652,3 +652,108 @@ def test_import_rejects_unsupported_extension(import_client, auth_headers) -> No
 
     assert response.status_code == 400
     assert "不支持的文件类型" in response.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# 指定目标课程 / 重复导入提示
+# ---------------------------------------------------------------------------
+
+
+def test_anki_tsv_can_target_existing_course(import_client, session_factory, auth_headers) -> None:
+    client = import_client
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    blob = "问题甲\t答案甲\n".encode()
+
+    response = client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.tsv", blob, "text/tab-separated-values")},
+        data={"course_id": course_id},
+    )
+    assert response.status_code == 202, response.text
+    job = client.get(f"/api/v1/imports/{response.json()['job_id']}", headers=auth_headers).json()
+
+    assert job["status"] == "done", job
+    assert job["target_course_id"] == course_id
+    assert job["stats"]["courses_created"] == 0
+    assert job["stats"]["cards_added"] == 1
+
+    db = session_factory()
+    try:
+        # 卡片挂到指定课程上，且没有额外创建 anki-import 合成课程
+        assert db.query(ReviewCard).filter(ReviewCard.course_id == course_id).count() == 1
+        assert db.query(Course).filter(Course.external_course_id == "anki-import").count() == 0
+    finally:
+        db.close()
+
+
+def test_lapkg_rejects_target_course(import_client, auth_headers) -> None:
+    token = create_plugin_token(import_client, auth_headers)
+    capture_sample_course(import_client, token)
+    course_id = import_client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+
+    response = import_client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("package.lapkg", _minimal_package(), "application/zip")},
+        data={"course_id": course_id},
+    )
+
+    assert response.status_code == 400
+    assert "不能指定目标课程" in response.json()["detail"]
+
+
+def test_unknown_target_course_returns_404(import_client, auth_headers) -> None:
+    response = import_client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.tsv", "问题\t答案\n".encode(), "text/tab-separated-values")},
+        data={"course_id": "does-not-exist"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_duplicate_upload_hints_previous_job(import_client, auth_headers) -> None:
+    client = import_client
+    blob = "问题乙\t答案乙\n".encode()
+
+    first = client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.tsv", blob, "text/tab-separated-values")},
+    )
+    assert first.json()["duplicate_of"] is None
+
+    second = client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.tsv", blob, "text/tab-separated-values")},
+    )
+
+    assert second.status_code == 202
+    assert second.json()["duplicate_of"] == first.json()["job_id"]
+
+
+def test_duplicate_hint_skips_dry_run(import_client, auth_headers) -> None:
+    """预览不算"导入过"，只统计真正 done 的任务。"""
+    client = import_client
+    blob = "问题丙\t答案丙\n".encode()
+
+    preview = client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.tsv", blob, "text/tab-separated-values")},
+        data={"dry_run": "true"},
+    )
+    real = client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.tsv", blob, "text/tab-separated-values")},
+    )
+
+    assert real.json()["duplicate_of"] is None
+    # 但预览任务本身也不该被当成"已导入"
+    assert preview.json()["duplicate_of"] is None

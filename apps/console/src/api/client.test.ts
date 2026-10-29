@@ -667,8 +667,25 @@ describe("import client", () => {
     expect(body).toBeInstanceOf(FormData);
     expect(body.get("dry_run")).toBe("true");
     expect(body.get("strategy")).toBe("merge");
+    expect(body.get("course_id")).toBeNull();
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer la_session");
     expect((init.headers as Record<string, string>)["content-type"]).toBeUndefined();
+  });
+
+  it("passes the target course id when importing cards into an existing course", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ job_id: "job-2", status: "queued", dry_run: false, duplicate_of: "job-1" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const file = new File([new Uint8Array([1])], "deck.tsv");
+    const result = await startImport(file, { courseId: "course-1", strategy: "replace" }, "la_session");
+
+    const body = fetchMock.mock.calls[0][1].body as FormData;
+    expect(body.get("course_id")).toBe("course-1");
+    expect(body.get("strategy")).toBe("replace");
+    expect(result.duplicate_of).toBe("job-1");
   });
 
   it("reads import jobs and reports", async () => {
