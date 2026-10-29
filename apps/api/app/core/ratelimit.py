@@ -3,9 +3,9 @@
 单进程本地部署下够用;多 worker 部署需要替换为共享存储(如 Redis)。
 """
 
-from collections import defaultdict, deque
 import threading
 import time
+from collections import defaultdict, deque
 
 
 class SlidingWindowLimiter:

@@ -27,7 +27,7 @@ from app.models.entities import (
     User,
     VideoSession,
 )
-from app.services import ai_tasks, digest, emailer, llm
+from app.services import ai_tasks, emailer, llm
 from app.services.digest import build_digest, digest_is_due
 from app.services.digest_scheduler import run_digest_tick
 from app.services.plugins import ensure_default_organization

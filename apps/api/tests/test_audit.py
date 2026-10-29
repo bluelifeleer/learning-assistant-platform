@@ -106,7 +106,6 @@ def test_audit_logs_require_owner(client, session_factory) -> None:
     """普通成员不能看审计日志(里面有账号、IP 等信息)。"""
     from uuid import uuid4
 
-    from app.models.entities import Membership
 
     response = client.post(
         "/api/v1/auth/register",

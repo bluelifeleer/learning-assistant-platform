@@ -8,14 +8,20 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.entities import ApiToken, Organization, PluginClient
-from app.schemas.plugins import PluginClientOut, PluginHeartbeatIn, PluginHeartbeatOut, PluginStatusOut, PluginTokenCreateOut
+from app.schemas.plugins import (
+    PluginClientOut,
+    PluginHeartbeatIn,
+    PluginHeartbeatOut,
+    PluginStatusOut,
+    PluginTokenCreateOut,
+)
 
 ONLINE_WINDOW = timedelta(minutes=2)
 
 
 def hash_plugin_token(token: str) -> str:
     pepper = get_settings().api_token_pepper
-    return sha256(f"{pepper}:{token}".encode("utf-8")).hexdigest()
+    return sha256(f"{pepper}:{token}".encode()).hexdigest()
 
 
 def ensure_default_organization(db: Session) -> Organization:

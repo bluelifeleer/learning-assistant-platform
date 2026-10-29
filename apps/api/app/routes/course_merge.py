@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_owner
 from app.db.session import get_db
-from app.models.entities import Course, User
+from app.models.entities import User
 from app.schemas.workspace import CourseMergeIn, CourseMergeOut
 from app.services import audit, course_merge
 from app.services.tenancy import course_in_org, organization_for_user

@@ -12,7 +12,18 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
 from app.models import entities  # noqa: F401 - register models
-from app.models.entities import Chapter, ChapterSummary, Course, Membership, Note, QuizQuestion, Screenshot, Site, TranscriptSegment, VideoSession
+from app.models.entities import (
+    Chapter,
+    ChapterSummary,
+    Course,
+    Membership,
+    Note,
+    QuizQuestion,
+    Screenshot,
+    Site,
+    TranscriptSegment,
+    VideoSession,
+)
 from app.services import llm
 from app.services.plugins import ensure_default_organization
 

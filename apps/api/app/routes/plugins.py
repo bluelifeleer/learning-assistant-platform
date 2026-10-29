@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 from app.core.deps import require_bearer_token, require_current_user, require_owner
 from app.db.session import get_db
 from app.models.entities import User
-from app.schemas.plugins import PluginHeartbeatIn, PluginHeartbeatOut, PluginStatusOut, PluginTokenCreateIn, PluginTokenCreateOut
+from app.schemas.plugins import (
+    PluginHeartbeatIn,
+    PluginHeartbeatOut,
+    PluginStatusOut,
+    PluginTokenCreateIn,
+    PluginTokenCreateOut,
+)
 from app.services.plugins import PluginService
 
 router = APIRouter(tags=["plugins"])

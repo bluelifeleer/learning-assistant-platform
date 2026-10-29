@@ -19,7 +19,23 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.3",
-  "pytest-asyncio>=0.24.0"
+  "pytest-asyncio>=0.24.0",
+  "ruff>=0.6"
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+# 起步只开"低争议"规则：pycodestyle 错误、pyflakes、import 排序、bugbear、pyupgrade
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+  # FastAPI 的 Depends(...) 就是"在默认参数里调用函数"，属于误报
+  "B008",
+  # 行宽需要整体格式化，留到单独一轮用 ruff format 处理，避免一次改动淹没历史
+  "E501",
 ]
 
 [tool.pytest.ini_options]

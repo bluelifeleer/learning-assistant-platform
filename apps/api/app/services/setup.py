@@ -1,13 +1,13 @@
 import logging
-from pathlib import Path
 import secrets
+from pathlib import Path
 from urllib.parse import quote
 
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
+from alembic import command
 from app.models.entities import Membership, Organization, User
 from app.schemas.setup import DatabaseConfigIn, DatabaseTestOut, SetupInitializeIn, SetupStatusOut
 from app.services.auth import hash_password
@@ -99,7 +99,7 @@ def test_database_connection(database_url: str) -> DatabaseTestOut:
         finally:
             engine.dispose()
         return DatabaseTestOut(ok=True, database_url=mask_database_url(database_url))
-    except Exception as exc:  # SQLAlchemy wraps DB-driver import and connection errors differently.
+    except Exception:  # SQLAlchemy wraps DB-driver import and connection errors differently.
         logger.warning("database connection test failed", exc_info=True)
         return DatabaseTestOut(ok=False, database_url=mask_database_url(database_url), error="数据库连接失败,请检查主机、端口、账号和密码")
 
@@ -113,7 +113,7 @@ def schema_has_required_tables(database_url: str, required_tables: set[str]) -> 
         finally:
             engine.dispose()
         return True, required_tables.issubset(tables), None
-    except Exception as exc:
+    except Exception:
         logger.warning("schema inspection failed", exc_info=True)
         return False, False, "数据库连接失败,无法读取表结构"
 

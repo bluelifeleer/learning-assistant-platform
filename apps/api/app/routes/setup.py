@@ -3,7 +3,13 @@ import ipaddress
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.schemas.setup import DatabaseConfigIn, DatabaseTestOut, SetupInitializeIn, SetupStatusOut
-from app.services.setup import build_database_url, initialize_database, read_setup_status, setup_locked, test_database_connection
+from app.services.setup import (
+    build_database_url,
+    initialize_database,
+    read_setup_status,
+    setup_locked,
+    test_database_connection,
+)
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 

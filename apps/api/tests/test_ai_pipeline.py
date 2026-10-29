@@ -7,7 +7,18 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
 from app.models import entities  # noqa: F401 - register models
-from app.models.entities import Chapter, ChapterSummary, Course, CourseSummary, Organization, QuizQuestion, ReviewCard, Site, TranscriptSegment, User
+from app.models.entities import (
+    Chapter,
+    ChapterSummary,
+    Course,
+    CourseSummary,
+    Organization,
+    QuizQuestion,
+    ReviewCard,
+    Site,
+    TranscriptSegment,
+    User,
+)
 from app.services import ai_pipeline, llm
 
 

@@ -9,11 +9,11 @@ from sqlalchemy.orm import Session
 from app.core.deps import require_current_user
 from app.db.session import SessionLocal, get_db
 from app.models.entities import Course, ImportJob, Organization, User
-from app.services.tenancy import organization_for_user
 from app.schemas.workspace import ImportJobItem, ImportJobListOut, ImportStartOut
 from app.services import audit
 from app.services.import_source import ImportValidationError, source_for_filename
 from app.services.importer import SUPPORTED_STRATEGIES, CancelledError, run_import
+from app.services.tenancy import organization_for_user
 
 logger = logging.getLogger(__name__)
 

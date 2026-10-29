@@ -1,7 +1,7 @@
 import base64
 import binascii
-from datetime import UTC, datetime
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import BackgroundTasks, HTTPException, status
@@ -9,8 +9,29 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import ApiToken, Chapter, Course, Membership, Note, NoteImage, Screenshot, Site, TranscriptSegment, User, VideoCaptureEvent, VideoSession
-from app.schemas.capture import ChapterSnapshotIn, CourseSnapshotIn, NoteCaptureIn, NoteImageCaptureIn, ScreenshotCaptureIn, TranscriptSegmentIn, VideoEventIn
+from app.models.entities import (
+    ApiToken,
+    Chapter,
+    Course,
+    Membership,
+    Note,
+    NoteImage,
+    Screenshot,
+    Site,
+    TranscriptSegment,
+    User,
+    VideoCaptureEvent,
+    VideoSession,
+)
+from app.schemas.capture import (
+    ChapterSnapshotIn,
+    CourseSnapshotIn,
+    NoteCaptureIn,
+    NoteImageCaptureIn,
+    ScreenshotCaptureIn,
+    TranscriptSegmentIn,
+    VideoEventIn,
+)
 from app.services import ai_tasks
 from app.services.plugins import hash_plugin_token
 

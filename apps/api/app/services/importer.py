@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import dataclasses
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session

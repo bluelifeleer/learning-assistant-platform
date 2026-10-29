@@ -1,9 +1,9 @@
 import hashlib
 import io
 import json
-from pathlib import Path
 import tomllib
 import zipfile
+from pathlib import Path
 
 from app.exporters.json_export import render_course_json
 from app.exporters.markdown import render_course_markdown

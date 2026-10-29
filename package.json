@@ -6,6 +6,8 @@
     "test": "pnpm --recursive test",
     "test:extension": "pnpm --filter @learn-assistant/extension test",
     "test:console": "pnpm --filter @learn-assistant/console test",
+    "lint": "pnpm --recursive --if-present lint",
+    "lint:console": "pnpm --filter @learn-assistant/console lint",
     "build": "pnpm --recursive build",
     "build:extension": "pnpm --filter @learn-assistant/extension build",
     "build:console": "pnpm --filter @learn-assistant/console build"

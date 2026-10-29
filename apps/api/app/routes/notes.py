@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 from app.core.deps import require_current_user
 from app.db.session import get_db
 from app.models.entities import Chapter, Course, Note, ReviewCard, User
-from app.services import audit
 from app.schemas.workspace import (
     NoteBulkIdsIn,
     NoteBulkResultOut,
@@ -16,6 +15,7 @@ from app.schemas.workspace import (
     NoteTagsIn,
     NoteUpdateIn,
 )
+from app.services import audit
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 

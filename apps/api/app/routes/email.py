@@ -7,11 +7,11 @@ from app.core.deps import require_current_user, require_owner
 from app.db.session import get_db
 from app.exporters.markdown import format_time
 from app.models.entities import Chapter, Course, Note, Organization, TranscriptSegment, User
+from app.routes.review import CONTEXT_WINDOW_SECONDS
 from app.schemas.ai import AiTaskCreatedOut
 from app.schemas.workspace import EmailActionOut, EmailSettingsOut, EmailSettingsUpdateIn
 from app.services import ai_tasks, emailer
 from app.services.plugins import ensure_default_organization
-from app.routes.review import CONTEXT_WINDOW_SECONDS
 
 router = APIRouter(prefix="/email", tags=["email"])
 

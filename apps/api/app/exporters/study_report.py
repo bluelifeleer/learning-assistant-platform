@@ -12,7 +12,17 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy import Integer, cast, func
 from sqlalchemy.orm import Session
 
-from app.models.entities import Chapter, ChapterSummary, Course, Note, Organization, QuizAttempt, Screenshot, User, VideoSession
+from app.models.entities import (
+    Chapter,
+    ChapterSummary,
+    Course,
+    Note,
+    Organization,
+    QuizAttempt,
+    Screenshot,
+    User,
+    VideoSession,
+)
 
 FONT_NAME = "STSong-Light"
 _font_registered = False

@@ -1,6 +1,15 @@
 from sqlalchemy.orm import Session
 
-from app.models.entities import Chapter, ChapterSummary, Course, CourseSummary, Organization, QuizQuestion, ReviewCard, TranscriptSegment
+from app.models.entities import (
+    Chapter,
+    ChapterSummary,
+    Course,
+    CourseSummary,
+    Organization,
+    QuizQuestion,
+    ReviewCard,
+    TranscriptSegment,
+)
 from app.services import ai_prompts, llm
 from app.services.review import utc_now
 

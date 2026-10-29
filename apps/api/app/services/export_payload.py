@@ -7,10 +7,10 @@ JSON / Markdown / 学习档案 PDF / .lapkg 包共用这一个组装层，避免
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Iterable
 
 from sqlalchemy.orm import Session
 
