@@ -291,6 +291,16 @@ pnpm --filter @learn-assistant/extension build
 # 控制台测试和构建
 pnpm --filter @learn-assistant/console test
 pnpm --filter @learn-assistant/console build
+
+# lint（Python 用 ruff，前端用 eslint）
+pnpm lint
+Set-Location apps\api; .\.venv\Scripts\python -m ruff check app tests
+
+# 端到端（Playwright，自动起独立 sqlite 库 + 控制台 + 假学习站点，不会碰真实数据库）
+Set-Location ..\..
+pnpm test:e2e            # 25 条：控制台 20 + 扩展 5
+pnpm test:e2e:console    # 只跑控制台
+pnpm test:e2e:extension  # 只跑扩展
 ```
 
 ## 忘记密码 / 重置密码

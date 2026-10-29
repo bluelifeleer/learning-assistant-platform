@@ -54,6 +54,8 @@ const AI_PRESETS: AiPreset[] = [
 interface SettingsProps {
   title?: string;
   description?: string;
+  /** 嵌在「系统设置」的标签页里时标题由外层提供，避免出现两个"系统设置" */
+  embedded?: boolean;
 }
 
 const CUSTOM_MODEL_OPTION = "__custom__";
@@ -546,7 +548,11 @@ function AppearancePanel() {
   );
 }
 
-export function Settings({ title = "系统设置", description = "维护组织信息、授权状态和本地运行配置。" }: SettingsProps) {
+export function Settings({
+  title = "系统设置",
+  description = "维护组织信息、授权状态和本地运行配置。",
+  embedded = false,
+}: SettingsProps) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null);
   const [organizationName, setOrganizationName] = useState("");
   const [licenseKey, setLicenseKey] = useState("");
@@ -586,10 +592,12 @@ export function Settings({ title = "系统设置", description = "维护组织�
 
   return (
     <section className="panel-grid">
-      <article className="panel panel-wide">
-        <h2>{title}</h2>
-        <p>{description}</p>
-      </article>
+      {embedded ? null : (
+        <article className="panel panel-wide">
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </article>
+      )}
       <article className="panel">
         <h2>组织与授权</h2>
         <form className="inline-form">

@@ -47,7 +47,7 @@ export function SystemSettings({ tab, onTabChange, session, onSessionChange, onP
           ))}
         </div>
       </article>
-      {activeTab === "general" ? <Settings /> : null}
+      {activeTab === "general" ? <Settings embedded /> : null}
       {activeTab === "plugins" ? <PluginPanel onStatusChange={onPluginStatusChange} /> : null}
       {activeTab === "adapters" ? <Adapters /> : null}
       {activeTab === "users" ? <UsersAuth session={session} onSessionChange={onSessionChange} /> : null}

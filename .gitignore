@@ -23,3 +23,10 @@ pytest-of-*/
 pytest-*/
 .pytest-tmp/
 
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+e2e/.tmp/
+

@@ -170,57 +170,59 @@ concurrency: { group: "ci-${{ github.ref }}", cancel-in-progress: true }
 - **分支保护**：`api`、`web`、`e2e`、`lint` 四个 check 设为必需；合并前必须绿。
 - 公开仓库 Actions 免费；私有仓库按分钟计费，四 job 单次约 12–15 分钟，够用。
 
-## 7. e2e 全覆盖计划（🚧 计划中）
+## 7. e2e：Playwright（✅ 已落地）
 
-选型 **Playwright**：多浏览器、内置 `webServer`、失败留存 trace/截图、原生支持加载 Chrome 扩展
-（Cypress 在这方面限制更多）。
+```powershell
+pnpm test:e2e              # 全部（控制台 + 扩展）
+pnpm test:e2e:console      # 只跑控制台
+pnpm test:e2e:extension    # 只跑扩展
+```
 
-### 结构
+不需要手工起服务：`playwright.config.ts` 的 `webServer` 会拉起三个进程——
+
+| 进程 | 端口 | 说明 |
+|---|---|---|
+| API | 17899 | `e2e/scripts/start-api.mjs`：**每次重建独立 sqlite 库** → `alembic upgrade head` → 跑种子 → uvicorn |
+| 控制台 | 17892 | `e2e/scripts/start-console.mjs`：vite dev，`VITE_API_BASE_URL` 指向 17899 |
+| 假学习站点 | 17893 | `e2e/scripts/start-site.mjs`：静态页，路径带 `/learn` 以命中扩展适配器 |
+
+**绝不连真实数据库**：`scripts/seed_e2e.py` 拒绝非 sqlite 的 `DATABASE_URL`，所有产物都在 `e2e/.tmp/`（已 gitignore）。
+
+### 目录
 
 ```
 e2e/
-  playwright.config.ts     两个 webServer：uvicorn（独立测试库）+ vite preview
-  fixtures/seed.py         scripts/seed_e2e.py 的调用入口
-  specs/console/*.spec.ts  控制台路径
-  specs/extension/*.spec.ts 插件路径
-  fixtures/site/           本地假学习站点（静态页 + video 标签），供插件注入
+  scripts/start-api.mjs / start-console.mjs / start-site.mjs
+  fixtures/site/learn/course.html      假学习站点（h1 + 章节列表 + video + 字幕）
+  specs/console/{auth,courses,notes,review,quiz,search,settings,transfer}.spec.ts
+  specs/extension/{options,overlay}.spec.ts
+  specs/extension/fixtures.ts          launchPersistentContext 加载扩展 dist
 ```
 
-### 环境隔离
+### 覆盖情况
 
-- **测试库**：CI 用 postgres service；本地用 `docker compose --profile postgresql` 起的独立库名
-  （如 `learn_assistant_e2e`），**绝不指向开发库**。
-- **种子数据**：`scripts/seed_e2e.py` 幂等创建 org / admin / 2 门课程 / 章节树 / 字幕 / 笔记 / 复习卡；
-  每个 spec 用带前缀的课程名，跑完清理自己创建的对象。
-- **文件目录**：`EXPORT_DIR` / `SCREENSHOTS_DIR` / `NOTE_IMAGES_DIR` 指向 `e2e/.tmp/*`，跑完即删。
+| 控制台 | 用例数 | 扩展 | 用例数 |
+|---|---|---|---|
+| 登录/登出/密码错误/显示密码 | 5 | 选项页加载与适配器列表 | 1 |
+| 课程列表/详情/筛选/归档 | 3 | 保存配置（无 Token 提示、持久化读回） | 2 |
+| 笔记列表/关键词/标签 | 2 | 浮层注入与未绑定提示 | 1 |
+| 测验作答/题目管理 | 2 | 绑定后浮层状态 | 1 |
+| 复习抽认 | 1 | | |
+| 搜索（笔记+字幕、空态） | 2 | | |
+| 设置（标题唯一、标签页、AI 预设、保存） | 3 | | |
+| 导入导出（导出→下载→预览→合并、清理入口） | 2 | | |
 
-### 覆盖清单（全覆盖）
+合计 **25 条**。仍未覆盖：扩展的字幕上报与护栏（需要真实插件 Token 与后端联调），
+留作后续；不要为了凑数写只断言"页面能打开"的用例。
 
-控制台：
+### 约定
 
-1. 登录：正确密码进入总览；错误密码显示 401 提示；未登录访问 `#/courses` 回到登录页
-2. 课程：列表 → 详情 → 章节树展开 → 字幕/笔记/截图分栏
-3. 笔记：新建 → 加标签 → 列表筛选 → 搜索命中
-4. 复习：生成卡片 → 抽认 → 到期数变化
-5. 测验：生成题目 → 答题 → 正确率统计
-6. 导入导出：选课程导出完整包（拦 `download` 事件）→ 预览导入（统计数字）→ 合并导入 → 课程数不变、卡片数增加
-7. 设置：AI 设置保存（`/ai/settings` 用 mock 端点或直接不点"测试连接"）、邮箱设置表单校验、导出清理入口
-8. 用户与授权：改显示名、修改密码后重新登录
+- 选择器只用 `getByRole` / `getByLabel` / `getByPlaceholder`，不绑 class
+- 等待一律 `expect(...).toBeVisible()`，禁止 `waitForTimeout`
+- 会改数据的用例自己负责还原（例如课程归档用例末尾点了"恢复"）
+- 失败自动留 `test-results/<用例>/`：截图、trace、页面快照
+- 串行执行（`workers: 1`）：后台任务与共享 sqlite 库不适合并行
 
-插件（`launchPersistentContext` + `--load-extension`）：
-
-9. 扩展加载：`chrome-extension://<id>/options.html` 打开，保存 API 地址与 Token 后显示连接成功
-10. 采集注入：打开本地假学习站点，浮层出现；模拟章节树 → 上报成功
-11. 字幕采集：页面里有 `<track>` 或字幕节点时，上报到 `/capture/transcript-segment`
-12. 护栏：命中支付/外链关键字时浮层给出阻断提示（不执行点击）
-
-### 稳定性约定
-
-- 选择器只用 `getByRole` / `getByLabel` / `getByText`，不绑 class 名
-- 每个 spec 独立登录（`storageState` 复用一次登录态，避免每次走 UI）
-- 等待一律用 `expect(...).toBeVisible()`，禁止 `waitForTimeout`
-- CI 上 `workers: 1`（后台任务与 DB 有共享状态），本地可并行
-- 扩展用例只在 chromium 上跑（其他浏览器不支持 `--load-extension`）
 
 ## 8. 部署：单机 compose（✅ 已落地）
 
@@ -330,6 +332,6 @@ EXPORT_RETENTION_COUNT=50           # 按需
 | P1 | lint：ruff + eslint 接入（存量已清理） | ✅ 完成（eslint 4 个历史 warning 待清） |
 | P2 | 单机 Docker 部署：Dockerfile + `docker-compose.prod.yml` + 生产配置自检 | ✅ 文件已就绪（本机无 Docker，镜像构建待在有 Docker 的机器上验证一次） |
 | P3 | 备份脚本 `scripts/backup.*` / `restore.*`（Windows 与 macOS/Linux 入口） | ✅ 完成（pg_dump/pg_restore 部分需 Docker 环境实跑） |
-| P4 | Playwright e2e（控制台 8 组 + 插件 4 组）+ `seed_e2e.py` | 🚧 待做 |
+| P4 | Playwright e2e（控制台 8 组 + 插件 2 组）+ `seed_e2e.py` | ✅ 完成 25 条（插件字幕上报与护栏未覆盖） |
 | P5 | GitHub Actions CI（`api` 矩阵 + 真 Postgres 迁移、`api-mysql`、`web`、`lint`、`e2e`） | 🚧 最后做 |
 | P6（可选） | 单容器交付形态（API 托管 console dist）、Caddy TLS、多副本共享队列 | 按交付需要 |
