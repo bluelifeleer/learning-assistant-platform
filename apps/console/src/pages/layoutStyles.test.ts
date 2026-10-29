@@ -21,7 +21,11 @@ describe("console layout styles", () => {
   it("defines the design token palette", () => {
     expect(css).toContain("--primary: #2563eb");
     expect(css).toContain("--bg: #f4f6fa");
-    expect(css).toContain("--sidebar-bg: #0e1a2b");
+    // 侧边栏已改为完全跟随主题:浅色=白、深色=中性深灰(不再固定深蓝)
+    expect(css).toContain("--sidebar-bg: #ffffff");
+    expect(css).toContain("--sidebar-bg: #101318");
+    expect(css).toContain("--sidebar-heading:");
+    expect(css).not.toContain("--sidebar-bg: #0e1a2b");
   });
 
   it("prevents long plugin tokens and urls from stretching dashboard cards", () => {
