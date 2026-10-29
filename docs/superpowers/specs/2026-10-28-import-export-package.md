@@ -1,12 +1,12 @@
 # 导入 / 导出包（.lapkg）设计
 
 - 日期：2026-10-28
-- 状态：**P0 / P1 / P2 已实现**（包导出、导入后端、导入导出页面）；P3（清理策略、replace/new、Anki 适配）待做
+- 状态：**P0–P3 已实现**（包导出、导入后端、导入导出页面、清理策略与 replace/new）；Anki / CSV 适配器仍为预留扩展点
 - 关联：`apps/api/app/routes/exports.py`、`apps/api/app/routes/imports.py`、
   `apps/api/app/services/export_payload.py`、`apps/api/app/services/import_source.py`、
   `apps/api/app/services/importer.py`、`apps/api/app/exporters/package.py`、
   `apps/console/src/pages/DataTransfer.tsx`、`apps/console/src/pages/CourseDetail.tsx`
-- P0 落地记录见「附录 A」，P1 见「附录 B」，P2 见「附录 C」
+- P0 落地记录见「附录 A」，P1 见「附录 B」，P2 见「附录 C」，P3 见「附录 D」
 
 ## 1. 背景与目标
 
@@ -448,3 +448,37 @@ class ImportSource(Protocol):
 - 后端：`tests/test_exports.py` 19 passed（含新增的删除用例）、`tests/test_imports.py` 17 passed
 - 真实渲染（无头 Edge + 临时 API/控制台实例）：导航出现「导入导出」，页面加载 11 门课程、
   2 条真实导出记录、导入区空态正常；截图见提交说明
+
+## 附录 D：P3 落地记录（2026-10-29）
+
+### 导出记录清理
+
+| 文件 | 作用 |
+|---|---|
+| `apps/api/app/services/export_cleanup.py` | `cleanup_exports`（按份数 / 天数删除记录与文件）+ 每小时定时线程 |
+| `app/core/config.py` | `EXPORT_RETENTION_DAYS` / `EXPORT_RETENTION_COUNT` / `EXPORT_CLEANUP_ENABLED` / `EXPORT_CLEANUP_INTERVAL_SECONDS` |
+| `POST /api/v1/exports/cleanup` | 手动触发（owner，按组织范围；可显式传 `keep_days` / `keep_count`） |
+
+- 两条规则可单用也可叠加，叠加时取「删得更狠」的那批
+- 删除记录的同时删磁盘文件（只删记录会留下孤儿文件）
+- 定时线程沿用 `digest_scheduler` 的写法，随 app lifespan 启动
+
+### 导入策略 replace / new
+
+- `run_import(strategy=...)`：`merge`（默认）/ `new` / `replace`，策略写进 `import_jobs.strategy` 与统计
+- **new**：不做课程匹配，直接新建副本，`external_course_id` 追加 `-import-<8 位>` 规避唯一约束
+- **replace**：复用同名课程与章节，但章节内容（字幕 / 笔记 / 截图 / 章节摘要 / 备忘）先清空再按包写入；
+  课程级卡片、题目、无章节笔记与截图整体替换；删截图行前先删磁盘文件
+- 控制台：导入区新增「导入策略」下拉（含逐项说明），选「覆盖」时按钮变「确认覆盖导入」，
+  **需要连点两次**才执行；导入记录里标注非默认策略
+
+### 验收
+
+- 后端：`tests/test_exports.py` 21 passed（新增 2 个清理用例）、`tests/test_imports.py` 19 passed
+  （新增 new 副本、replace 覆盖、非法策略用例），全量 244 passed
+- 前端：`tsc` 通过，177 passed（新增策略选项用例）
+- 真实库：`POST /exports/cleanup` 以 `keep_count=当前条数` 跑过一次，确认 0 删除、统计正确（不做破坏性验证）
+
+### 仍未做
+
+- Anki（`.apkg` / TSV）与 CSV 笔记适配器：`ImportSource` 协议与导入主流程已就绪，接入只需新增解析器

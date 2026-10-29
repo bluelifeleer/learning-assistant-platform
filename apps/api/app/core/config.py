@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # - llm_disable_proxy: 忽略系统代理直连,适合「代理只为抓包、并不需要出网代理」的场景
     llm_ca_bundle: str | None = None
     llm_disable_proxy: bool = False
+    # 导出文件保留策略:两项都为 0 表示永久保留
+    # 例:export_retention_count=50 只留最近 50 份;export_retention_days=30 删 30 天前的
+    export_retention_days: int = 0
+    export_retention_count: int = 0
+    export_cleanup_enabled: bool = True
+    export_cleanup_interval_seconds: int = 3600
 
     model_config = SettingsConfigDict(env_file=("../../.env", ".env"), extra="ignore")
 

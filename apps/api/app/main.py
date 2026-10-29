@@ -8,12 +8,15 @@ from app.core.config import get_settings
 from app.routes import adapters, ai, audit, auth, capture, courses, email, exports, health, note_images, notes, plugins, quiz, review, screenshots, search, settings, setup, stats, transcripts, video_events
 from app.routes import imports as imports_route
 from app.services.digest_scheduler import start_digest_scheduler
+from app.services.export_cleanup import start_export_cleanup_scheduler
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     if get_settings().digest_scheduler_enabled:
         start_digest_scheduler()
+    if get_settings().export_cleanup_enabled:
+        start_export_cleanup_scheduler()
     yield
 
 

@@ -14,7 +14,7 @@ from app.routes.exports import organization_for_user
 from app.schemas.workspace import ImportJobItem, ImportJobListOut, ImportStartOut
 from app.services import audit
 from app.services.import_source import ImportValidationError, LapkgSource
-from app.services.importer import CancelledError, run_import
+from app.services.importer import SUPPORTED_STRATEGIES, CancelledError, run_import
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +22,6 @@ router = APIRouter(prefix="/imports", tags=["imports"])
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 ALLOWED_SUFFIXES = {".lapkg", ".zip"}
-#: P1 只实现 merge；replace / new 留到 P3
-SUPPORTED_STRATEGIES = {"merge"}
 CANCELLABLE_STATUSES = {"queued", "validating", "parsing", "applying"}
 
 
@@ -121,6 +119,7 @@ def run_import_job(job_id: str, data: bytes, session_factory=None) -> None:
             user,
             plan,
             dry_run=job.dry_run,
+            strategy=job.strategy or "merge",
             on_progress=on_progress,
             should_cancel=should_cancel,
         )
@@ -171,7 +170,7 @@ async def create_import(
     db: Session = Depends(get_db),
 ) -> ImportStartOut:
     if strategy not in SUPPORTED_STRATEGIES:
-        raise HTTPException(status_code=400, detail="当前只支持 merge 策略")
+        raise HTTPException(status_code=400, detail="不支持的导入策略（可选 merge / new / replace）")
     data = await _read_upload(file)
 
     organization = organization_for_user(db, user)
@@ -195,7 +194,7 @@ async def create_import(
         resource_id=job.id,
         user_id=user.id,
         organization_id=organization.id,
-        payload={"filename": job.source_filename, "size": len(data), "dry_run": dry_run},
+        payload={"filename": job.source_filename, "size": len(data), "dry_run": dry_run, "strategy": strategy},
     )
     db.commit()
     db.refresh(job)

@@ -357,7 +357,7 @@ def test_unsupported_strategy_is_rejected(import_client, auth_headers) -> None:
         "/api/v1/imports",
         headers=auth_headers,
         files={"file": ("course.lapkg", _minimal_package(), "application/zip")},
-        data={"strategy": "replace"},
+        data={"strategy": "overwrite"},
     )
 
     assert response.status_code == 400
@@ -402,3 +402,89 @@ def test_unknown_job_returns_404(import_client, auth_headers) -> None:
 def test_tiny_media_helper_is_used_by_capture() -> None:
     """防止 TINY_JPEG_BASE64 被改成空串导致媒体用例失去意义。"""
     assert len(TINY_JPEG_BASE64) > 50
+
+
+def _import_with_strategy(client, headers, blob: bytes, strategy: str):
+    response = client.post(
+        "/api/v1/imports",
+        headers=headers,
+        files={"file": ("course.lapkg", blob, "application/zip")},
+        data={"strategy": strategy},
+    )
+    assert response.status_code == 202, response.text
+    return client.get(f"/api/v1/imports/{response.json()['job_id']}", headers=headers).json()
+
+
+def test_new_strategy_creates_a_copy(import_client, session_factory, auth_headers) -> None:
+    client = import_client
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    blob = _export_package(client, auth_headers, course_id, include_media=False)
+
+    first = _import_with_strategy(client, auth_headers, blob, "new")
+    assert first["status"] == "done"
+    assert first["stats"]["courses_created"] == 1
+
+    second = _import_with_strategy(client, auth_headers, blob, "new")
+    assert second["stats"]["courses_created"] == 1
+
+    db = session_factory()
+    try:
+        external_ids = sorted(course.external_course_id for course in db.query(Course).all())
+    finally:
+        db.close()
+    assert len(external_ids) == 3  # 原有 1 门 + new 两次
+    assert sum("-import-" in value for value in external_ids) == 2
+
+
+def test_replace_strategy_overwrites_chapter_content(import_client, session_factory, auth_headers) -> None:
+    client = import_client
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    plugin_headers = {"Authorization": f"Bearer {token}"}
+    client.post(
+        "/api/v1/capture/transcript-segment",
+        headers=plugin_headers,
+        json={
+            "external_course_id": "course-1",
+            "external_chapter_id": "1.1",
+            "start_seconds": 0,
+            "end_seconds": 3,
+            "text": "包里的字幕",
+            "source": "page",
+        },
+    )
+    client.post(
+        "/api/v1/capture/note",
+        headers=plugin_headers,
+        json={"external_course_id": "course-1", "external_chapter_id": "1.1", "content": "包里的笔记"},
+    )
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    blob = _export_package(client, auth_headers, course_id, include_media=False)
+
+    # 导出后本地又写了一条只在本机的笔记
+    client.post(
+        "/api/v1/capture/note",
+        headers=plugin_headers,
+        json={"external_course_id": "course-1", "external_chapter_id": "1.1", "content": "只在本机的笔记"},
+    )
+    db = session_factory()
+    try:
+        assert db.query(Note).filter(Note.content == "只在本机的笔记").count() == 1
+    finally:
+        db.close()
+
+    job = _import_with_strategy(client, auth_headers, blob, "replace")
+
+    assert job["status"] == "done"
+    assert job["stats"]["courses_matched"] == 1
+    db = session_factory()
+    try:
+        contents = {note.content for note in db.query(Note).filter(Note.course_id == course_id).all()}
+        transcripts = db.query(TranscriptSegment).filter(TranscriptSegment.course_id == course_id).count()
+    finally:
+        db.close()
+    assert "包里的笔记" in contents
+    assert "只在本机的笔记" not in contents  # replace 覆盖掉了
+    assert transcripts == 1

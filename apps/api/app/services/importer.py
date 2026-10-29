@@ -39,11 +39,14 @@ from app.services.capture import note_images_dir_path, screenshots_dir_path
 from app.services.import_source import CourseDocument, ImportPlan, MediaEntry, open_archive
 
 MAX_CONFLICTS = 20
+#: merge 只增不覆盖；new 强制副本；replace 复用课程但覆盖内容
+SUPPORTED_STRATEGIES = ("merge", "new", "replace")
 
 
 @dataclass
 class ImportStats:
     dry_run: bool = False
+    strategy: str = "merge"
     courses_created: int = 0
     courses_matched: int = 0
     chapters_created: int = 0
@@ -170,6 +173,30 @@ class _MediaWriter:
         return target
 
 
+def _remove_file(file_path: str | None) -> None:
+    if not file_path:
+        return
+    try:
+        Path(file_path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _purge_chapter_content(db: Session, chapter_id: str) -> None:
+    """replace 策略：把章节现有内容清掉，再用包里的覆盖。
+
+    截图行被删前要先删磁盘文件，否则会留下永远没人引用的孤儿文件。
+    """
+    db.query(TranscriptSegment).filter(TranscriptSegment.chapter_id == chapter_id).delete()
+    db.query(Note).filter(Note.chapter_id == chapter_id).delete()
+    for shot in db.query(Screenshot).filter(Screenshot.chapter_id == chapter_id).all():
+        _remove_file(shot.file_path)
+        db.delete(shot)
+    db.query(ChapterSummary).filter(ChapterSummary.chapter_id == chapter_id).delete()
+    db.query(ChapterMemo).filter(ChapterMemo.chapter_id == chapter_id).delete()
+    db.flush()
+
+
 def _import_chapters(
     db: Session,
     course: Course | SimpleNamespace,
@@ -178,6 +205,7 @@ def _import_chapters(
     user: User,
     stats: ImportStats,
     dry_run: bool,
+    strategy: str = "merge",
 ) -> tuple[dict[str, Any], dict[str, str]]:
     """两遍走：先建/匹配章节，再补 parent_id（父可能排在后）。"""
     chapter_map: dict[str, Any] = {}
@@ -194,6 +222,8 @@ def _import_chapters(
             stats.chapters_matched += 1
             if not existing.title and entry.get("title"):
                 existing.title = str(entry["title"])
+            if strategy == "replace" and not dry_run:
+                _purge_chapter_content(db, str(existing.id))
             chapter_map[old_id] = existing
             continue
 
@@ -467,11 +497,15 @@ def _import_course(
     media: _MediaWriter,
     stats: ImportStats,
     dry_run: bool,
+    strategy: str = "merge",
 ) -> None:
     document = bundle.document
     site_info = document.get("site") or {}
     adapter_id = str(site_info.get("adapter_id") or "").strip() or "imported"
     external_course_id = str(document.get("external_course_id") or "")
+    # new：强制新建一份副本，外部 id 加后缀避免撞唯一约束
+    if strategy == "new":
+        external_course_id = f"{external_course_id}-import-{uuid4().hex[:8]}"
 
     site = db.query(Site).filter(Site.adapter_id == adapter_id).first()
     if site is None:
@@ -488,15 +522,17 @@ def _import_course(
             db.add(site)
             db.flush()
 
-    course = (
-        db.query(Course)
-        .filter(
-            Course.organization_id == organization.id,
-            Course.site_id == site.id,
-            Course.external_course_id == external_course_id,
+    course = None
+    if strategy != "new":
+        course = (
+            db.query(Course)
+            .filter(
+                Course.organization_id == organization.id,
+                Course.site_id == site.id,
+                Course.external_course_id == external_course_id,
+            )
+            .first()
         )
-        .first()
-    )
     if course is not None:
         stats.courses_matched += 1
         if not course.title and document.get("title"):
@@ -522,7 +558,17 @@ def _import_course(
             db.add(course)
             db.flush()
 
-    chapter_map, chapter_ids = _import_chapters(db, course, bundle, media, user, stats, dry_run)
+    if strategy == "replace" and not dry_run and stats.courses_matched:
+        # 覆盖模式：课程级的卡片/题目/无章节笔记与截图整体换成本包的
+        db.query(ReviewCard).filter(ReviewCard.course_id == course.id).delete()
+        db.query(QuizQuestion).filter(QuizQuestion.course_id == course.id).delete()
+        db.query(Note).filter(Note.course_id == course.id, Note.chapter_id.is_(None)).delete()
+        for shot in db.query(Screenshot).filter(Screenshot.course_id == course.id, Screenshot.chapter_id.is_(None)).all():
+            _remove_file(shot.file_path)
+            db.delete(shot)
+        db.flush()
+
+    chapter_map, chapter_ids = _import_chapters(db, course, bundle, media, user, stats, dry_run, strategy)
 
     note_ids: dict[str, str] = {}
     course_level_notes = {
@@ -578,11 +624,20 @@ def run_import(
     plan: ImportPlan,
     *,
     dry_run: bool = False,
+    strategy: str = "merge",
     on_progress: Callable[[int], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
-    """执行导入；dry_run=True 时只统计不写库。返回可序列化的统计。"""
-    stats = ImportStats(dry_run=dry_run, counts_expected=dict(plan.counts))
+    """执行导入；dry_run=True 时只统计不写库。
+
+    strategy:
+    - merge（默认）只增不覆盖
+    - new   强制新建副本，课程外部 id 加后缀
+    - replace 复用同名课程/章节，但章节内容与课程级卡片/题目整体换成包里的
+    """
+    if strategy not in SUPPORTED_STRATEGIES:
+        raise ValueError(f"不支持的导入策略：{strategy}")
+    stats = ImportStats(dry_run=dry_run, strategy=strategy, counts_expected=dict(plan.counts))
     media = _MediaWriter(plan, stats, dry_run)
     total = max(len(plan.courses), 1)
     try:
@@ -590,7 +645,7 @@ def run_import(
             if should_cancel is not None and should_cancel():
                 stats.conflict("导入被取消，已完成的课程保留")
                 raise CancelledError()
-            _import_course(db, organization, user, bundle, media, stats, dry_run)
+            _import_course(db, organization, user, bundle, media, stats, dry_run, strategy)
             if dry_run:
                 db.rollback()
             else:

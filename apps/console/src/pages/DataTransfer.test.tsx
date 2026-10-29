@@ -13,7 +13,7 @@ describe("导入导出页", () => {
     expect(html).toContain("包含截图与笔记图片");
     // 导入区：预览与确认两个动作
     expect(html).toContain("预览（不写入）");
-    expect(html).toContain("确认导入（merge）");
+    expect(html).toContain("确认导入");
     // 记录区空态
     expect(html).toContain("暂无导出记录");
     expect(html).toContain("暂无导入记录");
@@ -25,5 +25,17 @@ describe("导入导出页", () => {
     expect(html).toContain("选择课程");
     expect(html).toContain("选择导入包");
     expect(html).toContain("未选择文件");
+  });
+
+  it("提供三种导入策略，默认合并", () => {
+    const html = renderToString(<DataTransfer />);
+
+    expect(html).toContain("导入策略");
+    expect(html).toContain("合并（推荐）");
+    expect(html).toContain("新建副本");
+    expect(html).toContain("覆盖");
+    // 默认策略是 merge：不会出现「确认覆盖导入」这种二次确认文案
+    expect(html).not.toContain("确认覆盖导入");
+    expect(html).toContain("只补缺失内容");
   });
 });

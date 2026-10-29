@@ -26,6 +26,24 @@ const EXPORT_FORMATS: { value: ExportFormat; label: string; hint: string }[] = [
 
 const SINGLE_COURSE_FORMATS: ExportFormat[] = ["markdown", "json", "anki", "report_pdf"];
 
+type ImportStrategy = "merge" | "new" | "replace";
+
+const IMPORT_STRATEGIES: { value: ImportStrategy; label: string; hint: string }[] = [
+  { value: "merge", label: "合并（推荐）", hint: "只补缺失内容：已有对象按自然键匹配后跳过，不覆盖本地改动。" },
+  { value: "new", label: "新建副本", hint: "不匹配已有课程，直接新建一份带后缀的副本，本地数据完全不动。" },
+  {
+    value: "replace",
+    label: "覆盖",
+    hint: "复用同名课程与章节，但章节内的字幕、笔记、截图、摘要会先清空再按包写入。",
+  },
+];
+
+const STRATEGY_LABELS: Record<string, string> = {
+  merge: "合并",
+  new: "新建副本",
+  replace: "覆盖",
+};
+
 const STATUS_LABELS: Record<string, string> = {
   queued: "排队中",
   validating: "校验中",
@@ -102,6 +120,8 @@ export function DataTransfer({ token }: { token?: string }) {
 
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importJob, setImportJob] = useState<ImportJobItem | null>(null);
+  const [importStrategy, setImportStrategy] = useState<ImportStrategy>("merge");
+  const [replaceArmed, setReplaceArmed] = useState(false);
   const [importHistory, setImportHistory] = useState<ImportJobItem[]>([]);
   const [importBusy, setImportBusy] = useState(false);
   const [importMessage, setImportMessage] = useState("");
@@ -195,7 +215,7 @@ export function DataTransfer({ token }: { token?: string }) {
     setImportBusy(true);
     setImportMessage(dryRun ? "正在解析并预估…" : "正在导入…");
     try {
-      const started = await startImport(importFile, { dryRun }, token);
+      const started = await startImport(importFile, { dryRun, strategy: importStrategy }, token);
       const job = await waitForImport(started.job_id, token, (next) => {
         if (mountedRef.current) setImportJob(next);
       });
@@ -204,14 +224,25 @@ export function DataTransfer({ token }: { token?: string }) {
       } else if (dryRun) {
         setImportMessage("预览完成，确认无误后点「确认导入」写入");
       } else {
-        setImportMessage("导入完成");
+        setImportMessage(`导入完成（策略：${STRATEGY_LABELS[importStrategy] ?? importStrategy}）`);
       }
+      setReplaceArmed(false);
       reloadImports();
     } catch (error) {
       setImportMessage(error instanceof Error ? error.message : "导入失败");
     } finally {
       setImportBusy(false);
     }
+  }
+
+  /** 覆盖模式要连点两次，避免误操作直接清空章节内容。 */
+  function requestImport(): void {
+    if (importStrategy === "replace" && !replaceArmed) {
+      setReplaceArmed(true);
+      setImportMessage("覆盖模式会先清空同章节的字幕/笔记/截图/摘要，确认请再点一次「确认覆盖导入」。");
+      return;
+    }
+    void runImport(false);
   }
 
   async function cancelCurrentImport(): Promise<void> {
@@ -348,7 +379,7 @@ export function DataTransfer({ token }: { token?: string }) {
 
       <article className="panel">
         <h2>导入</h2>
-        <p>选择另一台设备导出的 .lapkg 包。建议先「预览」确认会新增哪些内容，再「确认导入」写入；重复导入不会产生副本。</p>
+        <p>选择另一台设备导出的 .lapkg 包。建议先「预览」确认会新增哪些内容，再「确认导入」写入。</p>
 
         <div className="transfer-section">
           <input
@@ -361,6 +392,7 @@ export function DataTransfer({ token }: { token?: string }) {
               setImportFile(file);
               setImportJob(null);
               setImportMessage("");
+              setReplaceArmed(false);
             }}
           />
           <div className="transfer-row">
@@ -369,12 +401,32 @@ export function DataTransfer({ token }: { token?: string }) {
             </button>
             <span className="transfer-muted">{importFile ? `${importFile.name} · ${formatBytes(importFile.size)}` : "未选择文件"}</span>
           </div>
+          <div className="transfer-row">
+            <label className="modal-field">
+              <span>导入策略</span>
+              <select
+                value={importStrategy}
+                onChange={(event) => {
+                  setImportStrategy(event.target.value as ImportStrategy);
+                  setReplaceArmed(false);
+                  setImportMessage("");
+                }}
+              >
+                {IMPORT_STRATEGIES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="transfer-muted">{IMPORT_STRATEGIES.find((item) => item.value === importStrategy)?.hint}</p>
           <div className="inline-form">
             <button type="button" className="text-button" disabled={importBusy || !importFile} onClick={() => void runImport(true)}>
               {importBusy ? "处理中…" : "预览（不写入）"}
             </button>
-            <button type="button" className="primary-button" disabled={importBusy || !importFile} onClick={() => void runImport(false)}>
-              确认导入（merge）
+            <button type="button" className="primary-button" disabled={importBusy || !importFile} onClick={requestImport}>
+              {importStrategy === "replace" && replaceArmed ? "确认覆盖导入" : "确认导入"}
             </button>
             {importJob && ["queued", "validating", "parsing", "applying"].includes(importJob.status) ? (
               <button type="button" className="text-button" onClick={() => void cancelCurrentImport()}>
@@ -442,6 +494,7 @@ export function DataTransfer({ token }: { token?: string }) {
               <span>
                 {statusLabel(job.status)}
                 {job.dry_run ? "（预览）" : ""}
+                {job.strategy && job.strategy !== "merge" ? ` · ${STRATEGY_LABELS[job.strategy] ?? job.strategy}` : ""}
               </span>
               <span>{job.progress ?? 0}%</span>
               <span>{formatBytes(job.size_bytes)}</span>

@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.deps import require_current_user
+from app.core.deps import require_current_user, require_owner
 from app.db.session import get_db
 from app.exporters.anki import render_anki_tsv
 from app.exporters.json_export import render_course_json
@@ -16,6 +16,7 @@ from app.exporters.study_report import build_study_report
 from app.models.entities import Course, Export, Membership, Note, Organization, ReviewCard, User
 from app.schemas.workspace import ExportCreateIn, ExportItem, ExportListOut
 from app.services.export_payload import APP_VERSION, build_export_bundle, markdown_document
+from app.services.export_cleanup import cleanup_exports as run_export_cleanup
 from app.services.plugins import ensure_default_organization
 
 logger = logging.getLogger(__name__)
@@ -221,6 +222,23 @@ def read_export(export_id: str, user: User = Depends(require_current_user), db: 
         raise HTTPException(status_code=404, detail="Export not found")
     course = db.get(Course, export.course_id) if export.course_id else None
     return _export_item(export, {course.id: course.title} if course else {})
+
+
+@router.post("/cleanup")
+def cleanup_exports_now(
+    keep_days: int | None = None,
+    keep_count: int | None = None,
+    user: User = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict[str, int]:
+    """手动触发导出清理（按当前组织的保留策略，或显式传入阈值）。"""
+    settings = get_settings()
+    organization = organization_for_user(db, user)
+    days = settings.export_retention_days if keep_days is None else keep_days
+    count = settings.export_retention_count if keep_count is None else keep_count
+    if days < 0 or count < 0:
+        raise HTTPException(status_code=400, detail="保留天数与份数不能为负")
+    return run_export_cleanup(db, keep_days=days, keep_count=count, organization_id=organization.id)
 
 
 @router.delete("/{export_id}", status_code=status.HTTP_204_NO_CONTENT)

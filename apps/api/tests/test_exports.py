@@ -361,3 +361,39 @@ def test_app_version_matches_pyproject() -> None:
     declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
 
     assert APP_VERSION == declared
+
+
+def test_cleanup_keeps_only_recent_exports(client, auth_headers) -> None:
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    for _ in range(3):
+        _export_and_download(client, auth_headers, {"course_id": course_id, "export_format": "json"})
+    before = client.get("/api/v1/exports", headers=auth_headers).json()["items"]
+    paths = [Path(item["file_path"]) for item in before]
+    assert len(before) == 3 and all(path.is_file() for path in paths)
+
+    response = client.post("/api/v1/exports/cleanup", params={"keep_count": 1}, headers=auth_headers)
+
+    assert response.status_code == 200
+    stats = response.json()
+    assert stats["deleted"] == 2
+    assert stats["kept"] == 1
+    assert stats["files_removed"] == 2
+    remaining = client.get("/api/v1/exports", headers=auth_headers).json()["items"]
+    assert len(remaining) == 1
+    # 被删的文件确实不在磁盘上了
+    assert sum(1 for path in paths if path.is_file()) == 1
+
+
+def test_cleanup_without_policy_deletes_nothing(client, auth_headers) -> None:
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+    course_id = client.get("/api/v1/courses", headers=auth_headers).json()["items"][0]["id"]
+    _export_and_download(client, auth_headers, {"course_id": course_id, "export_format": "json"})
+
+    response = client.post("/api/v1/exports/cleanup", params={"keep_count": 0, "keep_days": 0}, headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 0
+    assert len(client.get("/api/v1/exports", headers=auth_headers).json()["items"]) == 1
