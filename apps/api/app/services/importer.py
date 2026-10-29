@@ -128,8 +128,9 @@ class _MediaWriter:
         self._plan = plan
         self._stats = stats
         self._dry_run = dry_run
-        self._archive = None if dry_run else open_archive(plan)
         self._index: dict[str, MediaEntry] = plan.media_by_arcname
+        # 纯文本来源（Anki TSV / CSV）没有 zip，只有确实带媒体时才打开归档
+        self._archive = open_archive(plan) if (plan.media and not dry_run) else None
 
     def close(self) -> None:
         if self._archive is not None:
@@ -275,6 +276,12 @@ def _import_chapter_content(
             notes_by_key.add((note.content, _as_float(note.video_time_seconds) or 0.0))
         for segment in db.query(TranscriptSegment).filter(TranscriptSegment.chapter_id == chapter_id).all():
             transcripts_by_key.add((_as_float(segment.start_seconds) or 0.0, segment.text))
+    else:
+        # 课程级（无章节）笔记：CSV 导入、包里的 course.json.notes 都走这里
+        for note in (
+            db.query(Note).filter(Note.course_id == course_id, Note.chapter_id.is_(None)).all()
+        ):
+            notes_by_key.add((note.content, _as_float(note.video_time_seconds) or 0.0))
 
     note_map: dict[str, str] = {}
 
@@ -308,11 +315,11 @@ def _import_chapter_content(
             continue
         notes_by_key.add(key)
         stats.notes_added += 1
-        if dry_run or not chapter_id:
+        if dry_run:
             continue
         note = Note(
             course_id=course_id,
-            chapter_id=chapter_id,
+            chapter_id=chapter_id or None,
             user_id=user.id,
             video_time_seconds=_as_float(note_doc.get("video_time_seconds")),
             content=content,
@@ -335,7 +342,7 @@ def _import_chapter_content(
             stats.conflict(f"截图缺少媒体文件，已跳过：{arcname or wanted_id}")
             continue
         stats.screenshots_added += 1
-        if dry_run or not chapter_id:
+        if dry_run:
             continue
         target = media.path_for(arcname, wanted_id)
         if target is None:
@@ -345,7 +352,7 @@ def _import_chapter_content(
                 id=_pick_id(db, Screenshot, wanted_id),
                 organization_id=_organization_id_of_course(db, course_id),
                 course_id=course_id,
-                chapter_id=chapter_id,
+                chapter_id=chapter_id or None,
                 user_id=user.id,
                 video_time_seconds=_as_float(shot_doc.get("video_time_seconds")),
                 ocr_text=shot_doc.get("ocr_text"),
@@ -364,7 +371,7 @@ def _import_chapter_content(
             stats.conflict(f"笔记图片缺少媒体文件，已跳过：{arcname or wanted_id}")
             continue
         stats.note_images_added += 1
-        if dry_run or not chapter_id:
+        if dry_run:
             continue
         target = media.path_for(arcname, wanted_id)
         if target is None:

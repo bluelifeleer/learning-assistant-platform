@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import json
@@ -66,6 +67,8 @@ class ImportPlan:
     courses: list[CourseDocument] = field(default_factory=list)
     media: list[MediaEntry] = field(default_factory=list)
     archive_bytes: bytes = field(default=b"", repr=False)
+    #: lapkg / anki_tsv / csv —— 便于在报告里说明来源
+    source_type: str = "lapkg"
 
     @property
     def media_by_arcname(self) -> dict[str, MediaEntry]:
@@ -73,7 +76,7 @@ class ImportPlan:
 
 
 class ImportSource(Protocol):
-    """所有导入源（.lapkg、以后的 Anki / CSV）都实现这一个方法。"""
+    """所有导入源（.lapkg、Anki TSV、CSV）都实现这一个方法。"""
 
     source_type: str
 
@@ -217,9 +220,280 @@ class LapkgSource:
                 courses=courses,
                 media=media,
                 archive_bytes=blob,
+                source_type=self.source_type,
             )
 
 
 def open_archive(plan: ImportPlan) -> zipfile.ZipFile:
     """重新打开包，用于按需流式读取媒体。"""
     return zipfile.ZipFile(io.BytesIO(plan.archive_bytes))
+
+
+# ---------------------------------------------------------------------------
+# 文本类导入源：Anki TSV / CSV
+#
+# 这两类没有课程结构，因此统一落到一个「按来源命名的课程」里：
+# 重复导入会命中同一门课程并走 merge 去重，不会产生一堆同名课程。
+# ---------------------------------------------------------------------------
+
+MAX_TEXT_BYTES = 20 * 1024 * 1024
+_CARD_HEADERS = {"front", "back", "question", "answer", "正面", "背面", "问题", "答案"}
+_NOTE_HEADERS = {"content", "note", "text", "正文", "笔记", "内容"}
+_TAG_HEADERS = {"tags", "tag", "标签"}
+_TIME_HEADERS = {"time", "video_time", "video_time_seconds", "时间点", "时间"}
+_BR_TAG = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_ANY_TAG = re.compile(r"<[^>]+>")
+_TAG_SPLIT = re.compile(r"[;,|、\s]+")
+
+
+def _decode_text(blob: bytes, filename_hint: str = "文件") -> str:
+    if not blob:
+        raise ImportValidationError(f"{filename_hint}是空文件")
+    if len(blob) > MAX_TEXT_BYTES:
+        raise ImportValidationError(f"{filename_hint}超过上限（{MAX_TEXT_BYTES // 1024 // 1024} MB）")
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return blob.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ImportValidationError("文件编码无法识别，请另存为 UTF-8 或 GB18030")
+
+
+def _strip_html(value: str) -> str:
+    text = _BR_TAG.sub("\n", value)
+    text = _ANY_TAG.sub("", text)
+    return (
+        text.replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+        .strip()
+    )
+
+
+def _parse_time_value(value: str) -> float | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    try:
+        if ":" in text:
+            seconds = 0.0
+            for part in text.split(":"):
+                seconds = seconds * 60 + float(part)
+            return seconds
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _split_tags(value: str) -> list[str]:
+    return [tag for tag in _TAG_SPLIT.split(_strip_html(value)) if tag]
+
+
+def _synthetic_course(adapter_id: str, title: str, external_id: str) -> CourseDocument:
+    return CourseDocument(
+        document={
+            "id": "",
+            "site": {"adapter_id": adapter_id, "name": title, "host_patterns": {}},
+            "external_course_id": external_id,
+            "title": title,
+            "term": None,
+            "metadata": {},
+            "archived": False,
+            "chapters": [],
+            "summary": None,
+            "notes": [],
+            "screenshots": [],
+            "note_images": [],
+        }
+    )
+
+
+class AnkiTsvSource:
+    """Anki 纯文本导出（`front<TAB>back`），也接受 `#separator` / `#tags column` 指令。"""
+
+    source_type = "anki_tsv"
+
+    def parse(self, blob: bytes) -> ImportPlan:
+        text = _decode_text(blob, "TSV 文件")
+        separator = "\t"
+        tags_column: int | None = None
+        cards: list[dict] = []
+        seen: set[str] = set()
+
+        for raw_line in text.splitlines():
+            line = raw_line.rstrip("\r\n")
+            if not line.strip():
+                continue
+            if line.startswith("#"):
+                lowered = line.lower()
+                if lowered.startswith("#separator:"):
+                    value = lowered.split(":", 1)[1].strip()
+                    separator = {"tab": "\t", "comma": ",", "semicolon": ";"}.get(value, separator)
+                elif lowered.startswith("#tags column:"):
+                    try:
+                        tags_column = int(lowered.split(":", 1)[1].strip())
+                    except ValueError:
+                        tags_column = None
+                continue
+
+            columns = line.split(separator)
+            if len(columns) < 2:
+                continue
+            front = _strip_html(columns[0])
+            back = _strip_html(columns[1])
+            if not front or front in seen:
+                continue
+            seen.add(front)
+            card = {"id": "", "front": front, "back": back, "chapter_id": None, "note_id": None}
+            if tags_column and len(columns) >= tags_column and columns[tags_column - 1].strip():
+                card["tags"] = _split_tags(columns[tags_column - 1])
+            cards.append(card)
+
+        if not cards:
+            raise ImportValidationError("TSV 里没有可用的卡片（需要至少两列：正面<TAB>背面）")
+
+        course = _synthetic_course("anki-import", "Anki 导入的卡片", "anki-import")
+        course.cards = cards
+        return ImportPlan(
+            schema_version=SUPPORTED_SCHEMA_VERSION,
+            app_version=None,
+            exported_at=None,
+            organization={},
+            counts={"courses": 1, "cards": len(cards)},
+            courses=[course],
+            media=[],
+            archive_bytes=b"",
+            source_type=self.source_type,
+        )
+
+
+class CsvSource:
+    """CSV 笔记 / 卡片。
+
+    表头识别（大小写与中英文都认）：front/back → 卡片；content/note/text → 笔记；
+    可选 tags（标签）与 time（时间点，支持 90 或 01:30）。没有表头时：
+    单列按笔记、多列按「正面, 背面」处理。
+    """
+
+    source_type = "csv"
+
+    def parse(self, blob: bytes) -> ImportPlan:
+        text = _decode_text(blob, "CSV 文件")
+        delimiter = self._sniff_delimiter(text)
+        rows = [row for row in csv.reader(io.StringIO(text), delimiter=delimiter) if any(cell.strip() for cell in row)]
+        if not rows:
+            raise ImportValidationError("CSV 是空的")
+
+        header = [cell.strip().lower() for cell in rows[0]]
+        has_header = any(cell in _CARD_HEADERS | _NOTE_HEADERS | _TAG_HEADERS | _TIME_HEADERS for cell in header)
+        index = self._index_headers(header) if has_header else {}
+        body = rows[1:] if has_header else rows
+
+        if has_header and "front" in index and "back" in index:
+            return self._cards_plan(body, index)
+        if not has_header and body and len(body[0]) >= 2:
+            return self._cards_plan(body, {"front": 0, "back": 1})
+        if has_header and "content" not in index:
+            raise ImportValidationError("CSV 表头里没有 content/front 等可用列")
+        return self._notes_plan(body, index)
+
+    @staticmethod
+    def _sniff_delimiter(text: str) -> str:
+        first_line = next((line for line in text.splitlines() if line.strip()), "")
+        counts = {candidate: first_line.count(candidate) for candidate in (",", ";", "\t")}
+        best = max(counts, key=lambda key: counts[key])
+        return best if counts[best] > 0 else ","
+
+    @staticmethod
+    def _index_headers(header: list[str]) -> dict[str, int]:
+        aliases = {
+            "front": {"front", "正面", "问题", "question"},
+            "back": {"back", "背面", "答案", "answer"},
+            "content": _NOTE_HEADERS,
+            "tags": _TAG_HEADERS,
+            "time": _TIME_HEADERS,
+        }
+        index: dict[str, int] = {}
+        for position, cell in enumerate(header):
+            for key, names in aliases.items():
+                if cell in names and key not in index:
+                    index[key] = position
+        return index
+
+    @staticmethod
+    def _cell(row: list[str], index: dict[str, int], key: str) -> str:
+        position = index.get(key)
+        if position is None or position >= len(row):
+            return ""
+        return row[position].strip()
+
+    def _cards_plan(self, rows: list[list[str]], index: dict[str, int]) -> ImportPlan:
+        cards: list[dict] = []
+        seen: set[str] = set()
+        for row in rows:
+            front = _strip_html(self._cell(row, index, "front"))
+            back = _strip_html(self._cell(row, index, "back"))
+            if not front or front in seen:
+                continue
+            seen.add(front)
+            cards.append({"id": "", "front": front, "back": back, "chapter_id": None, "note_id": None})
+        if not cards:
+            raise ImportValidationError("CSV 里没有可用的卡片（正面列不能为空）")
+
+        course = _synthetic_course("csv-import", "CSV 导入的卡片", "csv-import")
+        course.cards = cards
+        return self._plan(course, {"courses": 1, "cards": len(cards)})
+
+    def _notes_plan(self, rows: list[list[str]], index: dict[str, int]) -> ImportPlan:
+        notes: list[dict] = []
+        seen: set[str] = set()
+        for row in rows:
+            content = _strip_html(self._cell(row, index, "content")) if index else _strip_html(" ".join(row))
+            if not content or content in seen:
+                continue
+            seen.add(content)
+            note = {
+                "id": "",
+                "user_id": "",
+                "chapter_id": None,
+                "video_time_seconds": _parse_time_value(self._cell(row, index, "time")),
+                "content": content,
+                "corrected_content": None,
+                "tags": _split_tags(self._cell(row, index, "tags")),
+                "created_at": None,
+            }
+            notes.append(note)
+        if not notes:
+            raise ImportValidationError("CSV 里没有可用的笔记（content 列不能为空）")
+
+        course = _synthetic_course("csv-import", "CSV 导入的笔记", "csv-import")
+        course.document["notes"] = notes
+        return self._plan(course, {"courses": 1, "notes": len(notes)})
+
+    def _plan(self, course: CourseDocument, counts: dict[str, int]) -> ImportPlan:
+        return ImportPlan(
+            schema_version=SUPPORTED_SCHEMA_VERSION,
+            app_version=None,
+            exported_at=None,
+            organization={},
+            counts=counts,
+            courses=[course],
+            media=[],
+            archive_bytes=b"",
+            source_type=self.source_type,
+        )
+
+
+def source_for_filename(filename: str) -> ImportSource:
+    """按扩展名选导入源；不支持的类型直接报错（由路由转成 400）。"""
+    suffix = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
+    if suffix in {".lapkg", ".zip"}:
+        return LapkgSource()
+    if suffix in {".tsv", ".txt"}:
+        return AnkiTsvSource()
+    if suffix == ".csv":
+        return CsvSource()
+    raise ImportValidationError(f"不支持的文件类型：{suffix or filename}（可用 .lapkg / .zip / .tsv / .txt / .csv）")

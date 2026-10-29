@@ -1,7 +1,6 @@
 import hashlib
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import JSONResponse
@@ -13,7 +12,7 @@ from app.models.entities import ImportJob, Organization, User
 from app.routes.exports import organization_for_user
 from app.schemas.workspace import ImportJobItem, ImportJobListOut, ImportStartOut
 from app.services import audit
-from app.services.import_source import ImportValidationError, LapkgSource
+from app.services.import_source import ImportValidationError, source_for_filename
 from app.services.importer import SUPPORTED_STRATEGIES, CancelledError, run_import
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/imports", tags=["imports"])
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
-ALLOWED_SUFFIXES = {".lapkg", ".zip"}
 CANCELLABLE_STATUSES = {"queued", "validating", "parsing", "applying"}
 
 
@@ -43,9 +41,11 @@ def _job_item(job: ImportJob) -> ImportJobItem:
 
 
 async def _read_upload(file: UploadFile) -> bytes:
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(status_code=400, detail="只接受 .lapkg（或 .zip）导出包")
+    filename = file.filename or ""
+    try:
+        source_for_filename(filename)
+    except ImportValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     chunks: list[bytes] = []
     total = 0
     while chunk := await file.read(1024 * 1024):
@@ -83,7 +83,7 @@ def run_import_job(job_id: str, data: bytes, session_factory=None) -> None:
         job.progress = 5
         db.commit()
         try:
-            plan = LapkgSource().parse(data)
+            plan = source_for_filename(job.source_filename).parse(data)
         except ImportValidationError as exc:
             job.status = "failed"
             job.error = str(exc)[:1000]
@@ -123,6 +123,7 @@ def run_import_job(job_id: str, data: bytes, session_factory=None) -> None:
             on_progress=on_progress,
             should_cancel=should_cancel,
         )
+        stats["source_type"] = plan.source_type
         job.stats = stats
         job.status = "done"
         job.progress = 100

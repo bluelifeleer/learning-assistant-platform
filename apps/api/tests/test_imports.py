@@ -488,3 +488,167 @@ def test_replace_strategy_overwrites_chapter_content(import_client, session_fact
     assert "包里的笔记" in contents
     assert "只在本机的笔记" not in contents  # replace 覆盖掉了
     assert transcripts == 1
+
+
+# ---------------------------------------------------------------------------
+# Anki TSV / CSV 适配器
+# ---------------------------------------------------------------------------
+
+
+def test_anki_tsv_source_parses_cards_and_tags() -> None:
+    from app.services.import_source import AnkiTsvSource
+
+    blob = (
+        "#separator:tab\n#html:true\n#tags column:3\n"
+        "什么是幂等\t同一请求执行多次结果相同<br>不多写数据\t架构 考点\n"
+        "什么是幂等\t重复行应被忽略\t重复\n"
+        "单列行没有制表符\n"
+    ).encode()
+
+    plan = AnkiTsvSource().parse(blob)
+
+    assert plan.source_type == "anki_tsv"
+    course = plan.courses[0]
+    assert course.document["external_course_id"] == "anki-import"
+    assert len(course.cards) == 1
+    assert course.cards[0]["front"] == "什么是幂等"
+    assert "同一请求执行多次结果相同" in course.cards[0]["back"]
+    assert "<br>" not in course.cards[0]["back"]
+    assert course.cards[0]["tags"] == ["架构", "考点"]
+
+
+def test_anki_tsv_rejects_empty_file() -> None:
+    from app.services.import_source import AnkiTsvSource, ImportValidationError
+
+    with pytest.raises(ImportValidationError, match="没有可用的卡片"):
+        AnkiTsvSource().parse("#separator:tab\n\n单列没有制表符\n".encode())
+
+
+def test_csv_source_parses_cards_with_chinese_headers() -> None:
+    from app.services.import_source import CsvSource
+
+    blob = "正面,背面\n什么是分治,把问题拆成子问题\n空背面,\n".encode()
+
+    plan = CsvSource().parse(blob)
+
+    assert plan.source_type == "csv"
+    cards = plan.courses[0].cards
+    assert len(cards) == 2
+    assert cards[1]["front"] == "空背面"
+
+
+def test_csv_source_parses_notes_with_tags_and_time() -> None:
+    from app.services.import_source import CsvSource
+
+    blob = "content,tags,time\n第一条笔记,考点;高频,01:30\n第二条笔记,,90\n".encode()
+
+    plan = CsvSource().parse(blob)
+
+    notes = plan.courses[0].document["notes"]
+    assert len(notes) == 2
+    assert notes[0]["content"] == "第一条笔记"
+    assert notes[0]["tags"] == ["考点", "高频"]
+    assert notes[0]["video_time_seconds"] == 90.0
+    assert notes[1]["video_time_seconds"] == 90.0
+
+
+def test_csv_source_treats_single_column_as_notes() -> None:
+    from app.services.import_source import CsvSource
+
+    plan = CsvSource().parse("只有一列笔记\n另一条\n".encode())
+
+    notes = plan.courses[0].document["notes"]
+    assert [note["content"] for note in notes] == ["只有一列笔记", "另一条"]
+
+
+def test_source_for_filename_maps_suffixes() -> None:
+    from app.services.import_source import (
+        AnkiTsvSource,
+        CsvSource,
+        ImportValidationError,
+        LapkgSource,
+        source_for_filename,
+    )
+
+    assert isinstance(source_for_filename("a.lapkg"), LapkgSource)
+    assert isinstance(source_for_filename("a.zip"), LapkgSource)
+    assert isinstance(source_for_filename("a.tsv"), AnkiTsvSource)
+    assert isinstance(source_for_filename("a.txt"), AnkiTsvSource)
+    assert isinstance(source_for_filename("a.CSV"), CsvSource)
+    with pytest.raises(ImportValidationError, match="不支持的文件类型"):
+        source_for_filename("a.docx")
+
+
+def test_import_anki_tsv_creates_cards_in_synthetic_course(import_client, session_factory, auth_headers) -> None:
+    client = import_client
+    blob = "问题一\t答案一\n问题二\t答案二\n".encode()
+
+    first = client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.tsv", blob, "text/tab-separated-values")},
+    )
+    assert first.status_code == 202, first.text
+    job = client.get(f"/api/v1/imports/{first.json()['job_id']}", headers=auth_headers).json()
+
+    assert job["status"] == "done", job
+    assert job["stats"]["source_type"] == "anki_tsv"
+    assert job["stats"]["courses_created"] == 1
+    assert job["stats"]["cards_added"] == 2
+
+    db = session_factory()
+    try:
+        course = db.query(Course).filter(Course.external_course_id == "anki-import").first()
+        assert course is not None and course.title == "Anki 导入的卡片"
+        assert db.query(ReviewCard).filter(ReviewCard.course_id == course.id).count() == 2
+    finally:
+        db.close()
+
+    # 再导一次：命中同一门课程，卡片按 front 去重
+    second = client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.tsv", blob, "text/tab-separated-values")},
+    )
+    job2 = client.get(f"/api/v1/imports/{second.json()['job_id']}", headers=auth_headers).json()
+    assert job2["stats"]["courses_created"] == 0
+    assert job2["stats"]["cards_added"] == 0
+    assert job2["stats"]["cards_skipped"] == 2
+
+
+def test_import_csv_notes_are_stored_as_course_level_notes(import_client, session_factory, auth_headers) -> None:
+    client = import_client
+    blob = "content,tags,time\n第一条,考点,30\n".encode()
+
+    response = client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("notes.csv", blob, "text/csv")},
+    )
+    assert response.status_code == 202, response.text
+    job = client.get(f"/api/v1/imports/{response.json()['job_id']}", headers=auth_headers).json()
+
+    assert job["status"] == "done", job
+    assert job["stats"]["source_type"] == "csv"
+    assert job["stats"]["notes_added"] == 1
+
+    db = session_factory()
+    try:
+        note = db.query(Note).filter(Note.content == "第一条").first()
+        assert note is not None
+        assert note.chapter_id is None
+        assert note.tags == ["考点"]
+        assert float(note.video_time_seconds) == 30.0
+    finally:
+        db.close()
+
+
+def test_import_rejects_unsupported_extension(import_client, auth_headers) -> None:
+    response = import_client.post(
+        "/api/v1/imports",
+        headers=auth_headers,
+        files={"file": ("deck.docx", b"whatever", "application/msword")},
+    )
+
+    assert response.status_code == 400
+    assert "不支持的文件类型" in response.json()["detail"]

@@ -1,12 +1,12 @@
 # 导入 / 导出包（.lapkg）设计
 
 - 日期：2026-10-28
-- 状态：**P0–P3 已实现**（包导出、导入后端、导入导出页面、清理策略与 replace/new）；Anki / CSV 适配器仍为预留扩展点
+- 状态：**全部实现**（P0–P3 + Anki TSV / CSV 适配器）；`.apkg` 二进制明确不做
 - 关联：`apps/api/app/routes/exports.py`、`apps/api/app/routes/imports.py`、
   `apps/api/app/services/export_payload.py`、`apps/api/app/services/import_source.py`、
   `apps/api/app/services/importer.py`、`apps/api/app/exporters/package.py`、
   `apps/console/src/pages/DataTransfer.tsx`、`apps/console/src/pages/CourseDetail.tsx`
-- P0 落地记录见「附录 A」，P1 见「附录 B」，P2 见「附录 C」，P3 见「附录 D」
+- P0 落地记录见「附录 A」，P1 见「附录 B」，P2 见「附录 C」，P3 见「附录 D」，适配器见「附录 E」
 
 ## 1. 背景与目标
 
@@ -482,3 +482,36 @@ class ImportSource(Protocol):
 ### 仍未做
 
 - Anki（`.apkg` / TSV）与 CSV 笔记适配器：`ImportSource` 协议与导入主流程已就绪，接入只需新增解析器
+
+## 附录 E：Anki / CSV 适配器（2026-10-29）
+
+### 新增（均在 `apps/api/app/services/import_source.py`）
+
+| 类 / 函数 | 输入 | 产出 |
+|---|---|---|
+| `AnkiTsvSource` | Anki 纯文本导出（`.tsv` / `.txt`） | 复习卡（front / back，可选第 3 列 tags） |
+| `CsvSource` | `.csv` | 卡片（front/back）或笔记（content + 可选 tags / time） |
+| `source_for_filename()` | 文件名 | 按扩展名选适配器；不支持的类型直接 400 |
+
+### 设计取舍
+
+- 两类文本都没有课程结构，统一落到**按来源命名的合成课程**（`anki-import` / `csv-import`）：
+  重复导入会命中同一门课程并走 merge 去重，不会堆出一堆同名课程；用户后续可以在课程页改名
+- Anki 指令都识别：`#separator:tab|comma|semicolon`、`#tags column:N`、`#html:true`；
+  `<br>` 转换行，其余标签剥掉并还原常见实体
+- CSV 支持中英文表头（front/back、正面/背面、content/正文/笔记 等），`time` 支持 `90` 与 `01:30`；
+  无表头时单列按笔记、多列按「正面,背面」
+- `.apkg` 二进制**明确不做**：要解 sqlite collection、note type 与媒体映射，成本远高于收益
+
+### 顺带修掉的两个隐患
+
+1. `_MediaWriter` 在无媒体时仍会尝试打开 zip —— 文本来源没有 zip，原实现会抛 `BadZipFile`
+2. 课程级（`chapter_id` 为 NULL）的笔记与截图此前只计数不落库，CSV 笔记会悄悄丢失；
+   已改为正常写入，并按「课程级」范围去重
+
+### 验收
+
+- `tests/test_imports.py` 28 passed（新增 9 个：TSV/CSV 解析、中英文表头、时间解析、
+  扩展名映射、合成课程落库、重复导入幂等、课程级笔记落库、不支持类型 400）
+- 全量后端 253 passed；前端 178 passed，`tsc` 通过
+- 真实库：TSV → 2 张卡片、CSV → 2 条笔记（标签与时间点正确），验证后测试数据已清理

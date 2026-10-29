@@ -44,6 +44,12 @@ const STRATEGY_LABELS: Record<string, string> = {
   replace: "覆盖",
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  lapkg: "完整包",
+  anki_tsv: "Anki TSV",
+  csv: "CSV",
+};
+
 const STATUS_LABELS: Record<string, string> = {
   queued: "排队中",
   validating: "校验中",
@@ -379,13 +385,16 @@ export function DataTransfer({ token }: { token?: string }) {
 
       <article className="panel">
         <h2>导入</h2>
-        <p>选择另一台设备导出的 .lapkg 包。建议先「预览」确认会新增哪些内容，再「确认导入」写入。</p>
+        <p>
+          支持完整包 <code>.lapkg</code>（跨设备迁移）、Anki 导出的 <code>.tsv</code> / <code>.txt</code> 卡片，
+          以及 <code>.csv</code> 笔记或卡片。建议先「预览」确认会新增哪些内容，再「确认导入」写入。
+        </p>
 
         <div className="transfer-section">
           <input
             ref={fileInputRef}
             type="file"
-            accept=".lapkg,.zip"
+            accept=".lapkg,.zip,.tsv,.txt,.csv"
             className="transfer-file-input"
             onChange={(event) => {
               const file = event.target.files?.[0] ?? null;
@@ -490,7 +499,12 @@ export function DataTransfer({ token }: { token?: string }) {
           ) : null}
           {importHistory.map((job) => (
             <div key={job.id}>
-              <span>{job.source_filename}</span>
+              <span>
+                {job.source_filename}
+                {typeof job.stats?.source_type === "string"
+                  ? ` · ${SOURCE_LABELS[job.stats.source_type as string] ?? (job.stats.source_type as string)}`
+                  : ""}
+              </span>
               <span>
                 {statusLabel(job.status)}
                 {job.dry_run ? "（预览）" : ""}

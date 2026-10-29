@@ -38,4 +38,13 @@ describe("导入导出页", () => {
     expect(html).not.toContain("确认覆盖导入");
     expect(html).toContain("只补缺失内容");
   });
+
+  it("说明支持的文件类型（包 / Anki TSV / CSV）", () => {
+    const html = renderToString(<DataTransfer />);
+
+    expect(html).toContain(".lapkg");
+    expect(html).toContain(".tsv");
+    expect(html).toContain(".csv");
+    expect(html).toContain("Anki");
+  });
 });
