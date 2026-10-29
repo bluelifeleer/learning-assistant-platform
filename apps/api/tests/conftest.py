@@ -4,6 +4,8 @@ from uuid import uuid4
 
 os.environ.setdefault("ALLOW_REGISTRATION", "true")
 os.environ.setdefault("DIGEST_SCHEDULER_ENABLED", "false")
+# 测试里不启动后台清理线程；启动回收也要用测试库（见下面的 autouse fixture）
+os.environ.setdefault("EXPORT_CLEANUP_ENABLED", "false")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -67,12 +69,15 @@ def isolated_export_dir(tmp_path, monkeypatch) -> Generator[None, None, None]:
 
 @pytest.fixture(autouse=True)
 def background_jobs_use_test_db(session_factory, monkeypatch) -> None:
-    """导入/导出的后台任务默认用 SessionLocal，测试里必须换成测试库，否则会写到真实数据库。"""
+    """导入/导出的后台任务与启动回收默认用 SessionLocal，测试里必须换成测试库，
+    否则会写到真实数据库。"""
     from app.routes import exports as exports_route
     from app.routes import imports as imports_route
+    from app.services import job_recovery
 
     monkeypatch.setattr(exports_route, "SessionLocal", session_factory)
     monkeypatch.setattr(imports_route, "SessionLocal", session_factory)
+    monkeypatch.setattr(job_recovery, "SessionLocal", session_factory)
 
 
 @pytest.fixture

@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     export_retention_count: int = 0
     export_cleanup_enabled: bool = True
     export_cleanup_interval_seconds: int = 3600
+    # 启动时把「还处于进行中」的导入/导出任务判为中断的宽限期(秒)。
+    # 单进程部署保持 0;多 worker 部署要调大到大于最长任务耗时,否则会误判别的 worker。
+    job_recovery_grace_seconds: int = 0
 
     model_config = SettingsConfigDict(env_file=("../../.env", ".env"), extra="ignore")
 

@@ -47,4 +47,11 @@ describe("导入导出页", () => {
     expect(html).toContain(".csv");
     expect(html).toContain("Anki");
   });
+
+  it("导出记录提供手动清理入口", () => {
+    const html = renderToString(<DataTransfer />);
+
+    expect(html).toContain("保留最近");
+    expect(html).toContain("清理更早的导出");
+  });
 });

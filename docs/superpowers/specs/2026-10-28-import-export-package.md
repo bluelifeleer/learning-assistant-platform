@@ -6,7 +6,7 @@
   `apps/api/app/services/export_payload.py`、`apps/api/app/services/import_source.py`、
   `apps/api/app/services/importer.py`、`apps/api/app/exporters/package.py`、
   `apps/console/src/pages/DataTransfer.tsx`、`apps/console/src/pages/CourseDetail.tsx`
-- 落地记录：P0 见「附录 A」、P1「附录 B」、P2「附录 C」、P3「附录 D」、适配器「附录 E」、导出异步化「附录 F」
+- 落地记录：P0「附录 A」、P1「附录 B」、P2「附录 C」、P3「附录 D」、适配器「附录 E」、导出异步化「附录 F」、任务恢复与清理入口「附录 G」
 
 ## 1. 背景与目标
 
@@ -545,3 +545,32 @@ class ImportSource(Protocol):
 
 - 后台任务默认使用真实 `SessionLocal`，测试里若不替换会写进真实数据库 —— 现在 conftest
   统一替换，避免以后写测试时踩坑
+
+## 附录 G：中断任务回收与清理入口（2026-10-29）
+
+### 中断任务回收
+
+导入/导出都跑在进程内的 `BackgroundTasks` 里。API 重启或崩溃时，正在跑的任务会永远停在
+`applying` / `running`：前端轮询到超时也拿不到结论，历史里留一条永不结束的记录。
+
+- 新增 `app/services/job_recovery.py`：`recover_stale_jobs()` 把仍处于进行中的
+  导入（`queued/validating/parsing/applying`）与导出（`queued/running`）标记为 `failed`，
+  写入「服务重启导致中断，请重新…」并归零进度
+- 在 `lifespan` 启动时调用，异常只记日志、不阻断启动
+- `JOB_RECOVERY_GRACE_SECONDS`（默认 0）用于多 worker 部署：调大后只回收超过该时长的任务，
+  避免后启动的 worker 误判别的 worker 正在跑的任务
+- 单进程部署（`scripts/dev.ps1`）用默认 0 即可
+
+### 清理入口
+
+导出清理此前只有 `POST /api/v1/exports/cleanup`，必须改 `.env` 或用 curl。现在控制台
+「导入导出 → 导出」面板底部增加「保留最近 N 份 → 清理更早的导出」，直接调用同一接口；
+`403` 会提示「只有管理员可以清理导出记录」。
+
+### 验收
+
+- `tests/test_job_recovery.py` 4 passed：进行中的导入/导出被判失败、已完成的不会被误伤、
+  宽限期生效、重复执行幂等
+- 全量后端 258 passed；前端 179 passed，`tsc` 通过
+- 真实库：插入 1 条卡住的导入 + 1 条卡住的导出 + 1 条已完成导出 → 启动 API 后前两条变
+  `failed`（原因含「服务重启」、进度 0），已完成那条仍为 `completed`；验证后已清理测试数据

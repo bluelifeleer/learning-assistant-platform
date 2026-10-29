@@ -9,10 +9,13 @@ from app.routes import adapters, ai, audit, auth, capture, courses, email, expor
 from app.routes import imports as imports_route
 from app.services.digest_scheduler import start_digest_scheduler
 from app.services.export_cleanup import start_export_cleanup_scheduler
+from app.services.job_recovery import recover_stale_jobs
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    # 上一次进程没跑完的导入/导出任务在这里判为中断，避免前端永远等一条卡住的记录
+    recover_stale_jobs()
     if get_settings().digest_scheduler_enabled:
         start_digest_scheduler()
     if get_settings().export_cleanup_enabled:

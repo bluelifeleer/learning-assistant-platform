@@ -688,6 +688,24 @@ export async function deleteExport(id: string, token?: string): Promise<void> {
   await deleteResource(`/exports/${id}`, token);
 }
 
+export interface ExportCleanupResult {
+  deleted: number;
+  files_removed: number;
+  kept: number;
+}
+
+/** 手动清理历史导出（owner）。不传阈值时用服务端 .env 里的保留策略。 */
+export async function cleanupExports(
+  options: { keepDays?: number; keepCount?: number } = {},
+  token?: string,
+): Promise<ExportCleanupResult> {
+  const params = new URLSearchParams();
+  if (options.keepDays !== undefined) params.set("keep_days", String(options.keepDays));
+  if (options.keepCount !== undefined) params.set("keep_count", String(options.keepCount));
+  const suffix = params.toString();
+  return postJson<ExportCleanupResult>(`/exports/cleanup${suffix ? `?${suffix}` : ""}`, {}, token);
+}
+
 export interface ImportJobItem {
   id: string;
   source_filename: string;

@@ -4183,3 +4183,16 @@ input[type="checkbox"]:disabled {
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* 导出记录清理行：输入框窄一点，按钮跟输入框底部对齐 */
+.transfer-cleanup {
+  grid-template-columns: minmax(120px, 160px) auto;
+  align-items: end;
+  margin-top: 0;
+}
+
+.transfer-cleanup .modal-field > span {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 600;
+}

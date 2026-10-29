@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelImport,
+  cleanupExports,
   createExport,
   deleteExport,
   downloadExport,
@@ -141,6 +142,7 @@ export function DataTransfer({ token }: { token?: string }) {
   const [includeMedia, setIncludeMedia] = useState(true);
   const [exports, setExports] = useState<ExportItem[]>([]);
   const [exportsBusy, setExportsBusy] = useState(false);
+  const [keepCount, setKeepCount] = useState("50");
   const [exportMessage, setExportMessage] = useState("");
 
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -232,6 +234,26 @@ export function DataTransfer({ token }: { token?: string }) {
       setExportMessage("已删除导出记录与文件");
     } catch (error) {
       setExportMessage(error instanceof Error ? error.message : "删除失败");
+    } finally {
+      setExportsBusy(false);
+    }
+  }
+
+  async function runCleanup(): Promise<void> {
+    const count = Number.parseInt(keepCount, 10);
+    if (!Number.isFinite(count) || count < 1) {
+      setExportMessage("保留份数需为正整数");
+      return;
+    }
+    setExportsBusy(true);
+    setExportMessage("");
+    try {
+      const stats = await cleanupExports({ keepCount: count }, token);
+      setExportMessage(`已清理 ${stats.deleted} 条导出（删除 ${stats.files_removed} 个文件，保留 ${stats.kept} 条）`);
+      reloadExports();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "清理失败";
+      setExportMessage(message.includes("403") ? "只有管理员可以清理导出记录" : message);
     } finally {
       setExportsBusy(false);
     }
@@ -359,6 +381,21 @@ export function DataTransfer({ token }: { token?: string }) {
         <div className="inline-form">
           <button type="button" className="primary-button" disabled={exportsBusy} onClick={() => void submitExport()}>
             {exportsBusy ? "处理中…" : "创建导出"}
+          </button>
+        </div>
+        <div className="inline-form transfer-cleanup">
+          <label className="modal-field">
+            <span>保留最近</span>
+            <input
+              type="number"
+              min={1}
+              value={keepCount}
+              onChange={(event) => setKeepCount(event.target.value)}
+              title="只保留最近 N 份导出，更早的记录与文件会被删除"
+            />
+          </label>
+          <button type="button" className="text-button" disabled={exportsBusy} onClick={() => void runCleanup()}>
+            清理更早的导出
           </button>
         </div>
         {exportMessage ? <p>{exportMessage}</p> : null}
