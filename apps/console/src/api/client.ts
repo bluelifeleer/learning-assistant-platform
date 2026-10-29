@@ -497,6 +497,30 @@ export async function bulkArchiveCourses(
   return postJson<{ updated: number; archived: boolean }>("/courses/bulk-archive", { ids, archived }, token);
 }
 
+export interface CourseMergeResult {
+  merged_into: string;
+  deleted_course: string;
+  chapters_moved: number;
+  chapters_merged: number;
+  summaries_dropped: number;
+  memos_merged: number;
+  cards_dropped: number;
+  questions_dropped: number;
+}
+
+/** 把来源课程合并进目标课程并删除来源（仅 owner，不可撤销）。 */
+export async function mergeCourses(
+  sourceCourseId: string,
+  targetCourseId: string,
+  token?: string,
+): Promise<CourseMergeResult> {
+  return postJson<CourseMergeResult>(
+    `/courses/${sourceCourseId}/merge`,
+    { target_course_id: targetCourseId },
+    token,
+  );
+}
+
 /** 暂停 / 恢复复习卡片,或手动改到期时间。 */
 export async function updateReviewCard(
   cardId: string,

@@ -38,6 +38,7 @@ QUIZ_QUESTION_UPDATED = "quiz_question_updated"
 QUIZ_QUESTION_DELETED = "quiz_question_deleted"
 COURSE_DELETED = "course_deleted"
 COURSES_ARCHIVED = "courses_archived"
+COURSES_MERGED = "courses_merged"
 
 
 def record(

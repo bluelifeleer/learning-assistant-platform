@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.routes import adapters, ai, audit, auth, capture, courses, email, exports, health, note_images, notes, plugins, quiz, review, screenshots, search, settings, setup, stats, transcripts, video_events
+from app.routes import course_merge as course_merge_route
 from app.routes import imports as imports_route
 from app.services.digest_scheduler import start_digest_scheduler
 from app.services.export_cleanup import start_export_cleanup_scheduler
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(capture.router, prefix="/api/v1")
     app.include_router(courses.router, prefix="/api/v1")
+    app.include_router(course_merge_route.router, prefix="/api/v1")
     app.include_router(transcripts.router, prefix="/api/v1")
     app.include_router(video_events.router, prefix="/api/v1")
     app.include_router(notes.router, prefix="/api/v1")

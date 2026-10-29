@@ -27,6 +27,7 @@ import {
   fetchDueCards,
   fetchEmailSettings,
   fetchMastery,
+  mergeCourses,
   fetchNotes,
   fetchPluginStatus,
   fetchQuizQuestions,
@@ -890,5 +891,27 @@ describe("course maintenance client", () => {
     expect(result).toEqual({ updated: 2, archived: true });
     expect(fetchMock.mock.calls[0][0]).toContain("/courses/bulk-archive");
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({ ids: ["c1", "c2"], archived: true });
+  });
+
+  it("merges a course into the target and returns the stats", async () => {
+    const stats = {
+      merged_into: "target",
+      deleted_course: "source",
+      chapters_moved: 2,
+      chapters_merged: 1,
+      summaries_dropped: 1,
+      memos_merged: 0,
+      cards_dropped: 3,
+      questions_dropped: 1,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => stats });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await mergeCourses("source", "target", "la_session");
+
+    expect(result).toEqual(stats);
+    expect(fetchMock.mock.calls[0][0]).toContain("/courses/source/merge");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({ target_course_id: "target" });
   });
 });

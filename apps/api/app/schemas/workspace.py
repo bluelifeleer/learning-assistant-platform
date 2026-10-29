@@ -45,6 +45,21 @@ class CourseBulkArchiveOut(BaseModel):
     archived: bool
 
 
+class CourseMergeIn(BaseModel):
+    target_course_id: str = Field(min_length=1)
+
+
+class CourseMergeOut(BaseModel):
+    merged_into: str
+    deleted_course: str
+    chapters_moved: int = 0
+    chapters_merged: int = 0
+    summaries_dropped: int = 0
+    memos_merged: int = 0
+    cards_dropped: int = 0
+    questions_dropped: int = 0
+
+
 class ChapterOut(BaseModel):
     id: str
     parent_id: str | None = None

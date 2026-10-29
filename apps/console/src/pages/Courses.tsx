@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { bulkArchiveCourses, deleteCourse, fetchCourses, updateCourse, type CourseItem } from "../api/client";
+import {
+  bulkArchiveCourses,
+  deleteCourse,
+  fetchCourses,
+  mergeCourses,
+  updateCourse,
+  type CourseItem,
+} from "../api/client";
 import { ListToolbar, RowActions, ToolbarSearch, ToolbarSelect } from "../components/ListControls";
+import { Modal } from "../components/Modal";
 import { matchesKeyword, sortItems } from "../listQuery";
 import { toast } from "../components/toast";
 
@@ -38,6 +46,9 @@ export function Courses({ onOpenDetail }: CoursesProps) {
   // 删除是不可逆操作：第一次点只是"上膛"，按钮变成「确认删除」，再点才真删
   const [deleteArmed, setDeleteArmed] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [mergeSource, setMergeSource] = useState<CourseItem | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState("");
+  const [mergeBusy, setMergeBusy] = useState(false);
 
   // 归档状态在客户端切换,所以一次把全部课程取回来,由筛选器决定显示哪些
   useEffect(() => {
@@ -152,6 +163,32 @@ export function Courses({ onOpenDetail }: CoursesProps) {
     }
   }
 
+  function openMerge(course: CourseItem): void {
+    const candidate = items.find((item) => item.id !== course.id && !item.archived_at) ?? items.find((item) => item.id !== course.id);
+    setMergeSource(course);
+    setMergeTargetId(candidate?.id ?? "");
+  }
+
+  async function confirmMerge(): Promise<void> {
+    if (!mergeSource || !mergeTargetId) return;
+    const target = items.find((item) => item.id === mergeTargetId);
+    setMergeBusy(true);
+    try {
+      const result = await mergeCourses(mergeSource.id, mergeTargetId);
+      const updated = await fetchCourses(undefined, true);
+      setItems(updated.items);
+      toast.success(
+        `已把《${mergeSource.title}》并入《${target?.title ?? "目标课程"}》：搬入 ${result.chapters_moved} 章、合并 ${result.chapters_merged} 章、去掉 ${result.cards_dropped} 张重复卡与 ${result.questions_dropped} 道重复题`,
+      );
+      setMergeSource(null);
+      setMergeTargetId("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "合并失败");
+    } finally {
+      setMergeBusy(false);
+    }
+  }
+
   return (
     <section className="panel">
       <h2>课程</h2>
@@ -236,6 +273,18 @@ export function Courses({ onOpenDetail }: CoursesProps) {
                   <button
                     type="button"
                     className="text-button-sm"
+                    title="把这门课的内容合并到另一门课程"
+                    disabled={busyId === course.id || items.length < 2}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openMerge(course);
+                    }}
+                  >
+                    合并到…
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button-sm"
                     data-tone={deleteArmed === course.id ? "danger" : undefined}
                     title="永久删除课程及其章节、笔记、截图"
                     disabled={busyId === course.id}
@@ -268,6 +317,60 @@ export function Courses({ onOpenDetail }: CoursesProps) {
           <span>{items.length ? "换个关键词或把状态切到「全部」试试" : "插件采集后课程会显示在这里"}</span>
         </div>
       )}
+
+      {mergeSource ? (
+        <Modal
+          title={`合并《${mergeSource.title}》`}
+          onClose={() => {
+            if (mergeBusy) return;
+            setMergeSource(null);
+            setMergeTargetId("");
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="text-button"
+                disabled={mergeBusy}
+                onClick={() => {
+                  setMergeSource(null);
+                  setMergeTargetId("");
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={mergeBusy || !mergeTargetId}
+                onClick={() => void confirmMerge()}
+              >
+                {mergeBusy ? "合并中…" : "确认合并"}
+              </button>
+            </>
+          }
+        >
+          <p>
+            来源课程《{mergeSource.title}》的章节、字幕、笔记、截图、复习卡、题目与学习会话会全部搬到目标课程，
+            <strong>然后删除来源课程</strong>。同 external id 的章节会并成一章，重复的卡片与题目会被去掉。
+          </p>
+          <label className="modal-field">
+            <span>目标课程（保留这门）</span>
+            <select value={mergeTargetId} onChange={(event) => setMergeTargetId(event.target.value)}>
+              <option value="">请选择目标课程</option>
+              {items
+                .filter((course) => course.id !== mergeSource.id)
+                .map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.title}
+                    {course.archived_at ? "（已归档）" : ""}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <p className="transfer-muted">合并不可撤销，建议先确认目标课程是正确的那个。</p>
+        </Modal>
+      ) : null}
     </section>
   );
 }
