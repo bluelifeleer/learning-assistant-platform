@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { login, openPage, opsCourse } from "./helpers";
+import { login, openPage, opsCourse, resetSeedCourses } from "./helpers";
+
+test.beforeEach(async ({ request }) => {
+  // 共享测试库：保证每个用例开始时课程都是"在读"，避免互相污染
+  await resetSeedCourses(request);
+});
 
 test.describe("课程", () => {
   test("列表展示种子课程，进入详情能看到章节树", async ({ page }) => {
@@ -8,6 +13,12 @@ test.describe("课程", () => {
 
     await expect(page.getByText("E2E 运筹学")).toBeVisible();
     await expect(page.getByText("E2E 数据结构")).toBeVisible();
+
+    // 回归：操作按钮不能把标题挤成竖排（标题宽度必须明显大于高度）
+    const titleBox = await page.locator(".course-card-title").first().boundingBox();
+    expect(titleBox).not.toBeNull();
+    expect(titleBox!.width).toBeGreaterThan(150);
+    expect(titleBox!.width).toBeGreaterThan(titleBox!.height * 2);
 
     await page.getByRole("link").filter({ hasText: "E2E 运筹学" }).click();
 
@@ -30,19 +41,26 @@ test.describe("课程", () => {
     await expect(page.getByText("E2E 运筹学")).toHaveCount(0);
   });
 
-  test("归档后默认列表不再显示，切到已归档能看到", async ({ page }) => {
+  test("卡片上的归档/恢复按钮可用，归档后默认列表不再显示", async ({ page }) => {
     await login(page);
     await openPage(page, "课程");
 
-    const card = page.getByRole("link").filter({ hasText: "E2E 数据结构" });
-    await card.getByRole("button", { name: "归档", exact: true }).click();
+    const card = () => page.getByRole("link").filter({ hasText: "E2E 数据结构" });
 
-    await expect(page.getByText("E2E 数据结构")).toHaveCount(0);
+    // 卡片操作按钮是悬停才显形的，先 hover 再点
+    await card().hover();
+    await card().getByRole("button", { name: "归档", exact: true }).click();
 
-    await page.getByRole("combobox").filter({ hasText: "在读" }).selectOption({ label: "已归档" });
-    await expect(page.getByText("E2E 数据结构")).toBeVisible();
+    // 用卡片 locator 断言：toast 文案里也会出现课程名，直接 getByText 会撞上
+    await expect(card()).toHaveCount(0);
 
-    // 还原状态，避免影响后续用例
-    await page.getByRole("link").filter({ hasText: "E2E 数据结构" }).getByRole("button", { name: "恢复" }).click();
+    await page.getByRole("combobox", { name: "状态" }).selectOption({ label: "已归档" });
+    await expect(card()).toBeVisible();
+    await card().hover();
+    await card().getByRole("button", { name: "恢复", exact: true }).click();
+
+    // 恢复后切回"在读"应该能看到
+    await page.getByRole("combobox", { name: "状态" }).selectOption({ label: "在读" });
+    await expect(card()).toBeVisible();
   });
 });

@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { login, openPage, opsCourse, pickCourse } from "./helpers";
+import { login, openPage, opsCourse, pickCourse, resetSeedCourses } from "./helpers";
+
+test.beforeEach(async ({ request }) => {
+  // 共享测试库：课程被别的用例归档后，这里会看到空列表
+  await resetSeedCourses(request);
+});
 
 test.describe("测验", () => {
   test("选课程后开始测验，答对一题并进入下一题", async ({ page }) => {

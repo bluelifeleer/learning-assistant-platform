@@ -197,7 +197,7 @@ export function Courses({ onOpenDetail }: CoursesProps) {
         <ToolbarSearch value={keyword} onChange={setKeyword} placeholder="搜索课程名 / 学期 / 站点" />
         <ToolbarSelect label="状态" value={status} onChange={setStatus} options={STATUS_OPTIONS} />
         <ToolbarSelect label="排序" value={sort} onChange={setSort} options={SORT_OPTIONS} />
-        <div className="inline-form">
+        <div className="toolbar-actions">
           <button
             type="button"
             className="text-button-sm"
@@ -244,7 +244,7 @@ export function Courses({ onOpenDetail }: CoursesProps) {
                       void rename(course);
                     }}
                   >
-                    重命名
+                    改名
                   </button>
                   <button
                     type="button"
@@ -280,7 +280,7 @@ export function Courses({ onOpenDetail }: CoursesProps) {
                       openMerge(course);
                     }}
                   >
-                    合并到…
+                    合并
                   </button>
                   <button
                     type="button"

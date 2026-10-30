@@ -4038,16 +4038,35 @@ input[type="checkbox"]:disabled {
 
 .course-card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 10px;
+  gap: 4px 10px;
 }
 
+/* 操作按钮默认透明但仍占宽度；标题必须独占一行，否则会被挤成竖排 */
 .course-card-title {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
   font-size: 14.5px;
   font-weight: 650;
   line-height: 1.45;
+}
+
+.course-card-head > .row-actions {
+  flex: 0 0 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  /* 悬停才显示，但先占住一行高度，避免出现时卡片跳动 */
+  min-height: 24px;
+  pointer-events: none;
+}
+
+/* 基础样式里 .row-actions 只给 .record-row 配了 hover 显示，
+   课程卡片漏了这条：按钮一直透明却占宽度，标题因此被挤成竖排 */
+.course-card:hover .course-card-head > .row-actions,
+.course-card:focus-within .course-card-head > .row-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .course-card-meta {
@@ -4314,4 +4333,12 @@ input[type="checkbox"]:disabled {
   color: var(--text-tertiary);
   font-size: 12px;
   font-weight: 600;
+}
+
+/* 工具条里的批量操作：不要套 .inline-form（那里的 button 会被染成主按钮） */
+.toolbar-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
 }
