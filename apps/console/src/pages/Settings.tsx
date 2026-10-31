@@ -15,6 +15,7 @@ import {
   type WorkspaceSettings,
 } from "../api/client";
 import { aiActionErrorMessage, startAiTaskPolling } from "./aiTasks";
+import { Field, FieldGroup, PanelHead } from "../components/settingsForm";
 import { toast } from "../components/toast";
 import {
   THEME_OPTIONS,
@@ -67,19 +68,21 @@ export function ModelField({
   onChange,
   placeholder,
   emptyLabel,
+  ariaLabel,
 }: {
   options: string[];
   value: string;
   onChange: (next: string) => void;
   placeholder: string;
   emptyLabel?: string;
+  ariaLabel?: string;
 }) {
   const [typing, setTyping] = useState(false);
 
   if (typing || options.length === 0) {
     return (
       <span className="model-field">
-        <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+        <input aria-label={ariaLabel} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
         {options.length > 0 ? (
           <button
             type="button"
@@ -98,6 +101,7 @@ export function ModelField({
 
   return (
     <select
+      aria-label={ariaLabel}
       value={value}
       onChange={(event) => {
         if (event.target.value === CUSTOM_MODEL_OPTION) {
@@ -210,54 +214,100 @@ function AiSettingsPanel() {
   }
 
   return (
-    <article className="panel">
-      <h2>AI 设置</h2>
-      <p>配置大模型服务，用于章节摘要、自动出题与闪卡生成。当前状态：{aiSettings ? (aiSettings.configured ? "已配置" : "未配置") : "读取中"}</p>
-      <form className="inline-form">
-        <select value={presetId} onChange={(event) => applyPreset(event.target.value)}>
-          <option value="">自定义服务…</option>
-          {AI_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
-        </select>
-        <input value={baseUrl} onChange={(event) => { setPresetId(""); setBaseUrl(event.target.value); }} placeholder="API 地址，如 https://api.deepseek.com/v1" />
-      </form>
-      <form className="inline-form">
-        <ModelField
-          options={AI_PRESETS.find((preset) => preset.id === presetId)?.models ?? []}
-          value={model}
-          onChange={setModel}
-          placeholder="对话模型，如 deepseek-chat"
-        />
-        <ModelField
-          options={AI_PRESETS.find((preset) => preset.id === presetId)?.visionModels ?? []}
-          value={visionModel}
-          onChange={setVisionModel}
-          placeholder="视觉模型（可选，用于截图 OCR）"
-          emptyLabel="（留空 = 与对话模型相同）"
-        />
-      </form>
-      <form className="inline-form">
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-          placeholder={aiSettings?.api_key_masked ? `已配置：${aiSettings.api_key_masked}（留空不修改）` : "API Key"}
-        />
-        {aiSettings?.api_key_masked ? (
-          <button type="button" className="text-button" disabled={saving} onClick={() => void clearApiKey()}>清除 Key</button>
-        ) : null}
-      </form>
-      <label className="filter-item">
-        <input type="checkbox" checked={autoGenerate} onChange={(event) => setAutoGenerate(event.target.checked)} />
-        <span>新章节自动生成（字幕采集后自动生成摘要/闪卡）</span>
-      </label>
-      <div className="inline-form">
-        <button type="button" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存 AI 设置"}</button>
-        <button type="button" className="text-button" disabled={testing || !aiSettings?.configured} onClick={() => void testConnection()}>
+    <article className="panel panel-wide">
+      <PanelHead
+        title="AI 设置"
+        description="配置大模型服务，用于章节摘要、自动出题与闪卡生成。"
+        status={aiSettings ? (aiSettings.configured ? "已配置" : "未配置") : "读取中"}
+        tone={aiSettings?.configured ? "ok" : "muted"}
+      />
+
+      <div className="settings-form">
+        <div className="field-row field-row-2">
+          <Field label="服务商">
+            <select value={presetId} onChange={(event) => applyPreset(event.target.value)}>
+              <option value="">自定义服务…</option>
+              {AI_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
+            </select>
+          </Field>
+          <Field label="API 地址" hint="兼容 OpenAI 协议，通常以 /v1 结尾">
+            <input
+              aria-label="API 地址"
+              value={baseUrl}
+              onChange={(event) => { setPresetId(""); setBaseUrl(event.target.value); }}
+              placeholder="https://api.deepseek.com/v1"
+            />
+          </Field>
+        </div>
+
+        <div className="field-row field-row-2">
+          <FieldGroup label="对话模型">
+            <ModelField
+              options={AI_PRESETS.find((preset) => preset.id === presetId)?.models ?? []}
+              value={model}
+              onChange={setModel}
+              placeholder="如 deepseek-chat"
+              ariaLabel="对话模型"
+            />
+          </FieldGroup>
+          <FieldGroup label="视觉模型" hint="可选，用于截图 OCR；留空表示与对话模型相同">
+            <ModelField
+              options={AI_PRESETS.find((preset) => preset.id === presetId)?.visionModels ?? []}
+              value={visionModel}
+              onChange={setVisionModel}
+              placeholder="可留空"
+              emptyLabel="（留空 = 与对话模型相同）"
+              ariaLabel="视觉模型"
+            />
+          </FieldGroup>
+        </div>
+
+        <div className="field-row field-row-2">
+          <FieldGroup
+            label="API Key"
+            hint={aiSettings?.api_key_masked ? "已保存，留空则不修改" : "仅保存在本机服务端"}
+          >
+            <div className="field-inline">
+              <input
+                type="password"
+                aria-label="API Key"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder={aiSettings?.api_key_masked ? `已配置：${aiSettings.api_key_masked}（留空不修改）` : "sk-..."}
+              />
+              {aiSettings?.api_key_masked ? (
+                <button type="button" className="btn btn-ghost btn-sm" disabled={saving} onClick={() => void clearApiKey()}>
+                  清除
+                </button>
+              ) : null}
+            </div>
+          </FieldGroup>
+          <label className="check-row check-row-center">
+            <input type="checkbox" checked={autoGenerate} onChange={(event) => setAutoGenerate(event.target.checked)} />
+            <span>
+              新章节自动生成
+              <small>字幕采集后自动生成摘要 / 闪卡</small>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {testMessage ? <p className="form-note" role="status">{testMessage}</p> : null}
+      {message ? <p className="form-note" role="status">{message}</p> : null}
+
+      <div className="form-actions">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={testing || !aiSettings?.configured}
+          onClick={() => void testConnection()}
+        >
           {testing ? "测试中..." : "测试连接"}
         </button>
+        <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void save()}>
+          {saving ? "保存中..." : "保存 AI 设置"}
+        </button>
       </div>
-      {testMessage ? <p>{testMessage}</p> : null}
-      {message ? <p>{message}</p> : null}
     </article>
   );
 }
@@ -393,57 +443,103 @@ function EmailSettingsPanel() {
   }
 
   return (
-    <article className="panel">
-      <h2>邮箱设置</h2>
-      <p>配置 SMTP 服务，用于发送笔记和学习总结邮件。当前状态：{emailSettings ? (emailSettings.configured ? "已配置" : "未配置") : "读取中"}</p>
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
-        <label className="modal-field">
-          <span>SMTP 主机</span>
-          <input value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} placeholder="如 smtp.qq.com" />
-        </label>
-        <label className="modal-field">
-          <span>端口</span>
-          <input value={smtpPort} onChange={(event) => setSmtpPort(event.target.value)} placeholder="默认 465" />
-        </label>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <label className="modal-field">
-          <span>SMTP 用户名</span>
-          <input value={smtpUsername} onChange={(event) => setSmtpUsername(event.target.value)} placeholder="通常为完整邮箱地址" />
-        </label>
-        <label className="modal-field">
-          <span>SMTP 密码 / 授权码</span>
-          <input
-            type="password"
-            value={smtpPassword}
-            onChange={(event) => setSmtpPassword(event.target.value)}
-            placeholder={emailSettings?.password_masked ? `已配置：${emailSettings.password_masked}（留空不修改）` : "密码或授权码"}
-          />
-        </label>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <label className="modal-field">
-          <span>发件人地址</span>
-          <input value={emailFrom} onChange={(event) => setEmailFrom(event.target.value)} placeholder="一般与用户名一致" />
-        </label>
-        <label className="modal-field">
-          <span>收件邮箱</span>
-          <input value={emailTo} onChange={(event) => setEmailTo(event.target.value)} placeholder="接收学习总结的邮箱" />
-        </label>
-      </div>
-      {emailSettings?.password_masked ? (
-        <div>
-          <button type="button" className="text-button text-button-sm" disabled={saving} onClick={() => void clearPassword()}>清除已保存的密码</button>
+    <article className="panel panel-wide">
+      <PanelHead
+        title="邮箱设置"
+        description="配置 SMTP 服务，用于发送笔记、学习总结与测试邮件。"
+        status={emailSettings ? (emailSettings.configured ? "已配置" : "未配置") : "读取中"}
+        tone={emailSettings?.configured ? "ok" : "muted"}
+      />
+
+      <div className="settings-form">
+        <div className="field-row field-row-host">
+          <Field label="SMTP 主机">
+            <input
+              aria-label="SMTP 主机"
+              value={smtpHost}
+              onChange={(event) => setSmtpHost(event.target.value)}
+              placeholder="如 smtp.qq.com"
+            />
+          </Field>
+          <Field label="端口">
+            <input
+              aria-label="端口"
+              value={smtpPort}
+              inputMode="numeric"
+              onChange={(event) => setSmtpPort(event.target.value)}
+              placeholder="465"
+            />
+          </Field>
         </div>
-      ) : null}
+
+        <div className="field-row field-row-2">
+          <Field label="SMTP 用户名">
+            <input
+              aria-label="SMTP 用户名"
+              value={smtpUsername}
+              onChange={(event) => setSmtpUsername(event.target.value)}
+              placeholder="通常为完整邮箱地址"
+            />
+          </Field>
+          <FieldGroup
+            label="SMTP 密码 / 授权码"
+            hint={emailSettings?.password_masked ? "已保存，留空则不修改" : undefined}
+          >
+            <div className="field-inline">
+              <input
+                type="password"
+                aria-label="SMTP 密码"
+                value={smtpPassword}
+                onChange={(event) => setSmtpPassword(event.target.value)}
+                placeholder={emailSettings?.password_masked ? `已配置：${emailSettings.password_masked}（留空不修改）` : "密码或授权码"}
+              />
+              {emailSettings?.password_masked ? (
+                <button type="button" className="btn btn-ghost btn-sm" disabled={saving} onClick={() => void clearPassword()}>
+                  清除
+                </button>
+              ) : null}
+            </div>
+          </FieldGroup>
+        </div>
+
+        <div className="field-row field-row-2">
+          <Field label="发件人地址">
+            <input
+              aria-label="发件人地址"
+              value={emailFrom}
+              onChange={(event) => setEmailFrom(event.target.value)}
+              placeholder="一般与用户名一致"
+            />
+          </Field>
+          <Field label="收件邮箱">
+            <input
+              aria-label="收件邮箱"
+              value={emailTo}
+              onChange={(event) => setEmailTo(event.target.value)}
+              placeholder="接收学习总结的邮箱"
+            />
+          </Field>
+        </div>
+      </div>
+
       <section className="digest-schedule" data-enabled={digestAuto ? "yes" : "no"} aria-label="学习总结定时发送">
-        <label className="digest-toggle">
-          <input type="checkbox" checked={digestAuto} onChange={(event) => setDigestAuto(event.target.checked)} />
-          <span>
-            <strong>自动发送学习总结</strong>
-            <small>按设定时间把学习总结发到上面的收件邮箱，API 每 15 分钟检查一次是否到期。</small>
-          </span>
-        </label>
+        <div className="digest-head">
+          <label className="digest-toggle">
+            <input type="checkbox" checked={digestAuto} onChange={(event) => setDigestAuto(event.target.checked)} />
+            <span>
+              <strong>自动发送学习总结</strong>
+              <small>按设定时间把学习总结发到上面的收件邮箱，API 每 15 分钟检查一次是否到期。</small>
+            </span>
+          </label>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={digestSending || !emailSettings?.configured}
+            onClick={sendDigestNow}
+          >
+            {digestSending ? "发送中..." : "立即发送学习总结"}
+          </button>
+        </div>
 
         <div className="digest-schedule-fields">
           <label className="digest-field">
@@ -481,16 +577,20 @@ function EmailSettingsPanel() {
 
         <p className="digest-last">上次发送学习总结：{emailSettings?.last_digest_at ?? "尚未发送"}</p>
       </section>
-      <div className="inline-form">
-        <button type="button" disabled={saving} onClick={() => void save()}>{saving ? "保存中..." : "保存邮箱设置"}</button>
-        <button type="button" className="text-button" disabled={testing || !emailSettings?.configured} onClick={() => void sendTest()}>
+
+      {message ? <p className="form-note" role="status">{message}</p> : null}
+
+      <div className="form-actions">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={testing || !emailSettings?.configured}
+          onClick={() => void sendTest()}
+        >
           {testing ? "发送中..." : "发送测试邮件"}
         </button>
-      </div>
-      {message ? <p>{message}</p> : null}
-      <div className="inline-form">
-        <button type="button" disabled={digestSending || !emailSettings?.configured} onClick={sendDigestNow}>
-          {digestSending ? "发送中..." : "立即发送学习总结"}
+        <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void save()}>
+          {saving ? "保存中..." : "保存邮箱设置"}
         </button>
       </div>
     </article>
@@ -523,22 +623,28 @@ function AppearancePanel() {
 
   return (
     <article className="panel">
-      <h2>外观</h2>
-      <p>控制台配色。选择「跟随系统」时会随操作系统的浅色 / 深色设置自动切换。</p>
-      <div className="theme-options" role="radiogroup" aria-label="外观模式">
-        {THEME_OPTIONS.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="radio"
-            aria-checked={preference === option.id}
-            data-active={preference === option.id ? "yes" : "no"}
-            onClick={() => choose(option.id)}
-          >
-            <strong>{option.label}</strong>
-            <span>{option.hint}</span>
-          </button>
-        ))}
+      <PanelHead title="外观" description="控制台配色；跟随系统时随操作系统的浅色 / 深色自动切换。" />
+      <div className="theme-list" role="radiogroup" aria-label="外观模式">
+        {THEME_OPTIONS.map((option) => {
+          const active = preference === option.id;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              data-active={active ? "yes" : "no"}
+              className="theme-option"
+              onClick={() => choose(option.id)}
+            >
+              <span className="theme-option-dot" aria-hidden="true">{active ? "✓" : ""}</span>
+              <span className="theme-option-text">
+                <strong>{option.label}</strong>
+                <small>{option.hint}</small>
+              </span>
+            </button>
+          );
+        })}
       </div>
       <p className="theme-current">
         当前生效：{resolved === "dark" ? "深色" : "浅色"}
@@ -591,7 +697,7 @@ export function Settings({
   }
 
   return (
-    <section className="panel-grid">
+    <section className="panel-grid settings-grid">
       {embedded ? null : (
         <article className="panel panel-wide">
           <h2>{title}</h2>
@@ -599,45 +705,57 @@ export function Settings({
         </article>
       )}
       <article className="panel">
-        <h2>组织与授权</h2>
-        <form className="inline-form">
-          <input value={organizationName} onChange={(event) => setOrganizationName(event.target.value)} placeholder="组织名称" />
-          <input value={licenseKey} onChange={(event) => setLicenseKey(event.target.value)} placeholder="License Key" />
-          <input
-            type="number"
-            value={weeklyGoal}
-            min={10}
-            max={10080}
-            onChange={(event) => setWeeklyGoal(event.target.value)}
-            placeholder="每周学习目标（分钟）"
-            title="每周学习目标（分钟）"
-          />
-          <button type="button" onClick={() => void save()}>保存设置</button>
-        </form>
-        {message ? <p>{message}</p> : null}
+        <PanelHead title="组织与授权" description="工作区名称、授权与每周学习目标。" />
+        <div className="settings-form">
+          <Field label="组织名称">
+            <input
+              aria-label="组织名称"
+              value={organizationName}
+              onChange={(event) => setOrganizationName(event.target.value)}
+              placeholder="如 Local Workspace"
+            />
+          </Field>
+          <div className="field-row field-row-2">
+            <Field label="License Key" hint="没有授权可留空">
+              <input
+                aria-label="License Key"
+                value={licenseKey}
+                onChange={(event) => setLicenseKey(event.target.value)}
+                placeholder="License Key"
+              />
+            </Field>
+            <Field label="每周学习目标" hint="单位：分钟">
+              <input
+                type="number"
+                aria-label="每周学习目标（分钟）"
+                value={weeklyGoal}
+                min={10}
+                max={10080}
+                onChange={(event) => setWeeklyGoal(event.target.value)}
+                placeholder="300"
+              />
+            </Field>
+          </div>
+        </div>
+        {message ? <p className="form-note" role="status">{message}</p> : null}
+        <div className="form-actions">
+          <button type="button" className="btn btn-primary" onClick={() => void save()}>保存设置</button>
+        </div>
       </article>
       <AppearancePanel />
-      <article className="panel">
-        <h2>运行配置</h2>
+      <article className="panel panel-wide">
+        <PanelHead title="运行配置" description="服务端运行参数，只读。" />
         <div className="data-table settings-table">
           <div><strong>项目</strong><strong>值</strong></div>
           <div><span>API 地址</span><span>{settings?.api_base_url ?? "读取中"}</span></div>
           <div><span>数据库类型</span><span>{settings?.database_type ?? "读取中"}</span></div>
           <div><span>导出目录</span><span>{settings?.export_dir ?? "读取中"}</span></div>
           <div><span>授权状态</span><span>{settings?.license_status ?? "读取中"}</span></div>
+          <div><span>开放注册</span><span>由 ALLOW_REGISTRATION 环境变量控制，默认关闭</span></div>
         </div>
       </article>
-      <article className="panel">
-        <h2>开放注册</h2>
-        <p>注册开关由 API 的 ALLOW_REGISTRATION 环境变量控制，默认关闭。</p>
-      </article>
-      {/* AI / 邮箱是长表单,占满整行 */}
-      <div className="panel-wide">
-        <AiSettingsPanel />
-      </div>
-      <div className="panel-wide">
-        <EmailSettingsPanel />
-      </div>
+      <AiSettingsPanel />
+      <EmailSettingsPanel />
     </section>
   );
 }

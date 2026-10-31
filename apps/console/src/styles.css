@@ -49,6 +49,8 @@
   --warning-soft: #fffbeb;
   --danger: #dc2626;
   --danger-soft: #fef2f2;
+  --danger-solid: #dc2626;
+  --danger-solid-hover: #b91c1c;
   --neutral-dot: #94a3b8;
 
   /* 圆角 */
@@ -595,6 +597,32 @@ p {
   gap: 10px;
   margin: 12px 0 14px;
   align-items: start;
+}
+
+/* .inline-form 的按钮容易被 1fr / auto 列拉成整行色块:
+   让按钮保持内容宽度,靠列起点对齐。 */
+.inline-form > button {
+  justify-self: start;
+  align-self: center;
+}
+
+/* .inline-form button 的主按钮样式权重高于 .text-button,
+   会把「取消 / 预览 / 清理」这类次要操作也染成实心蓝。这里还原。 */
+.inline-form .text-button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--primary);
+  box-shadow: none;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.inline-form .text-button:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: none;
 }
 
 /* AI 模型字段:宽高跟 select 对齐,右侧可挂一个「用预设」按钮 */
@@ -2189,6 +2217,10 @@ p {
   animation: modal-pop var(--transition);
 }
 
+.modal-panel[data-size="sm"] {
+  width: min(440px, 100%);
+}
+
 /* 弹窗内没有可聚焦元素时会回退聚焦到面板本身(tabindex=-1),不要画轮廓 */
 .modal-panel:focus {
   outline: none;
@@ -2252,11 +2284,61 @@ p {
   padding: 12px 22px 20px;
 }
 
+.form-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 .modal-footer .form-error {
   margin-right: auto;
   color: var(--danger);
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+/* 危险操作确认弹窗 */
+.confirm-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+
+.confirm-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.confirm-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--danger-soft);
+  padding: 10px 12px;
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.confirm-warning::before {
+  content: "!";
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--danger-solid);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 @keyframes modal-fade {
@@ -2545,17 +2627,21 @@ p {
 /* ============ 搜索 / 导出紧凑表单 ============ */
 
 .search-form {
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.search-form button {
-  min-width: 108px;
+.search-form .list-search {
+  flex: 1;
+  max-width: none;
 }
 
-.export-form {
-  grid-template-columns: minmax(0, 280px) 160px auto;
-  justify-content: start;
+.search-form .btn {
+  flex: none;
 }
+
 
 /* ============ 空态区块 ============ */
 
@@ -2583,15 +2669,6 @@ p {
 }
 
 @media (max-width: 900px) {
-  .search-form,
-  .export-form {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .search-form button {
-    min-width: 0;
-  }
-
   .modal-panel {
     max-height: calc(100vh - 48px);
   }
@@ -2643,7 +2720,14 @@ p {
 }
 
 .adapter-table > div {
-  grid-template-columns: minmax(120px, 1.2fr) minmax(120px, 1fr) 90px minmax(140px, 1.4fr) 76px;
+  grid-template-columns: minmax(120px, 1.2fr) minmax(120px, 1fr) 90px minmax(140px, 1.4fr) 120px;
+}
+
+.adapter-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 
 /* ============ 笔记卡片正文 Markdown / 图片 ============ */
@@ -2952,18 +3036,17 @@ button.stat-card-link:focus-visible {
   padding: 0 16px;
 }
 
-/* 搜索页:筛选条与搜索框同排,宽屏下不再是一整行超长输入框 */
+/* 搜索页:筛选条与搜索框同排,不再套一层带边框的盒子 */
 .search-controls {
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(300px, 560px);
-  justify-content: start;
-  align-items: center;
+  justify-content: space-between;
+  align-items: start;
   gap: 12px 18px;
-  margin-bottom: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface-subtle);
-  padding: 14px 16px;
+  margin: 2px 0 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .search-controls .search-form {
@@ -3050,6 +3133,8 @@ button.stat-card-link:focus-visible {
   --warning-soft: rgba(251, 191, 36, 0.14);
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.15);
+  --danger-solid: #dc2626;
+  --danger-solid-hover: #b91c1c;
   --neutral-dot: #64748b;
 
   /* 深色下阴影要靠纯黑加深,否则几乎看不见 */
@@ -3720,63 +3805,510 @@ input[type="checkbox"]:disabled {
   visibility: visible;
 }
 
-/* ============ 外观设置(设置页) ============ */
+/* ============ 设置页:紧凑表单与操作区 ============
+   设置页原来复用 .inline-form 的三列网格,按钮落进 1fr 列会被拉成
+   半屏宽的实心色块。这里改成:
+   - 页面收窄到 1000px,字段不再被拉成 500px 的长条
+   - 标签在上、字段两列,高度统一为 36px
+   - 每组只保留一个实心主按钮,次要操作走描边 / 幽灵按钮
+   - 分组标题 15px、说明 12.5px,降低卡片的"盒子感" */
 
-.theme-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-  margin: 14px 0 10px;
+.settings-page {
+  width: 100%;
+  max-width: 1000px;
+  margin-inline: auto;
+  gap: 14px;
 }
 
-.theme-options button {
-  display: grid;
-  gap: 4px;
-  justify-items: start;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-lg);
-  background: var(--surface-subtle);
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 14px 16px;
-  text-align: left;
-  transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+/* 设置页整体收成一个居中列:连顶栏状态条也一起收,避免
+   "顶栏 1132 / 内容 1000" 两个左边缘对不齐的观感。 */
+.workspace-focus {
+  max-width: 1056px;
 }
 
-.theme-options button:hover {
-  border-color: var(--primary);
+.settings-page .panel {
+  padding: 20px 22px;
 }
 
-.theme-options button:focus-visible {
-  outline: 3px solid var(--primary-ring);
-  outline-offset: 1px;
+.settings-page .settings-top {
+  padding: 18px 22px;
 }
 
-.theme-options button strong {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 650;
+.settings-top h2 {
+  font-size: 16px;
 }
 
-.theme-options button span {
+.settings-top > p {
   color: var(--text-tertiary);
   font-size: 12.5px;
-  line-height: 1.5;
 }
 
-.theme-options button[data-active="yes"] {
+.settings-top .settings-tabs {
+  margin-top: 8px;
+}
+
+/* ---------- 分组标题 ---------- */
+
+.settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.settings-head-text {
+  min-width: 0;
+}
+
+.settings-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.settings-head p {
+  margin-top: 4px;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.settings-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  padding: 0 10px;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.settings-status::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--neutral-dot);
+}
+
+.settings-status[data-tone="ok"] {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.settings-status[data-tone="ok"]::before {
+  background: var(--success);
+}
+
+/* ---------- 两列卡片 ---------- */
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+/* ---------- 表单行 ---------- */
+
+.settings-form {
+  display: grid;
+  gap: 14px;
+}
+
+.field-row {
+  display: grid;
+  gap: 14px 18px;
+}
+
+.field-row-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field-row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.field-row-host {
+  grid-template-columns: minmax(0, 1fr) 110px;
+}
+
+.field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0 10px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.field select {
+  padding-right: 6px;
+  cursor: pointer;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
   border-color: var(--primary);
-  background: var(--primary-soft);
   box-shadow: 0 0 0 3px var(--primary-ring);
 }
 
-.theme-options button[data-active="yes"] strong {
+.field input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.field-hint {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.field-inline > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.field .model-field {
+  width: 100%;
+}
+
+.field .model-field > select {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
+.field .model-field > .text-button {
+  flex: none;
+  height: 36px;
+}
+
+/* ---------- 按钮:固定高度 + 层级 ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background var(--transition), border-color var(--transition), color var(--transition), box-shadow var(--transition);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn-primary {
+  border-color: transparent;
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.25);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--primary-active);
+}
+
+.btn-danger {
+  border-color: transparent;
+  background: var(--danger-solid);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.25);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger-solid-hover);
+}
+
+.btn-danger:active:not(:disabled) {
+  background: #991b1b;
+}
+
+.btn-secondary {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: var(--primary-softer);
   color: var(--primary);
 }
 
-.theme-current {
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+}
+
+.btn-sm {
+  height: 28px;
+  border-radius: 7px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+/* ---------- 复选行 / 说明 / 操作区 ---------- */
+
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.check-row > input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.check-row > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.check-row small {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+/* 与左侧输入框对齐:输入框底部留 8px 视觉基线 */
+.check-row-center {
+  align-self: end;
+  padding-bottom: 8px;
+}
+
+.form-note {
+  margin: 10px 0 0;
   color: var(--text-tertiary);
   font-size: 12.5px;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+/* 复习卡片的「显示答案 / 记得 / 忘了」:按钮保持内容宽度,右对齐 */
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ---------- 学习总结定时发送 ---------- */
+
+.digest-schedule {
+  margin: 16px 0 0;
+}
+
+.digest-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.digest-head > .btn {
+  flex: none;
+}
+
+/* ---------- 运行配置表:更紧凑 ---------- */
+
+.settings-page .settings-table {
+  margin-top: 4px;
+}
+
+.settings-page .settings-table > div {
+  padding: 8px 4px;
+}
+
+.settings-page .settings-table > div:first-child {
+  padding-top: 2px;
+  font-size: 11.5px;
+}
+
+/* ---------- 外观:三选一单选列表 ---------- */
+
+.theme-list {
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface);
+  padding: 9px 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background var(--transition);
+}
+
+.theme-option:last-child {
+  border-bottom: 0;
+}
+
+.theme-option:hover {
+  background: var(--surface-subtle);
+}
+
+.theme-option:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.theme-option[data-active="yes"] {
+  background: var(--primary-softer);
+}
+
+.theme-option-dot {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.theme-option[data-active="yes"] .theme-option-dot {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+.theme-option-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.theme-option-text strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.theme-option[data-active="yes"] .theme-option-text strong {
+  color: var(--primary);
+}
+
+.theme-option-text small {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.theme-current {
+  margin-top: 10px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+@media (max-width: 860px) {
+  .field-row-2,
+  .field-row-3,
+  .field-row-host {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-page .panel {
+    padding: 18px 16px;
+  }
+
+  .settings-head {
+    flex-wrap: wrap;
+  }
 }
 
 /* ============ 深色主题:登录页 ============
@@ -4143,11 +4675,59 @@ input[type="checkbox"]:disabled {
 }
 
 /* ============ 操作日志 ============ */
+
+/* 时间筛选:与工具条的搜索框/下拉保持同一高度和圆角 */
+.filter-date {
+  width: 142px;
+  height: 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-primary);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.filter-date:hover {
+  border-color: var(--primary);
+}
+
+.filter-date:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+
+.audit-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 0 10px;
+}
+
+.audit-hint {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
 .audit-row-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+.audit-row-head > input[type="checkbox"] {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+  cursor: pointer;
 }
 
 .audit-time {
@@ -4322,17 +4902,44 @@ input[type="checkbox"]:disabled {
   line-height: 1.6;
 }
 
-/* 导出记录清理行：输入框窄一点，按钮跟输入框底部对齐 */
+/* 导出操作区：左侧「保留最近 / 清理」，右侧主按钮「创建导出」 */
+.export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-top: 14px;
+}
+
 .transfer-cleanup {
-  grid-template-columns: minmax(120px, 160px) auto;
-  align-items: end;
-  margin-top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0;
+}
+
+.transfer-cleanup .modal-field {
+  width: 160px;
+  margin: 0;
 }
 
 .transfer-cleanup .modal-field > span {
   color: var(--text-tertiary);
   font-size: 12px;
   font-weight: 600;
+}
+
+.transfer-cleanup .modal-field input {
+  height: 34px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+/* 窄屏换行时主按钮仍然靠右 */
+.export-actions > .btn-primary {
+  margin-left: auto;
 }
 
 /* 工具条里的批量操作：不要套 .inline-form（那里的 button 会被染成主按钮） */

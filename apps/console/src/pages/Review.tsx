@@ -208,13 +208,13 @@ export function Review({ token }: ReviewProps) {
           ) : null}
           <p>{card.front}</p>
           {session.phase === "answer" ? <p>{card.back}</p> : null}
-          <div className="inline-form">
+          <div className="review-actions">
             {session.phase === "question" ? (
-              <button type="button" onClick={() => setSession(revealAnswer(session))}>显示答案</button>
+              <button type="button" className="btn btn-primary" onClick={() => setSession(revealAnswer(session))}>显示答案</button>
             ) : (
               <>
-                <button type="button" onClick={() => void submitAnswer("good")}>记得</button>
-                <button type="button" onClick={() => void submitAnswer("again")}>忘了</button>
+                <button type="button" className="btn btn-secondary" onClick={() => void submitAnswer("again")}>忘了</button>
+                <button type="button" className="btn btn-primary" onClick={() => void submitAnswer("good")}>记得</button>
               </>
             )}
           </div>

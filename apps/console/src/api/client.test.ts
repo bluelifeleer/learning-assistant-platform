@@ -4,10 +4,12 @@ import {
   answerReviewCard,
   askCourseQuestion,
   bulkArchiveCourses,
+  bulkDeleteAuditLogs,
   bulkDeleteQuizQuestions,
   createExport,
   createPluginToken,
   createReviewCard,
+  deleteAdapter,
   deleteCourse,
   deleteExport,
   deleteQuizQuestion,
@@ -15,6 +17,7 @@ import {
   downloadExtensionPackage,
   fetchAdapters,
   fetchAiSettings,
+  fetchAuditLogs,
   fetchImport,
   fetchImportReport,
   fetchImports,
@@ -913,5 +916,63 @@ describe("course maintenance client", () => {
     expect(fetchMock.mock.calls[0][0]).toContain("/courses/source/merge");
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({ target_course_id: "target" });
+  });
+});
+
+describe("audit log client", () => {
+  it("把时间范围和条数带进查询串", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchAuditLogs({
+      start: "2026-10-30T00:00:00.000Z",
+      end: "2026-10-30T23:59:59.999Z",
+      limit: 300,
+    });
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/audit-logs?");
+    expect(url).toContain("start=2026-10-30T00%3A00%3A00.000Z");
+    expect(url).toContain("end=2026-10-30T23%3A59%3A59.999Z");
+    expect(url).toContain("limit=300");
+  });
+
+  it("批量删除提交选中的 id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ affected: 2 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await bulkDeleteAuditLogs(["log-1", "log-2"], "la_session");
+
+    expect(result).toEqual({ affected: 2 });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/audit-logs/bulk-delete");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({ ids: ["log-1", "log-2"] });
+  });
+});
+
+describe("adapter client", () => {
+  it("按 adapter_id 删除适配器", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ deleted: 1 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await deleteAdapter("wencai-school", "la_session");
+
+    expect(result).toEqual({ deleted: 1 });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/adapters/wencai-school");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "DELETE" });
+  });
+
+  it("把 409 的 detail 带进 ApiError,方便 toast 直接展示", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: "该适配器下还有 2 门课程,请先删除课程后再删适配器" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(deleteAdapter("wencai-school", "la_session")).rejects.toMatchObject({
+      status: 409,
+      message: "该适配器下还有 2 门课程,请先删除课程后再删适配器",
+    });
   });
 });

@@ -219,11 +219,14 @@ export const API_BASE_URL: string =
 
 export class ApiError extends Error {
   status: number;
+  /** 服务端返回的 detail(有的话),用于 toast 展示可读的原因 */
+  detail?: string;
 
-  constructor(path: string, status: number) {
-    super(`${path} failed: ${status}`);
+  constructor(path: string, status: number, detail?: string) {
+    super(detail || `${path} failed: ${status}`);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -291,7 +294,18 @@ async function deleteJson<T>(path: string, token?: string): Promise<T> {
     signal: requestSignal(),
     headers: authHeaders(resolveToken(token)),
   });
-  checkResponse(response, path);
+  if (!response.ok) {
+    if (response.status === 401) unauthorizedHandler?.();
+    // 删除冲突(如适配器下还有课程)的 detail 是给人看的,带进 ApiError
+    let detail: string | undefined;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // 非 JSON 错误体,退回通用状态码文案
+    }
+    throw new ApiError(path, response.status, detail);
+  }
   return (await response.json()) as T;
 }
 
@@ -437,15 +451,22 @@ export interface AuditLogItem {
   created_at?: string | null;
 }
 
-/** 最近的审计记录(仅 owner 可见)。 */
+/** 最近的审计记录(仅 owner 可见)。start / end 为 ISO 8601 时间点。 */
 export async function fetchAuditLogs(
-  params: { action?: string; limit?: number } = {},
+  params: { action?: string; start?: string; end?: string; limit?: number } = {},
   token?: string,
 ): Promise<{ items: AuditLogItem[] }> {
   const search = new URLSearchParams();
   if (params.action) search.set("action", params.action);
+  if (params.start) search.set("start", params.start);
+  if (params.end) search.set("end", params.end);
   search.set("limit", String(params.limit ?? 100));
   return getJson<{ items: AuditLogItem[] }>(`/audit-logs?${search.toString()}`, token);
+}
+
+/** 批量删除审计记录(仅 owner)。服务端会额外留一条 audit_logs_deleted 记录。 */
+export async function bulkDeleteAuditLogs(ids: string[], token?: string): Promise<BulkResult> {
+  return postJson<BulkResult>("/audit-logs/bulk-delete", { ids }, token);
 }
 
 /** 删除单条笔记(服务端会同时摘掉复习卡片对它的引用)。 */
@@ -717,6 +738,11 @@ export async function fetchAdapters(token?: string): Promise<{ items: AdapterIte
 
 export async function saveAdapter(payload: AdapterSavePayload, token?: string): Promise<AdapterItem> {
   return postJson<AdapterItem>("/adapters", payload, token);
+}
+
+/** 删除适配器;如果它下面还有课程,服务端会返回 409。 */
+export async function deleteAdapter(adapterId: string, token?: string): Promise<{ deleted: number }> {
+  return deleteJson<{ deleted: number }>(`/adapters/${encodeURIComponent(adapterId)}`, token);
 }
 
 export async function fetchSettings(token?: string): Promise<WorkspaceSettings> {

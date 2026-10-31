@@ -226,7 +226,7 @@ export function App({ initialSetupStatus, initialPage = "总览", initialSession
           </button>
         </div>
       </aside>
-      <main className="workspace">
+      <main className={activePage === "系统设置" ? "workspace workspace-focus" : "workspace"}>
         <section className="status-row">
           {sidebarCollapsed ? null : (
             <button type="button" className="nav-toggle" title="收缩导航" aria-label="收缩导航" onClick={toggleSidebar}>

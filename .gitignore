@@ -30,3 +30,6 @@ playwright-report/
 blob-report/
 e2e/.tmp/
 
+
+# 设计对比截图（本地临时产物）
+.design-shots/

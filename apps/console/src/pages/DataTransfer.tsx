@@ -395,24 +395,24 @@ export function DataTransfer({ token }: { token?: string }) {
           <p className="form-error">该格式一次只能导出一门课程，已自动使用第一门。</p>
         ) : null}
 
-        <div className="inline-form">
-          <button type="button" className="primary-button" disabled={exportsBusy} onClick={() => void submitExport()}>
+        <div className="export-actions">
+          <div className="transfer-cleanup">
+            <label className="modal-field">
+              <span>保留最近</span>
+              <input
+                type="number"
+                min={1}
+                value={keepCount}
+                onChange={(event) => setKeepCount(event.target.value)}
+                title="只保留最近 N 份导出，更早的记录与文件会被删除"
+              />
+            </label>
+            <button type="button" className="btn btn-secondary" disabled={exportsBusy} onClick={() => void runCleanup()}>
+              清理更早的导出
+            </button>
+          </div>
+          <button type="button" className="btn btn-primary" disabled={exportsBusy} onClick={() => void submitExport()}>
             {exportsBusy ? "处理中…" : "创建导出"}
-          </button>
-        </div>
-        <div className="inline-form transfer-cleanup">
-          <label className="modal-field">
-            <span>保留最近</span>
-            <input
-              type="number"
-              min={1}
-              value={keepCount}
-              onChange={(event) => setKeepCount(event.target.value)}
-              title="只保留最近 N 份导出，更早的记录与文件会被删除"
-            />
-          </label>
-          <button type="button" className="text-button" disabled={exportsBusy} onClick={() => void runCleanup()}>
-            清理更早的导出
           </button>
         </div>
         {exportMessage ? <p>{exportMessage}</p> : null}
@@ -486,7 +486,7 @@ export function DataTransfer({ token }: { token?: string }) {
             }}
           />
           <div className="transfer-row">
-            <button type="button" className="primary-button" onClick={() => fileInputRef.current?.click()}>
+            <button type="button" className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>
               选择导入包
             </button>
             <span className="transfer-muted">{importFile ? `${importFile.name} · ${formatBytes(importFile.size)}` : "未选择文件"}</span>
@@ -536,18 +536,18 @@ export function DataTransfer({ token }: { token?: string }) {
                 : "Anki 卡片 / CSV 笔记可以直接挂到已有课程；不选则新建一门按来源命名的课程"}
           </p>
           {duplicateHint ? <p className="transfer-muted">{duplicateHint}</p> : null}
-          <div className="inline-form">
-            <button type="button" className="text-button" disabled={importBusy || !importFile} onClick={() => void runImport(true)}>
-              {importBusy ? "处理中…" : "预览（不写入）"}
-            </button>
-            <button type="button" className="primary-button" disabled={importBusy || !importFile} onClick={requestImport}>
-              {importStrategy === "replace" && replaceArmed ? "确认覆盖导入" : "确认导入"}
-            </button>
+          <div className="form-actions">
             {importJob && ["queued", "validating", "parsing", "applying"].includes(importJob.status) ? (
-              <button type="button" className="text-button" onClick={() => void cancelCurrentImport()}>
+              <button type="button" className="btn btn-ghost" onClick={() => void cancelCurrentImport()}>
                 取消
               </button>
             ) : null}
+            <button type="button" className="btn btn-secondary" disabled={importBusy || !importFile} onClick={() => void runImport(true)}>
+              {importBusy ? "处理中…" : "预览（不写入）"}
+            </button>
+            <button type="button" className="btn btn-primary" disabled={importBusy || !importFile} onClick={requestImport}>
+              {importStrategy === "replace" && replaceArmed ? "确认覆盖导入" : "确认导入"}
+            </button>
           </div>
         </div>
 

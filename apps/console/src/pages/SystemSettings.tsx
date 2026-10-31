@@ -26,8 +26,8 @@ export function SystemSettings({ tab, onTabChange, session, onSessionChange, onP
   const activeTab = tab ?? "general";
 
   return (
-    <section className="stacked-page">
-      <article className="panel">
+    <section className="stacked-page settings-page">
+      <article className="panel settings-top">
         <div className="panel-header">
           <h2>系统设置</h2>
         </div>

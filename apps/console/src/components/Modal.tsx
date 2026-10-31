@@ -5,6 +5,10 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  /** 确认类弹窗用更窄的宽度 */
+  size?: "sm" | "md";
+  /** 打开时优先聚焦的元素(默认第一个可聚焦元素);确认弹窗用它把焦点放到「取消」 */
+  initialFocusRef?: { current: HTMLElement | null };
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -24,9 +28,15 @@ function isVisible(element: HTMLElement): boolean {
   return style.display !== "none" && style.visibility !== "hidden";
 }
 
-export function Modal({ title, onClose, children, footer }: ModalProps) {
+export function Modal({ title, onClose, children, footer, size = "md", initialFocusRef }: ModalProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  // 用 ref 持有最新 onClose,避免父组件每次渲染都重跑下面两个 effect(会重置焦点)
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // 记住打开前的焦点,卸载时还回去 —— 否则键盘/读屏用户关掉弹窗后位置会丢失
   useEffect(() => {
@@ -44,14 +54,14 @@ export function Modal({ title, onClose, children, footer }: ModalProps) {
     const focusables = (): HTMLElement[] =>
       Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(isVisible);
 
-    // 打开时把焦点移进弹窗:优先第一个可聚焦元素,否则聚焦面板本身
-    const initial = focusables()[0];
+    // 打开时把焦点移进弹窗:可指定初始焦点(确认弹窗放「取消」),否则第一个可聚焦元素
+    const initial = initialFocusRef?.current ?? focusables()[0];
     (initial ?? panel).focus();
 
     function handleKeydown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -77,7 +87,7 @@ export function Modal({ title, onClose, children, footer }: ModalProps) {
 
     document.addEventListener("keydown", handleKeydown);
     return () => document.removeEventListener("keydown", handleKeydown);
-  }, [onClose]);
+  }, [initialFocusRef]);
 
   return (
     <div
@@ -88,6 +98,7 @@ export function Modal({ title, onClose, children, footer }: ModalProps) {
     >
       <div
         className="modal-panel"
+        data-size={size}
         role="dialog"
         aria-modal="true"
         aria-label={title}

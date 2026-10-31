@@ -172,6 +172,44 @@ def test_adapter_can_be_created_and_updated(client, auth_headers):
     assert adapters[0]["name"] == "Generic Video Updated"
 
 
+def test_adapter_can_be_deleted_when_it_has_no_courses(client, auth_headers):
+    client.post(
+        "/api/v1/adapters",
+        headers=auth_headers,
+        json={
+            "adapter_id": "temp-adapter",
+            "name": "临时适配器",
+            "status": "enabled",
+            "host_patterns": {"hosts": ["temp.example.com"]},
+        },
+    )
+
+    response = client.delete("/api/v1/adapters/temp-adapter", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 1
+    adapters = client.get("/api/v1/adapters", headers=auth_headers).json()["items"]
+    assert all(item["adapter_id"] != "temp-adapter" for item in adapters)
+
+
+def test_adapter_with_courses_cannot_be_deleted(client, auth_headers):
+    token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, token)
+
+    response = client.delete("/api/v1/adapters/wencai-school", headers=auth_headers)
+
+    assert response.status_code == 409
+    assert "课程" in response.json()["detail"]
+    adapters = client.get("/api/v1/adapters", headers=auth_headers).json()["items"]
+    assert any(item["adapter_id"] == "wencai-school" for item in adapters)
+
+
+def test_deleting_missing_adapter_returns_404(client, auth_headers):
+    response = client.delete("/api/v1/adapters/not-a-real-adapter", headers=auth_headers)
+
+    assert response.status_code == 404
+
+
 def test_settings_can_be_read_and_updated(client, auth_headers):
     initial = client.get("/api/v1/settings", headers=auth_headers)
 

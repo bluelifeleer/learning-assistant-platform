@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchCourses, searchContent, type CourseItem, type SearchResult } from "../api/client";
+import { ToolbarSearch } from "../components/ListControls";
 import { CourseChapterPicker, EMPTY_COURSE_CHAPTER_FILTER, useCourseChapters, type CourseChapterFilter } from "../components/CourseChapterPicker";
 import { buildRouteHash } from "../navSlug";
 import { chapterAndDescendantIds, formatTimecode } from "./courseTree";
@@ -57,16 +58,14 @@ export function Search() {
       <h2>搜索</h2>
       <div className="search-controls">
         <CourseChapterPicker courses={courses} value={filter} onChange={setFilter} />
-        <div className="inline-form search-form">
-          <input
+        <div className="search-form">
+          <ToolbarSearch
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void submitSearch();
-            }}
+            onChange={setQuery}
             placeholder="搜索笔记与字幕"
+            onSubmit={() => void submitSearch()}
           />
-          <button type="button" onClick={() => void submitSearch()}>搜索</button>
+          <button type="button" className="btn btn-primary" onClick={() => void submitSearch()}>搜索</button>
         </div>
       </div>
       {message ? <p>{message}</p> : null}

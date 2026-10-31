@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { changePassword, updateMe, type AuthResponse } from "../api/client";
+import { Field, PanelHead } from "../components/settingsForm";
 
 export function UsersAuth({ session, onSessionChange }: { session: AuthResponse | null; onSessionChange: (session: AuthResponse | null) => void }) {
   const [username, setUsername] = useState(session?.user.username ?? "");
@@ -50,52 +51,93 @@ export function UsersAuth({ session, onSessionChange }: { session: AuthResponse 
   }
 
   return (
-    <section className="stacked-page">
+    <section className="stacked-page settings-page">
       <article className="panel">
-        <h2>用户与授权</h2>
-        <p>{session ? `当前用户：${session.user.display_name} (${session.user.email})` : "请先在左侧登录或注册本地账号。"}</p>
+        <PanelHead
+          title="用户与授权"
+          description={
+            session
+              ? `当前用户：${session.user.display_name}（${session.user.email}）`
+              : "请先在左侧登录或注册本地账号。"
+          }
+        />
+        {session ? (
+          <>
+            <div className="settings-form">
+              <div className="field-row field-row-2">
+                <Field label="用户名" hint="用于登录，保存后立即生效">
+                  <input
+                    aria-label="用户名"
+                    value={username}
+                    autoComplete="username"
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="用户名"
+                  />
+                </Field>
+                <Field label="显示名称">
+                  <input
+                    aria-label="显示名称"
+                    value={displayName}
+                    autoComplete="name"
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    placeholder="显示名称"
+                  />
+                </Field>
+              </div>
+            </div>
+            {message ? <p className="form-note" role="status">{message}</p> : null}
+            <div className="form-actions">
+              <button type="button" className="btn btn-primary" onClick={() => void saveProfile()}>保存用户信息</button>
+            </div>
+          </>
+        ) : null}
       </article>
+
       {session ? (
         <article className="panel">
-          <h2>用户信息</h2>
-          <form className="inline-form">
-            <input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="用户名，可用于登录" />
-            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="显示名称" />
-            <button type="button" onClick={() => void saveProfile()}>保存用户信息</button>
-          </form>
-          {message ? <p>{message}</p> : null}
-        </article>
-      ) : null}
-      {session ? (
-        <article className="panel">
-          <h2>修改密码</h2>
-          <form className="inline-form">
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              placeholder="当前密码"
-              autoComplete="current-password"
-            />
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              placeholder="新密码(至少 6 位)"
-              autoComplete="new-password"
-            />
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              placeholder="确认新密码"
-              autoComplete="new-password"
-            />
-            <button type="button" disabled={passwordSaving || !currentPassword || !newPassword} onClick={() => void savePassword()}>
+          <PanelHead title="修改密码" description="修改后下次登录生效，新密码至少 6 位。" />
+          <div className="settings-form">
+            <div className="field-row field-row-3">
+              <Field label="当前密码">
+                <input
+                  type="password"
+                  value={currentPassword}
+                  autoComplete="current-password"
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  placeholder="当前密码"
+                />
+              </Field>
+              <Field label="新密码">
+                <input
+                  type="password"
+                  value={newPassword}
+                  autoComplete="new-password"
+                  onChange={(event) => setNewPassword(event.target.value)}
+                  placeholder="至少 6 位"
+                />
+              </Field>
+              <Field label="确认新密码">
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  autoComplete="new-password"
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="再次输入新密码"
+                />
+              </Field>
+            </div>
+          </div>
+          {passwordMessage ? <p className="form-note" role="status">{passwordMessage}</p> : null}
+          <div className="form-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={passwordSaving || !currentPassword || !newPassword}
+              onClick={() => void savePassword()}
+            >
               {passwordSaving ? "保存中..." : "修改密码"}
             </button>
-          </form>
-          {passwordMessage ? <p>{passwordMessage}</p> : null}
+          </div>
         </article>
       ) : null}
     </section>

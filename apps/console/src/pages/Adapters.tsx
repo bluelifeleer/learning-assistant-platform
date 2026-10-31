@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { fetchAdapters, saveAdapter, type AdapterItem } from "../api/client";
+import { deleteAdapter, fetchAdapters, saveAdapter, type AdapterItem } from "../api/client";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Modal } from "../components/Modal";
+import { toast } from "../components/toast";
 
 function hostPatternsOf(item: AdapterItem): string[] {
   const hosts = (item.host_patterns as { hosts?: unknown }).hosts;
@@ -18,6 +20,9 @@ export function Adapters() {
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<AdapterItem | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   function loadAdapters() {
     return fetchAdapters()
@@ -78,6 +83,34 @@ export function Adapters() {
     }
   }
 
+  function askDelete(item: AdapterItem) {
+    setDeleteError("");
+    setPendingDelete(item);
+  }
+
+  function closeDeleteDialog() {
+    if (deletingId) return;
+    setPendingDelete(null);
+    setDeleteError("");
+  }
+
+  async function confirmDelete() {
+    const item = pendingDelete;
+    if (!item || deletingId) return;
+    setDeletingId(item.id);
+    setDeleteError("");
+    try {
+      await deleteAdapter(item.adapter_id);
+      setPendingDelete(null);
+      toast.success("适配器已删除");
+      await loadAdapters();
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "适配器删除失败");
+    } finally {
+      setDeletingId("");
+    }
+  }
+
   return (
     <section className="stacked-page">
       <article className="panel">
@@ -106,8 +139,16 @@ export function Adapters() {
                 <span className="cell-dim" title={JSON.stringify(item.host_patterns)}>
                   {hostList.length ? hostList.join(", ") : "-"}
                 </span>
-                <span>
+                <span className="adapter-actions">
                   <button type="button" className="text-button text-button-sm" onClick={() => openEdit(item)}>编辑</button>
+                  <button
+                    type="button"
+                    className="text-button text-button-sm danger-text"
+                    disabled={deletingId === item.id}
+                    onClick={() => askDelete(item)}
+                  >
+                    {deletingId === item.id ? "删除中..." : "删除"}
+                  </button>
                 </span>
               </div>
             );
@@ -121,8 +162,8 @@ export function Adapters() {
           footer={(
             <>
               {formError ? <span className="form-error">{formError}</span> : null}
-              <button type="button" className="text-button" onClick={closeEditor}>取消</button>
-              <button type="button" className="primary-button" disabled={saving} onClick={() => void handleSave()}>
+              <button type="button" className="btn btn-secondary" onClick={closeEditor}>取消</button>
+              <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void handleSave()}>
                 {saving ? "保存中..." : "保存适配器"}
               </button>
             </>
@@ -148,6 +189,24 @@ export function Adapters() {
             <textarea value={hosts} onChange={(event) => setHosts(event.target.value)} placeholder="每行一个，例如 *.example.com" rows={4} />
           </label>
         </Modal>
+      ) : null}
+      {pendingDelete ? (
+        <ConfirmDialog
+          title="删除适配器？"
+          confirmLabel="删除适配器"
+          busyLabel="删除中..."
+          busy={Boolean(deletingId)}
+          error={deleteError}
+          onCancel={closeDeleteDialog}
+          onConfirm={() => void confirmDelete()}
+        >
+          <p className="confirm-text">
+            确定删除适配器「<strong>{pendingDelete.name}</strong>」？
+          </p>
+          <p className="confirm-warning">
+            删除后插件不再自动匹配该站点。如果它下面还有课程，服务端会拒绝删除，并提示剩余课程数量。
+          </p>
+        </ConfirmDialog>
       ) : null}
     </section>
   );

@@ -115,3 +115,101 @@ def test_audit_logs_require_owner(client, session_factory) -> None:
     member_headers = {"Authorization": f"Bearer {response.json()['token']}"}
 
     assert client.get("/api/v1/audit-logs", headers=member_headers).status_code == 403
+
+
+def test_audit_logs_can_be_filtered_by_time_range(client, auth_headers, session_factory) -> None:
+    from datetime import UTC, datetime
+
+    db = session_factory()
+    try:
+        db.add_all(
+            [
+                AuditLog(action="test_range_old", payload={}, created_at=datetime(2026, 1, 1, 0, 0, tzinfo=UTC)),
+                AuditLog(action="test_range_new", payload={}, created_at=datetime(2026, 1, 3, 0, 0, tzinfo=UTC)),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    after = client.get("/api/v1/audit-logs?start=2026-01-02T00:00:00Z", headers=auth_headers)
+    assert after.status_code == 200
+    actions = [item["action"] for item in after.json()["items"]]
+    assert "test_range_new" in actions
+    assert "test_range_old" not in actions
+
+    before = client.get("/api/v1/audit-logs?end=2026-01-02T00:00:00Z", headers=auth_headers)
+    actions = [item["action"] for item in before.json()["items"]]
+    assert "test_range_old" in actions
+    assert "test_range_new" not in actions
+
+    invalid = client.get(
+        "/api/v1/audit-logs?start=2026-01-03T00:00:00Z&end=2026-01-02T00:00:00Z",
+        headers=auth_headers,
+    )
+    assert invalid.status_code == 400
+
+
+def test_audit_log_time_is_serialized_with_timezone(client, auth_headers, session_factory) -> None:
+    """SQLite 取出的 naive UTC 时间要标上时区,否则前端会按本地时间误读。"""
+    from datetime import datetime
+
+    db = session_factory()
+    try:
+        db.add(AuditLog(action="test_naive_time", payload={}, created_at=datetime(2026, 1, 1, 8, 0)))
+        db.commit()
+    finally:
+        db.close()
+
+    item = _actions(client, auth_headers, "test_naive_time")[0]
+    parsed = datetime.fromisoformat(item["created_at"])
+    assert parsed.tzinfo is not None
+
+
+def test_bulk_delete_audit_logs_keeps_a_cleanup_record(client, auth_headers, session_factory) -> None:
+    db = session_factory()
+    try:
+        db.add_all([AuditLog(action="test_delete_a", payload={}), AuditLog(action="test_delete_b", payload={})])
+        db.commit()
+        ids = [
+            row.id
+            for row in db.query(AuditLog).filter(AuditLog.action.in_(["test_delete_a", "test_delete_b"])).all()
+        ]
+    finally:
+        db.close()
+
+    response = client.post("/api/v1/audit-logs/bulk-delete", headers=auth_headers, json={"ids": ids})
+    assert response.status_code == 200
+    assert response.json()["affected"] == 2
+
+    db = session_factory()
+    try:
+        assert db.query(AuditLog).filter(AuditLog.id.in_(ids)).count() == 0
+        cleanup = db.query(AuditLog).filter(AuditLog.action == "audit_logs_deleted").one()
+        assert cleanup.payload["count"] == 2
+        assert cleanup.user_id
+    finally:
+        db.close()
+
+
+def test_bulk_delete_audit_logs_requires_owner(client, auth_headers, session_factory) -> None:
+    from uuid import uuid4
+
+    db = session_factory()
+    try:
+        log = AuditLog(action="test_owner_only", payload={})
+        db.add(log)
+        db.commit()
+        log_id = log.id
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": f"member-{uuid4().hex[:8]}@example.com", "password": "secret123", "display_name": "Member"},
+    )
+    assert response.status_code == 200
+    member_headers = {"Authorization": f"Bearer {response.json()['token']}"}
+
+    blocked = client.post("/api/v1/audit-logs/bulk-delete", headers=member_headers, json={"ids": [log_id]})
+    assert blocked.status_code == 403

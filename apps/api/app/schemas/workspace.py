@@ -292,6 +292,10 @@ class AdapterUpdateIn(BaseModel):
     host_patterns: dict | None = None
 
 
+class AdapterDeleteOut(BaseModel):
+    deleted: int
+
+
 class WorkspaceSettingsOut(BaseModel):
     organization_name: str
     plan: str

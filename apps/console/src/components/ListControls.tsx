@@ -5,10 +5,13 @@ export function ToolbarSearch({
   value,
   onChange,
   placeholder = "搜索…",
+  onSubmit,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  /** 可选:回车触发搜索(搜索页用) */
+  onSubmit?: () => void;
 }) {
   return (
     <div className="list-search">
@@ -22,6 +25,9 @@ export function ToolbarSearch({
         placeholder={placeholder}
         aria-label={placeholder}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && onSubmit) onSubmit();
+        }}
       />
       {value ? (
         <button type="button" className="list-search-clear" aria-label="清空搜索" onClick={() => onChange("")}>
