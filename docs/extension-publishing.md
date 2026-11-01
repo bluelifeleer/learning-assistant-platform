@@ -46,7 +46,7 @@ pnpm package:extension
 - Chrome 原生 PDF 查看器：无法注入 content script，PDF 文字层暂不支持；可用截图存证或复制到文章页
 - Firefox / Safari：未移植，当前只发布 Chrome / Edge 的 Manifest V3 包
 - 可选 host 权限收窄：自动挂载依赖 `<all_urls>`，暂未改为“按站点动态申请”；用暂停站点和隐私模式缓解
-- PDF.js 独立查看器、双语字幕并排视图、截图文字标注：未实现
+- PDF.js 独立查看器：未实现；提醒时间、双语字幕并排视图、截图文字标注已实现
 - 真实 LLM 供应商联调：扩展链路已用 mock LLM 验证，上架前需用目标供应商 Key 再测一次
 
 ## 多浏览器

@@ -43,7 +43,14 @@ interface EditorOptions {
   onCancel: () => void;
 }
 
-type Tool = "crop" | "redact";
+type Tool = "crop" | "redact" | "text";
+
+interface TextAnnotation {
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+}
 
 /**
  * 截图存证编辑器:拖拽框选裁剪,马赛克打码,存证前不离开页面。
@@ -57,10 +64,12 @@ export class ScreenshotEditor {
   private readonly saveButton: HTMLButtonElement;
   private readonly undoButton: HTMLButtonElement;
   private readonly toolButtons: Record<Tool, HTMLButtonElement>;
+  private readonly textInput: HTMLInputElement;
   private image: HTMLImageElement | null = null;
   private crop: ScreenshotRect = { x: 0, y: 0, width: 0, height: 0 };
   private redactions: ScreenshotRect[] = [];
-  private history: { crop: ScreenshotRect; redactions: ScreenshotRect[] }[] = [];
+  private texts: TextAnnotation[] = [];
+  private history: { crop: ScreenshotRect; redactions: ScreenshotRect[]; texts: TextAnnotation[] }[] = [];
   private tool: Tool = "crop";
   private dragStart: ScreenshotPoint | null = null;
   private dragging = false;
@@ -93,7 +102,7 @@ export class ScreenshotEditor {
     panel.setAttribute("aria-label", "截图存证编辑");
 
     const header = document.createElement("div");
-    header.textContent = "截图存证 · 拖拽框选裁剪，或用马赛克遮住敏感信息";
+    header.textContent = "截图存证 · 拖拽裁剪、马赛克打码，或添加文字标注";
     header.style.cssText = "font-weight:600;font-size:13px;color:#f4f7fb";
     panel.appendChild(header);
 
@@ -101,9 +110,22 @@ export class ScreenshotEditor {
     toolbar.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:center";
     const cropButton = this.makeButton("裁剪", () => this.setTool("crop"));
     const redactButton = this.makeButton("马赛克", () => this.setTool("redact"));
-    this.toolButtons = { crop: cropButton, redact: redactButton };
+    const textButton = this.makeButton("文字", () => this.setTool("text"));
+    this.toolButtons = { crop: cropButton, redact: redactButton, text: textButton };
     toolbar.appendChild(cropButton);
     toolbar.appendChild(redactButton);
+    toolbar.appendChild(textButton);
+    this.textInput = document.createElement("input");
+    this.textInput.type = "text";
+    this.textInput.placeholder = "输入标注文字，再点画面放置";
+    this.textInput.style.cssText = "flex:1;min-width:150px;padding:5px 8px;border:1px solid #31465c;border-radius:6px;background:#0b1220;color:#f4f7fb;font:12px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif";
+    this.textInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.setTool("text");
+      }
+    });
+    toolbar.appendChild(this.textInput);
     this.undoButton = this.makeButton("撤销", () => this.undo(), "#31465c");
     toolbar.appendChild(this.undoButton);
     const resetButton = this.makeButton("重置", () => this.reset(), "#31465c");
@@ -183,6 +205,7 @@ export class ScreenshotEditor {
 
   private setTool(tool: Tool): void {
     this.tool = tool;
+    if (tool === "text") this.textInput.focus?.();
     this.updateToolButtons();
   }
 
@@ -206,6 +229,25 @@ export class ScreenshotEditor {
 
   private onPointerDown(event: PointerEvent): void {
     if (this.saving) return;
+    if (this.tool === "text") {
+      const value = this.textInput.value.trim();
+      if (!value) {
+        this.status.textContent = "先在输入框里写标注文字";
+        this.textInput.focus?.();
+        return;
+      }
+      const point = this.pointFromEvent(event);
+      this.history.push(this.snapshot());
+      this.texts.push({
+        x: point.x,
+        y: point.y,
+        text: value,
+        fontSize: Math.max(18, Math.round(this.canvas.width / 45)),
+      });
+      this.updateToolButtons();
+      this.draw();
+      return;
+    }
     this.dragging = true;
     this.dragStart = this.pointFromEvent(event);
     this.canvas.setPointerCapture?.(event.pointerId);
@@ -227,11 +269,19 @@ export class ScreenshotEditor {
       this.draw();
       return;
     }
-    this.history.push({ crop: { ...this.crop }, redactions: [...this.redactions] });
+    this.history.push(this.snapshot());
     if (this.tool === "crop") this.crop = rect;
     else this.redactions = [...this.redactions, rect];
     this.updateToolButtons();
     this.draw();
+  }
+
+  private snapshot(): { crop: ScreenshotRect; redactions: ScreenshotRect[]; texts: TextAnnotation[] } {
+    return {
+      crop: { ...this.crop },
+      redactions: [...this.redactions],
+      texts: this.texts.map((item) => ({ ...item })),
+    };
   }
 
   private undo(): void {
@@ -239,15 +289,17 @@ export class ScreenshotEditor {
     if (!previous) return;
     this.crop = previous.crop;
     this.redactions = previous.redactions;
+    this.texts = previous.texts;
     this.updateToolButtons();
     this.draw();
   }
 
   private reset(): void {
     if (!this.image) return;
-    this.history.push({ crop: { ...this.crop }, redactions: [...this.redactions] });
+    this.history.push(this.snapshot());
     this.crop = { x: 0, y: 0, width: this.image.naturalWidth, height: this.image.naturalHeight };
     this.redactions = [];
+    this.texts = [];
     this.updateToolButtons();
     this.draw();
   }
@@ -273,6 +325,7 @@ export class ScreenshotEditor {
     ctx.strokeRect(x, y, width, height);
     ctx.restore();
     for (const redaction of this.redactions) this.pixelate(redaction);
+    for (const annotation of this.texts) this.drawTextAnnotation(ctx, annotation, 0, 0);
     if (preview && isUsableRect(preview, 4)) {
       ctx.save();
       ctx.strokeStyle = this.tool === "crop" ? "#ffffff" : "#f87171";
@@ -285,6 +338,50 @@ export class ScreenshotEditor {
       }
       ctx.restore();
     }
+  }
+
+  private drawTextAnnotation(
+    context: CanvasRenderingContext2D,
+    annotation: TextAnnotation,
+    offsetX: number,
+    offsetY: number,
+  ): void {
+    const width = context.canvas.width;
+    const height = context.canvas.height;
+    const fontSize = annotation.fontSize || Math.max(18, Math.round(width / 45));
+    context.save();
+    context.font = `600 ${fontSize}px -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif`;
+    const maxTextWidth = Math.max(80, width * 0.72);
+    const lines: string[] = [];
+    let line = "";
+    for (const char of annotation.text) {
+      const candidate = `${line}${char}`;
+      if (line && context.measureText(candidate).width > maxTextWidth) {
+        lines.push(line);
+        line = char;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) lines.push(line);
+    const padding = Math.max(4, Math.round(fontSize * 0.28));
+    const lineHeight = Math.round(fontSize * 1.25);
+    const textWidth = Math.max(...lines.map((item) => context.measureText(item).width), 0);
+    const boxWidth = Math.min(width, textWidth + padding * 2);
+    const boxHeight = lines.length * lineHeight + padding * 2;
+    const x = Math.min(Math.max(annotation.x - offsetX, 0), Math.max(0, width - boxWidth));
+    const y = Math.min(Math.max(annotation.y - offsetY, 0), Math.max(0, height - boxHeight));
+    context.fillStyle = "rgba(8,13,23,.78)";
+    context.fillRect(x, y, boxWidth, boxHeight);
+    context.strokeStyle = "#1f8fff";
+    context.lineWidth = Math.max(1, Math.round(fontSize / 12));
+    context.strokeRect(x, y, boxWidth, boxHeight);
+    context.fillStyle = "#ffffff";
+    context.textBaseline = "top";
+    lines.forEach((item, index) => {
+      context.fillText(item, x + padding, y + padding + index * lineHeight);
+    });
+    context.restore();
   }
 
   private pixelate(rect: ScreenshotRect): void {
@@ -360,6 +457,15 @@ export class ScreenshotEditor {
         );
         outputCtx.restore();
       }
+      outputCtx.save();
+      outputCtx.beginPath();
+      outputCtx.rect(0, 0, output.width, output.height);
+      outputCtx.clip();
+      for (const annotation of this.texts) {
+        if (annotation.x < crop.x || annotation.y < crop.y) continue;
+        this.drawTextAnnotation(outputCtx, annotation, crop.x, crop.y);
+      }
+      outputCtx.restore();
       await this.options.onSave(output.toDataURL("image/jpeg", 0.85));
       document.removeEventListener("keydown", this.onEscape, true);
       this.root.remove();
