@@ -44,6 +44,7 @@
           <h2>自定义站点</h2>
           <p class="hint">为不在内置列表里的学习站点填写 CSS selector。选择器只在对应域名下生效，视频/字幕可留空使用默认规则。</p>
           <div id="customAdapterList"></div>
+          <button id="cancelCustomEdit" type="button" style="display:none;background:#5b6b7d">取消编辑</button>
           <div class="custom-form">
             <div class="custom-row">
               <label>名称<input id="customName" type="text" placeholder="例如 学校在线课堂" /></label>
@@ -64,6 +65,12 @@
         </section>
         <button type="submit">保存配置</button>
         <button id="testConnection" type="button">测试连接</button>
+        <section>
+          <h2>离线队列</h2>
+          <p class="hint">网络失败时的笔记/截图会暂存在本地，恢复后自动补传。</p>
+          <p id="queueStatus">待补传 0 条</p>
+          <button id="flushQueue" type="button">立即补传</button>
+        </section>
       </form>
       <p id="status"></p>
     </main>

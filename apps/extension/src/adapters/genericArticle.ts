@@ -38,6 +38,18 @@ export const genericArticleAdapter: LearningAdapter = {
   findVideo: (): HTMLVideoElement | null => null,
   extractVideoSource: (): null => null,
   extractTranscript: (): null => null,
-  extractCurrentChapter: (document: Document): ChapterNode | null => headings(document)[0] ?? null,
+  extractCurrentChapter: (document: Document): ChapterNode | null => {
+    const chapters = headings(document);
+    if (chapters.length === 0) return null;
+    // 长文滚动时取"已经滚过屏幕顶部"的最后一个标题；拿不到布局信息时退回第一个
+    const elements = Array.from(document.querySelectorAll("article h2, article h3, main h2, main h3, h2, h3"))
+      .filter((element) => typeof element.getBoundingClientRect === "function");
+    if (elements.length === 0) return chapters[0];
+    let current = chapters[0];
+    for (let index = 0; index < Math.min(elements.length, chapters.length); index += 1) {
+      if (elements[index].getBoundingClientRect().top <= 120) current = chapters[index];
+    }
+    return current;
+  },
   getNextChapterHint: (): Element | null => null,
 };

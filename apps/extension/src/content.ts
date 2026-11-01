@@ -2,6 +2,7 @@ import { CaptureClient, CaptureRequestError } from "./capture/client";
 import { mapChapterForSnapshot } from "./capture/snapshotChapters";
 import { genericArticleAdapter } from "./adapters/genericArticle";
 import { enqueueOfflineCapture } from "./offlineQueue";
+import { installScreenshotEditHost, requestScreenshotEditFromTop } from "./screenshotBridge";
 import { pickAdapter } from "./adapters/registry";
 import { isValidApiBaseUrl, loadExtensionConfig, type ExtensionConfig } from "./config";
 import { registerContentScriptPing } from "./contentPing";
@@ -159,6 +160,7 @@ function installShortcuts(overlay: AssistantOverlay): () => void {
 }
 
 async function boot(): Promise<void> {
+  installScreenshotEditHost();
   const config = await loadExtensionConfig();
   const hostname = location.hostname;
   const paused = (config.pausedSites ?? []).some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
@@ -291,6 +293,7 @@ async function boot(): Promise<void> {
         const result = await activeClient.postJson<{ id: string }>("/capture/note-image", { image_base64: imageBase64 });
         return result.id;
       },
+      onRequestScreenshotEditor: (imageDataUrl) => requestScreenshotEditFromTop(imageDataUrl),
       onCaptureScreenshotImage: async () => {
         if (config.privacyMode) throw new Error("隐私模式已开启，截图存证已禁用");
         if (!client) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
@@ -368,6 +371,28 @@ async function boot(): Promise<void> {
     overlay.setScreenshotEnabled(!config.privacyMode);
     selectionCleanup = installSelectionBubble(overlay);
     shortcutCleanup = installShortcuts(overlay);
+    if (adapter.id === "generic-article") {
+      let lastArticleScrollAt = 0;
+      const onArticleScroll = (): void => {
+        const now = Date.now();
+        if (now - lastArticleScrollAt < 800) return;
+        lastArticleScrollAt = now;
+        const chapter = adapter.extractCurrentChapter(document);
+        if (chapter) {
+          overlay?.update({
+            chapterTitle: chapter.title,
+            draftKey: videoSessionId() ?? `${adapter.id}:${reportPageUrl}`,
+          });
+        }
+      };
+      window.addEventListener("scroll", onArticleScroll, { passive: true });
+      // 复用 cleanup 列表：页面卸载时由 teardown 统一移除
+      const previousSelectionCleanup = selectionCleanup;
+      selectionCleanup = () => {
+        previousSelectionCleanup?.();
+        window.removeEventListener("scroll", onArticleScroll);
+      };
+    }
     maybeFetchContinue();
   };
 
@@ -547,6 +572,17 @@ async function boot(): Promise<void> {
   };
   maybeImportSubtitleTracks();
 
+  let playingSince: number | null = null;
+  let lastWatchedFlushAt = 0;
+  const flushWatched = (stop: boolean): void => {
+    if (playingSince === null) return;
+    const now = Date.now();
+    const seconds = (now - playingSince) / 1000;
+    if (seconds > 0.5) overlay?.addWatchedSeconds(seconds);
+    playingSince = stop ? null : now;
+    lastWatchedFlushAt = now;
+  };
+
   if (video) {
     reportVideoSource("video-source");
     let lastOverlayTimeAt = 0;
@@ -555,22 +591,26 @@ async function boot(): Promise<void> {
       if (now - lastOverlayTimeAt < 500) return;
       lastOverlayTimeAt = now;
       overlay?.update({ timeSeconds: video.currentTime });
+      if (playingSince !== null && now - lastWatchedFlushAt >= 5000) flushWatched(false);
       // track 字幕的 activeCues 变化不会触发 DOM MutationObserver,
       // 所以播放中也要主动取一次当前字幕。
       acceptTranscript(adapter.extractTranscript(document), currentChapterId(), now);
     });
     video.addEventListener("play", () => {
-      overlay?.markPlaybackStarted();
+      playingSince = Date.now();
+      lastWatchedFlushAt = playingSince;
       overlay?.update({ adapterName: adapter.name, courseTitle: course?.title, status: "正在记录播放" });
       reportVideoSource("play");
       startProgressReporting();
     });
     video.addEventListener("pause", () => {
       // 暂停时补一次,把这一段实际的观看进度落到后端
+      flushWatched(true);
       stopProgressReporting();
       reportVideoSource("progress");
     });
     video.addEventListener("ended", () => {
+      flushWatched(true);
       stopProgressReporting();
       reportVideoSource("progress");
       overlay?.remindManualSave();
@@ -647,6 +687,7 @@ async function boot(): Promise<void> {
 
   const shutdown = (): void => {
     // 收尾最后一句,不然每章最后一条字幕会丢
+    flushWatched(true);
     flushTranscript(video?.currentTime);
     reportVideoSource("progress");
     stopProgressReporting();

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { localDayKey, notifyDueReviewCards, reviewNotification } from "../backgroundReviewReminder";
+import {
+  localDayKey,
+  notifyDueReviewCards,
+  registerReviewReminder,
+  REVIEW_REMINDER_ALARM,
+  reviewNotification,
+} from "../backgroundReviewReminder";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -17,6 +23,46 @@ describe("review reminder", () => {
       title: "学习助手 · 今日复习",
       message: "有 12 张复习卡到期，点开学习助手控制台开始复习。",
     });
+  });
+
+  it("opens the console when the review notification is clicked", async () => {
+    const store: Record<string, unknown> = {
+      apiBaseUrl: "http://127.0.0.1:17890/api/v1",
+      apiToken: "la_token",
+      enabledAdapters: [],
+    };
+    let onClicked: ((id: string) => void) | undefined;
+    const tabsCreate = vi.fn().mockResolvedValue(undefined);
+    const clear = vi.fn().mockResolvedValue(true);
+    vi.stubGlobal("chrome", {
+      storage: {
+        local: {
+          get: vi.fn(async (key: string | string[]) => {
+            if (Array.isArray(key)) return Object.fromEntries(key.map((item) => [item, store[item]]));
+            return { [key]: store[key] };
+          }),
+          set: vi.fn(),
+        },
+      },
+      alarms: {
+        get: vi.fn((_name: string, callback: (alarm?: unknown) => void) => callback({ name: REVIEW_REMINDER_ALARM })),
+        create: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+      notifications: {
+        create: vi.fn(),
+        clear,
+        onClicked: { addListener: vi.fn((handler) => { onClicked = handler; }) },
+      },
+      tabs: { create: tabsCreate },
+    });
+
+    registerReviewReminder();
+    onClicked?.("learning-assistant-review-due");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(tabsCreate).toHaveBeenCalledWith({ url: "http://127.0.0.1:17891" });
+    expect(clear).toHaveBeenCalledWith("learning-assistant-review-due");
   });
 
   it("notifies at most once per day when due cards exist", async () => {

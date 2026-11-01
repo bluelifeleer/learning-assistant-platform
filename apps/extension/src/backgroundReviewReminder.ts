@@ -1,4 +1,5 @@
 import { isValidApiBaseUrl, loadExtensionConfig } from "./config";
+import { consoleUrlFromApiBaseUrl } from "./noteCapture";
 
 export const REVIEW_REMINDER_ALARM = "learning-assistant-review-reminder";
 const LAST_NOTIFIED_KEY = "learning-assistant:last-review-notified";
@@ -69,5 +70,17 @@ export function registerReviewReminder(): void {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== REVIEW_REMINDER_ALARM) return;
     void notifyDueReviewCards();
+  });
+  chrome.notifications.onClicked.addListener((notificationId) => {
+    if (notificationId !== NOTIFICATION_ID) return;
+    void (async () => {
+      try {
+        const config = await loadExtensionConfig();
+        await chrome.tabs.create({ url: consoleUrlFromApiBaseUrl(config.apiBaseUrl) });
+        await chrome.notifications.clear(notificationId);
+      } catch {
+        // 配置非法/浏览器拒绝打开时静默
+      }
+    })();
   });
 }

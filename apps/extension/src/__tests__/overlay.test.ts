@@ -92,6 +92,10 @@ function overlayMeta(overlay: AssistantOverlay): string {
   return (overlay as unknown as { meta: FakeElement }).meta.textContent;
 }
 
+function overlaySessionLine(overlay: AssistantOverlay): FakeElement {
+  return (overlay as unknown as { sessionLine: FakeElement }).sessionLine;
+}
+
 function flushAsync(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -298,6 +302,14 @@ describe("assistant overlay", () => {
     await flushAsync();
 
     expect(onSaveNote).toHaveBeenCalledWith("我的理解", [], { sourceText: "选中的定义" });
+  });
+
+  it("counts only watched seconds in the session summary", () => {
+    const overlay = new AssistantOverlay({ onSaveNote: vi.fn() });
+
+    overlay.addWatchedSeconds(65);
+
+    expect(overlaySessionLine(overlay).textContent).toContain("本次 1 分钟");
   });
 
   it("chooses the translation target from the subtitle language", () => {

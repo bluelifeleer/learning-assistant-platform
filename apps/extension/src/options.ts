@@ -6,6 +6,7 @@ import {
   type CustomAdapterConfig,
   type ExtensionConfig,
 } from "./config";
+import { flushOfflineQueue, pendingOfflineCount } from "./offlineQueue";
 import { saveConfigAndReportBinding } from "./optionsActions";
 import { reportOptionsHeartbeat } from "./pluginHeartbeat";
 
@@ -20,8 +21,12 @@ const testButton = document.querySelector<HTMLButtonElement>("#testConnection");
 const articleCaptureInput = document.querySelector<HTMLInputElement>("#articleCapture");
 const pausedSitesInput = document.querySelector<HTMLTextAreaElement>("#pausedSites");
 const privacyModeInput = document.querySelector<HTMLInputElement>("#privacyMode");
+const cancelCustomEditButton = document.querySelector<HTMLButtonElement>("#cancelCustomEdit");
+const queueStatus = document.querySelector<HTMLParagraphElement>("#queueStatus");
+const flushQueueButton = document.querySelector<HTMLButtonElement>("#flushQueue");
 
 let customAdapters: CustomAdapterConfig[] = [];
+let editingCustomId: string | null = null;
 
 function setStatus(message: string): void {
   if (status) status.textContent = message;
@@ -29,6 +34,33 @@ function setStatus(message: string): void {
 
 function inputValue(selector: string): string {
   return document.querySelector<HTMLInputElement>(selector)?.value.trim() ?? "";
+}
+
+async function renderQueueStatus(): Promise<void> {
+  if (!queueStatus) return;
+  try {
+    const count = await pendingOfflineCount();
+    queueStatus.textContent = count ? `待补传 ${count} 条` : "待补传 0 条";
+  } catch {
+    queueStatus.textContent = "离线队列读取失败";
+  }
+}
+
+function fillCustomForm(adapter: CustomAdapterConfig): void {
+  const values: Record<string, string> = {
+    "#customName": adapter.name,
+    "#customDomain": adapter.domain,
+    "#customCourseSelector": adapter.courseSelector,
+    "#customChapterSelector": adapter.chapterSelector,
+    "#customChapterIdAttribute": adapter.chapterIdAttribute ?? "data-id",
+    "#customCurrentChapterSelector": adapter.currentChapterSelector ?? "",
+    "#customTranscriptSelector": adapter.transcriptSelector ?? "",
+    "#customVideoSelector": adapter.videoSelector ?? "video",
+  };
+  for (const [selector, value] of Object.entries(values)) {
+    const input = document.querySelector<HTMLInputElement>(selector);
+    if (input) input.value = value;
+  }
 }
 
 function clearCustomForm(): void {
@@ -102,6 +134,17 @@ function renderCustomAdapters(): void {
     meta.textContent = `${adapter.domain} · ${adapter.courseSelector} / ${adapter.chapterSelector}`;
     const spacer = document.createElement("span");
     spacer.className = "spacer";
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = "编辑";
+    edit.style.background = "#1267d8";
+    edit.addEventListener("click", () => {
+      editingCustomId = adapter.id;
+      fillCustomForm(adapter);
+      if (addCustomAdapterButton) addCustomAdapterButton.textContent = "保存修改";
+      if (cancelCustomEditButton) cancelCustomEditButton.style.display = "inline-block";
+      setStatus(`正在编辑「${adapter.name}」`);
+    });
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "删除";
@@ -114,6 +157,7 @@ function renderCustomAdapters(): void {
     item.appendChild(title);
     item.appendChild(meta);
     item.appendChild(spacer);
+    item.appendChild(edit);
     item.appendChild(remove);
     customAdapterList.appendChild(item);
   }
@@ -145,8 +189,9 @@ function addCustomAdapter(): void {
       return;
     }
   }
+  const existing = editingCustomId ? customAdapters.find((entry) => entry.id === editingCustomId) : undefined;
   const candidate: CustomAdapterConfig = {
-    id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    id: existing?.id ?? `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     name,
     domain,
     courseSelector,
@@ -155,17 +200,24 @@ function addCustomAdapter(): void {
     currentChapterSelector: currentChapterSelector || undefined,
     transcriptSelector: transcriptSelector || undefined,
     videoSelector: videoSelector || "video",
-    enabled: true,
+    enabled: existing?.enabled !== false,
   };
-  const normalized = normalizeCustomAdapters([...customAdapters, candidate]);
-  if (normalized.length !== customAdapters.length + 1) {
+  const next = existing
+    ? customAdapters.map((entry) => (entry.id === existing.id ? candidate : entry))
+    : [...customAdapters, candidate];
+  const normalized = normalizeCustomAdapters(next);
+  if (normalized.length !== next.length) {
     setStatus("域名格式不正确，请填 example.com 或完整 URL");
     return;
   }
   customAdapters = normalized;
+  const wasEditing = Boolean(existing);
+  editingCustomId = null;
+  if (addCustomAdapterButton) addCustomAdapterButton.textContent = "添加自定义站点";
+  if (cancelCustomEditButton) cancelCustomEditButton.style.display = "none";
   renderCustomAdapters();
   clearCustomForm();
-  setStatus("已添加自定义站点，记得点保存配置");
+  setStatus(wasEditing ? "已更新自定义站点，记得点保存配置" : "已添加自定义站点，记得点保存配置");
 }
 
 function readFormConfig(): ExtensionConfig {
@@ -191,6 +243,7 @@ async function init(): Promise<void> {
   if (articleCaptureInput) articleCaptureInput.checked = config.articleCapture === true;
   if (pausedSitesInput) pausedSitesInput.value = (config.pausedSites ?? []).join("\n");
   if (privacyModeInput) privacyModeInput.checked = config.privacyMode === true;
+  await renderQueueStatus();
   const idAttribute = document.querySelector<HTMLInputElement>("#customChapterIdAttribute");
   if (idAttribute) idAttribute.value = "data-id";
 }
@@ -211,5 +264,24 @@ testButton?.addEventListener("click", () => {
 });
 
 addCustomAdapterButton?.addEventListener("click", addCustomAdapter);
+
+cancelCustomEditButton?.addEventListener("click", () => {
+  editingCustomId = null;
+  if (addCustomAdapterButton) addCustomAdapterButton.textContent = "添加自定义站点";
+  cancelCustomEditButton.style.display = "none";
+  clearCustomForm();
+  setStatus("已取消编辑");
+});
+
+flushQueueButton?.addEventListener("click", () => {
+  const config = readFormConfig();
+  setStatus("正在补传离线队列...");
+  void flushOfflineQueue({ apiBaseUrl: config.apiBaseUrl, apiToken: config.apiToken })
+    .then((count) => {
+      setStatus(`已补传 ${count} 条`);
+      return renderQueueStatus();
+    })
+    .catch((error: unknown) => setStatus(error instanceof Error ? error.message : "补传失败"));
+});
 
 void init();

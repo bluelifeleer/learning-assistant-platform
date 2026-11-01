@@ -82,6 +82,11 @@ export interface AssistantOverlayCallbacks {
   onAsk?: (question: string) => Promise<AskResult>;
   /** 用户点「继续上次」时把视频定位到该秒数(不自动播放) */
   onContinue?: (seconds: number) => void;
+  /**
+   * iframe 场景把截图交给顶层编辑。返回 string=已编辑、null=取消、
+   * undefined=顶层不可用，由浮层自己打开本地编辑器。
+   */
+  onRequestScreenshotEditor?: (imageDataUrl: string) => Promise<string | null | undefined>;
 }
 
 export const OVERLAY_POSITION_KEY = "learning-assistant:overlay-position";
@@ -210,7 +215,7 @@ export class AssistantOverlay {
   private readonly screenshotButton: HTMLButtonElement;
   private readonly continueButton: HTMLButtonElement;
   private readonly sessionLine: HTMLDivElement;
-  private sessionStartedAt: number | null = null;
+  private watchedSeconds = 0;
   private sessionNotes = 0;
   private sessionScreenshots = 0;
   private sessionReviews = 0;
@@ -378,16 +383,21 @@ export class AssistantOverlay {
     }
   }
 
-  /** 视频第一次播放时开始计时;暂停不累计额外时长,只统计本次会话跨度。 */
-  markPlaybackStarted(): void {
-    if (this.sessionStartedAt !== null) return;
-    this.sessionStartedAt = Date.now();
+  /** 内容脚本在播放期间累计实际观看秒数;暂停/切后台不计入。 */
+  addWatchedSeconds(seconds: number): void {
+    if (!Number.isFinite(seconds) || seconds <= 0) return;
+    this.watchedSeconds += seconds;
     this.renderSession();
+  }
+
+  private sessionMinutes(): number {
+    if (this.watchedSeconds <= 0) return 0;
+    return Math.max(1, Math.round(this.watchedSeconds / 60));
   }
 
   private renderSession(): void {
     if (!this.sessionLine) return;
-    const minutes = this.sessionStartedAt === null ? 0 : Math.max(0, Math.floor((Date.now() - this.sessionStartedAt) / 60_000));
+    const minutes = this.sessionMinutes();
     const parts = [`本次 ${minutes} 分钟`];
     if (this.sessionNotes) parts.push(`笔记 ${this.sessionNotes}`);
     if (this.sessionQuestions) parts.push(`疑问 ${this.sessionQuestions}`);
@@ -398,7 +408,7 @@ export class AssistantOverlay {
 
   openSessionSummary(): void {
     this.closeSessionSummary();
-    const minutes = this.sessionStartedAt === null ? 0 : Math.max(0, Math.floor((Date.now() - this.sessionStartedAt) / 60_000));
+    const minutes = this.sessionMinutes();
     const lines = [
       "学习小结",
       `课程：${this.currentState.courseTitle || "—"}`,
@@ -669,7 +679,6 @@ export class AssistantOverlay {
       return;
     }
     if (this.capturingScreenshot) return;
-    this.markPlaybackStarted();
     this.capturingScreenshot = true;
     this.screenshotButton.disabled = true;
     this.screenshotButton.textContent = "截图中…";
@@ -680,6 +689,29 @@ export class AssistantOverlay {
     try {
       if (canEdit && captureImage && saveImage) {
         const raw = await captureImage();
+        const remoteEdited = this.callbacks.onRequestScreenshotEditor
+          ? await this.callbacks.onRequestScreenshotEditor(raw.imageBase64)
+          : undefined;
+        if (remoteEdited === null) {
+          this.applyCollapsed(this.collapsed);
+          this.update({ status: "已取消截图存证" });
+          return;
+        }
+        if (typeof remoteEdited === "string") {
+          const saved = await saveImage(remoteEdited, raw.videoTimeSeconds);
+          const result = typeof saved === "number" ? { seconds: saved } : saved ?? {};
+          this.sessionScreenshots += 1;
+          this.renderSession();
+          this.applyCollapsed(this.collapsed);
+          this.update({
+            status: result.queued
+              ? "截图已离线保存，联网后自动补传"
+              : result.seconds === undefined
+                ? "截图已存证"
+                : `已存证 ${formatVideoTime(result.seconds)}`,
+          });
+          return;
+        }
         const editor = new ScreenshotEditor({
           imageDataUrl: raw.imageBase64,
           onCancel: () => {
@@ -1330,7 +1362,6 @@ export class AssistantOverlay {
       this.update({ status: "笔记内容不能为空" });
       return;
     }
-    this.markPlaybackStarted();
     const saveTags = [...this.noteTags];
     const saveButton = this.noteSaveButton;
     const cancelButton = this.noteCancelButton;

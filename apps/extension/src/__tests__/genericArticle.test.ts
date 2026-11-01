@@ -27,6 +27,21 @@ describe("generic article adapter", () => {
     ]);
   });
 
+  it("tracks the heading that has scrolled past the top", () => {
+    vi.stubGlobal("location", new URL("https://docs.example.com/guide/intro"));
+    const document_ = {
+      title: "文档",
+      querySelector: () => null,
+      querySelectorAll: () => [
+        { id: "a", textContent: "第一节", getBoundingClientRect: () => ({ top: -300 }) },
+        { id: "b", textContent: "第二节", getBoundingClientRect: () => ({ top: 20 }) },
+        { id: "c", textContent: "第三节", getBoundingClientRect: () => ({ top: 400 }) },
+      ],
+    } as unknown as Document;
+
+    expect(genericArticleAdapter.extractCurrentChapter(document_)?.externalChapterId).toBe("b");
+  });
+
   it("has no video or transcript on a text page", () => {
     expect(genericArticleAdapter.findVideo({} as Document)).toBeNull();
     expect(genericArticleAdapter.extractTranscript({} as Document)).toBeNull();
