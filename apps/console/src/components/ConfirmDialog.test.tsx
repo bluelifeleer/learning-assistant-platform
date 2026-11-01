@@ -18,6 +18,17 @@ describe("ConfirmDialog", () => {
     expect(html).toContain("确定删除？");
   });
 
+  it("可逆操作用主色按钮，而不是危险红", () => {
+    const html = renderToString(
+      <ConfirmDialog title="归档当前列表？" confirmLabel="归档 3 门" tone="primary" onCancel={noop} onConfirm={noop}>
+        <p className="confirm-text">将归档 3 门课程。</p>
+      </ConfirmDialog>,
+    );
+
+    expect(html).toContain("btn-primary");
+    expect(html).not.toContain("btn-danger");
+  });
+
   it("忙碌时换文案，服务端错误直接显示在弹窗里", () => {
     const html = renderToString(
       <ConfirmDialog

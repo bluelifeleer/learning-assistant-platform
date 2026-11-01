@@ -7,6 +7,8 @@ interface ConfirmDialogProps {
   confirmLabel: string;
   busyLabel?: string;
   busy?: boolean;
+  /** danger = 不可逆操作(红);primary = 可逆操作(蓝) */
+  tone?: "danger" | "primary";
   /** 服务端返回的错误,展示在弹窗内,关掉弹窗之前就能看到原因 */
   error?: string;
   onCancel: () => void;
@@ -15,16 +17,17 @@ interface ConfirmDialogProps {
 }
 
 /**
- * 危险操作确认条:替代 window.confirm。
+ * 确认条:替代 window.confirm。
  *
- * 默认把焦点放在「取消」上;确认按钮用实心红,和普通主按钮区分开。
- * 删除失败时弹窗不关闭,错误直接显示在正文里(例如适配器下还有课程)。
+ * 默认把焦点放在「取消」上;危险操作用实心红,可逆操作(批量归档等)用普通主色。
+ * 请求失败时弹窗不关闭,错误直接显示在正文里。
  */
 export function ConfirmDialog({
   title,
   confirmLabel,
   busyLabel = "处理中...",
   busy = false,
+  tone = "danger",
   error,
   onCancel,
   onConfirm,
@@ -44,7 +47,12 @@ export function ConfirmDialog({
           <button ref={cancelRef} type="button" className="btn btn-secondary" disabled={busy} onClick={onCancel}>
             取消
           </button>
-          <button type="button" className="btn btn-danger" disabled={busy} onClick={onConfirm}>
+          <button
+            type="button"
+            className={tone === "primary" ? "btn btn-primary" : "btn btn-danger"}
+            disabled={busy}
+            onClick={onConfirm}
+          >
             {busy ? busyLabel : confirmLabel}
           </button>
         </>

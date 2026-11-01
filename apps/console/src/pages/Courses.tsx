@@ -7,6 +7,8 @@ import {
   updateCourse,
   type CourseItem,
 } from "../api/client";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { InputDialog } from "../components/InputDialog";
 import { ListToolbar, RowActions, ToolbarSearch, ToolbarSelect } from "../components/ListControls";
 import { Modal } from "../components/Modal";
 import { matchesKeyword, sortItems } from "../listQuery";
@@ -43,12 +45,16 @@ export function Courses({ onOpenDetail }: CoursesProps) {
   const [sort, setSort] = useState("updated");
   const [message, setMessage] = useState("正在读取课程...");
   const [busyId, setBusyId] = useState<string | null>(null);
-  // 删除是不可逆操作：第一次点只是"上膛"，按钮变成「确认删除」，再点才真删
-  const [deleteArmed, setDeleteArmed] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<CourseItem | null>(null);
+  const [termTarget, setTermTarget] = useState<CourseItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CourseItem | null>(null);
+  const [bulkArchiveTarget, setBulkArchiveTarget] = useState<boolean | null>(null);
+  const [actionError, setActionError] = useState("");
   const [mergeSource, setMergeSource] = useState<CourseItem | null>(null);
   const [mergeTargetId, setMergeTargetId] = useState("");
   const [mergeBusy, setMergeBusy] = useState(false);
+  const [mergeError, setMergeError] = useState("");
 
   // 归档状态在客户端切换,所以一次把全部课程取回来,由筛选器决定显示哪些
   useEffect(() => {
@@ -93,71 +99,104 @@ export function Courses({ onOpenDetail }: CoursesProps) {
     }
   }
 
-  async function rename(course: CourseItem): Promise<void> {
-    const next = window.prompt("课程名称", course.title);
-    if (next === null) return;
-    const title = next.trim();
-    if (!title || title === course.title) return;
-    setBusyId(course.id);
-    try {
-      const updated = await updateCourse(course.id, { title });
-      setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      toast.success("已更新课程名称");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "重命名失败");
-    } finally {
-      setBusyId(null);
-    }
+  function openRename(course: CourseItem) {
+    setActionError("");
+    setRenameTarget(course);
   }
 
-  async function editTerm(course: CourseItem): Promise<void> {
-    const next = window.prompt("学期(留空表示不设置)", course.term ?? "");
-    if (next === null) return;
-    const term = next.trim();
-    if (term === (course.term ?? "")) return;
-    setBusyId(course.id);
-    try {
-      const updated = await updateCourse(course.id, { term });
-      setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-      toast.success("已更新学期");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "更新学期失败");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function requestDelete(course: CourseItem): Promise<void> {
-    if (deleteArmed !== course.id) {
-      setDeleteArmed(course.id);
-      toast.info(`再点一次「确认删除」会永久删除《${course.title}》及其章节、笔记、截图`);
+  async function submitRename(title: string): Promise<void> {
+    const target = renameTarget;
+    if (!target) return;
+    if (title === target.title) {
+      setRenameTarget(null);
       return;
     }
-    setDeleteArmed(null);
-    setBusyId(course.id);
+    setBusyId(target.id);
+    setActionError("");
     try {
-      const result = await deleteCourse(course.id);
-      setItems((current) => current.filter((item) => item.id !== course.id));
-      toast.success(`已删除《${course.title}》（${result.chapters} 章节，清理 ${result.files_removed} 个文件）`);
+      const updated = await updateCourse(target.id, { title });
+      setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setRenameTarget(null);
+      toast.success("已更新课程名称");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除失败");
+      setActionError(error instanceof Error ? error.message : "重命名失败");
     } finally {
       setBusyId(null);
     }
   }
 
-  async function bulkArchive(archived: boolean): Promise<void> {
+  function openTerm(course: CourseItem) {
+    setActionError("");
+    setTermTarget(course);
+  }
+
+  async function submitTerm(term: string): Promise<void> {
+    const target = termTarget;
+    if (!target) return;
+    if (term === (target.term ?? "")) {
+      setTermTarget(null);
+      return;
+    }
+    setBusyId(target.id);
+    setActionError("");
+    try {
+      const updated = await updateCourse(target.id, { term });
+      setItems((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setTermTarget(null);
+      toast.success("已更新学期");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "更新学期失败");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function openDelete(course: CourseItem) {
+    setActionError("");
+    setDeleteTarget(course);
+  }
+
+  async function confirmDelete(): Promise<void> {
+    const target = deleteTarget;
+    if (!target) return;
+    setBusyId(target.id);
+    setActionError("");
+    try {
+      const result = await deleteCourse(target.id);
+      setItems((current) => current.filter((item) => item.id !== target.id));
+      setDeleteTarget(null);
+      toast.success(`已删除《${target.title}》（${result.chapters} 章节，清理 ${result.files_removed} 个文件）`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "删除失败");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function requestBulkArchive(archived: boolean) {
+    if (!visible.length) return;
+    setActionError("");
+    setBulkArchiveTarget(archived);
+  }
+
+  async function confirmBulkArchive(): Promise<void> {
+    if (bulkArchiveTarget === null) return;
+    const archived = bulkArchiveTarget;
     const ids = visible.map((course) => course.id);
-    if (!ids.length) return;
-    if (!window.confirm(`${archived ? "归档" : "恢复"}当前列表里的 ${ids.length} 门课程？`)) return;
+    if (!ids.length) {
+      setBulkArchiveTarget(null);
+      return;
+    }
     setBulkBusy(true);
+    setActionError("");
     try {
       const result = await bulkArchiveCourses(ids, archived);
       const updated = await fetchCourses(undefined, true);
       setItems(updated.items);
+      setBulkArchiveTarget(null);
       toast.success(`已${archived ? "归档" : "恢复"} ${result.updated} 门课程`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "批量操作失败");
+      setActionError(error instanceof Error ? error.message : "批量操作失败");
     } finally {
       setBulkBusy(false);
     }
@@ -165,14 +204,23 @@ export function Courses({ onOpenDetail }: CoursesProps) {
 
   function openMerge(course: CourseItem): void {
     const candidate = items.find((item) => item.id !== course.id && !item.archived_at) ?? items.find((item) => item.id !== course.id);
+    setMergeError("");
     setMergeSource(course);
     setMergeTargetId(candidate?.id ?? "");
+  }
+
+  function closeMerge(): void {
+    if (mergeBusy) return;
+    setMergeSource(null);
+    setMergeTargetId("");
+    setMergeError("");
   }
 
   async function confirmMerge(): Promise<void> {
     if (!mergeSource || !mergeTargetId) return;
     const target = items.find((item) => item.id === mergeTargetId);
     setMergeBusy(true);
+    setMergeError("");
     try {
       const result = await mergeCourses(mergeSource.id, mergeTargetId);
       const updated = await fetchCourses(undefined, true);
@@ -183,7 +231,7 @@ export function Courses({ onOpenDetail }: CoursesProps) {
       setMergeSource(null);
       setMergeTargetId("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "合并失败");
+      setMergeError(error instanceof Error ? error.message : "合并失败");
     } finally {
       setMergeBusy(false);
     }
@@ -202,7 +250,7 @@ export function Courses({ onOpenDetail }: CoursesProps) {
             type="button"
             className="text-button-sm"
             disabled={bulkBusy || !visible.length}
-            onClick={() => void bulkArchive(true)}
+            onClick={() => requestBulkArchive(true)}
           >
             归档当前 {visible.length} 门
           </button>
@@ -210,7 +258,7 @@ export function Courses({ onOpenDetail }: CoursesProps) {
             type="button"
             className="text-button-sm"
             disabled={bulkBusy || !visible.length}
-            onClick={() => void bulkArchive(false)}
+            onClick={() => requestBulkArchive(false)}
           >
             恢复当前 {visible.length} 门
           </button>
@@ -241,7 +289,7 @@ export function Courses({ onOpenDetail }: CoursesProps) {
                     disabled={busyId === course.id}
                     onClick={(event) => {
                       event.stopPropagation();
-                      void rename(course);
+                      openRename(course);
                     }}
                   >
                     改名
@@ -253,7 +301,7 @@ export function Courses({ onOpenDetail }: CoursesProps) {
                     disabled={busyId === course.id}
                     onClick={(event) => {
                       event.stopPropagation();
-                      void editTerm(course);
+                      openTerm(course);
                     }}
                   >
                     学期
@@ -285,15 +333,14 @@ export function Courses({ onOpenDetail }: CoursesProps) {
                   <button
                     type="button"
                     className="text-button-sm"
-                    data-tone={deleteArmed === course.id ? "danger" : undefined}
                     title="永久删除课程及其章节、笔记、截图"
                     disabled={busyId === course.id}
                     onClick={(event) => {
                       event.stopPropagation();
-                      void requestDelete(course);
+                      openDelete(course);
                     }}
                   >
-                    {deleteArmed === course.id ? "确认删除" : "删除"}
+                    删除
                   </button>
                 </RowActions>
               </div>
@@ -321,27 +368,15 @@ export function Courses({ onOpenDetail }: CoursesProps) {
       {mergeSource ? (
         <Modal
           title={`合并《${mergeSource.title}》`}
-          onClose={() => {
-            if (mergeBusy) return;
-            setMergeSource(null);
-            setMergeTargetId("");
-          }}
+          onClose={closeMerge}
           footer={
             <>
-              <button
-                type="button"
-                className="text-button"
-                disabled={mergeBusy}
-                onClick={() => {
-                  setMergeSource(null);
-                  setMergeTargetId("");
-                }}
-              >
+              <button type="button" className="btn btn-secondary" disabled={mergeBusy} onClick={closeMerge}>
                 取消
               </button>
               <button
                 type="button"
-                className="primary-button"
+                className="btn btn-danger"
                 disabled={mergeBusy || !mergeTargetId}
                 onClick={() => void confirmMerge()}
               >
@@ -368,8 +403,96 @@ export function Courses({ onOpenDetail }: CoursesProps) {
                 ))}
             </select>
           </label>
-          <p className="transfer-muted">合并不可撤销，建议先确认目标课程是正确的那个。</p>
+          <p className="confirm-warning">合并不可撤销：来源课程会被删除，建议先确认目标课程是正确的那个。</p>
+          {mergeError ? <p className="form-error" role="alert">{mergeError}</p> : null}
         </Modal>
+      ) : null}
+
+      {renameTarget ? (
+        <InputDialog
+          key={`rename-${renameTarget.id}`}
+          title="重命名课程"
+          label="课程名称"
+          initialValue={renameTarget.title}
+          placeholder="输入课程名称"
+          confirmLabel="保存名称"
+          maxLength={500}
+          busy={busyId === renameTarget.id}
+          error={actionError}
+          onCancel={() => {
+            if (busyId) return;
+            setRenameTarget(null);
+            setActionError("");
+          }}
+          onConfirm={(title) => void submitRename(title)}
+        />
+      ) : null}
+
+      {termTarget ? (
+        <InputDialog
+          key={`term-${termTarget.id}`}
+          title="修改学期"
+          label="学期"
+          initialValue={termTarget.term ?? ""}
+          placeholder="如 2026 秋"
+          hint="留空表示不设置学期。"
+          required={false}
+          maxLength={120}
+          confirmLabel="保存学期"
+          busy={busyId === termTarget.id}
+          error={actionError}
+          onCancel={() => {
+            if (busyId) return;
+            setTermTarget(null);
+            setActionError("");
+          }}
+          onConfirm={(term) => void submitTerm(term)}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <ConfirmDialog
+          title="永久删除课程？"
+          confirmLabel="永久删除"
+          busyLabel="删除中..."
+          busy={busyId === deleteTarget.id}
+          error={actionError}
+          onCancel={() => {
+            if (busyId) return;
+            setDeleteTarget(null);
+            setActionError("");
+          }}
+          onConfirm={() => void confirmDelete()}
+        >
+          <p className="confirm-text">
+            确定永久删除《<strong>{deleteTarget.title}</strong>》？
+          </p>
+          <p className="confirm-warning">
+            会同时删除 {deleteTarget.chapter_count} 个章节、{deleteTarget.transcript_count} 条字幕、{deleteTarget.note_count} 条笔记，以及截图、复习卡和题目，且无法恢复。
+          </p>
+        </ConfirmDialog>
+      ) : null}
+
+      {bulkArchiveTarget !== null ? (
+        <ConfirmDialog
+          title={bulkArchiveTarget ? "归档当前列表？" : "恢复当前列表？"}
+          confirmLabel={bulkArchiveTarget ? `归档 ${visible.length} 门` : `恢复 ${visible.length} 门`}
+          busyLabel={bulkArchiveTarget ? "归档中..." : "恢复中..."}
+          busy={bulkBusy}
+          tone="primary"
+          error={actionError}
+          onCancel={() => {
+            if (bulkBusy) return;
+            setBulkArchiveTarget(null);
+            setActionError("");
+          }}
+          onConfirm={() => void confirmBulkArchive()}
+        >
+          <p className="confirm-text">
+            将{bulkArchiveTarget ? "归档" : "恢复"}当前列表里的 <strong>{visible.length}</strong> 门课程。
+          </p>
+          <p className="modal-hint">归档只影响列表可见性，不会删除章节、笔记或截图，可随时恢复。</p>
+        </ConfirmDialog>
       ) : null}
     </section>
   );
