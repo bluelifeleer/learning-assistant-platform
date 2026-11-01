@@ -62,6 +62,13 @@ describe("extension config", () => {
     expect(isValidApiBaseUrl(config.apiBaseUrl)).toBe(false);
   });
 
+  it("normalizes the review reminder time and defaults to 09:00", () => {
+    expect(normalizeExtensionConfig({ reviewReminderTime: "07:30" }).reviewReminderTime).toBe("07:30");
+    expect(normalizeExtensionConfig({ reviewReminderTime: "25:99" }).reviewReminderTime).toBe("09:00");
+    expect(normalizeExtensionConfig({}).reviewReminderEnabled).toBe(true);
+    expect(normalizeExtensionConfig({ reviewReminderEnabled: false }).reviewReminderEnabled).toBe(false);
+  });
+
   it("normalizes paused site domains and privacy mode", () => {
     const config = normalizeExtensionConfig({
       pausedSites: ["https://Private.Example.com/path", "private.example.com", "bad domain"],
@@ -116,6 +123,8 @@ describe("extension config", () => {
       articleCapture: false,
       pausedSites: [],
       privacyMode: false,
+      reviewReminderEnabled: true,
+      reviewReminderTime: "09:00",
     });
   });
 });
@@ -129,6 +138,8 @@ describe("default config seeding", () => {
       articleCapture: false,
       pausedSites: [],
       privacyMode: false,
+      reviewReminderEnabled: true,
+      reviewReminderTime: "09:00",
     });
 
     await ensureDefaultExtensionConfig();
@@ -148,6 +159,8 @@ describe("default config seeding", () => {
       articleCapture: DEFAULT_EXTENSION_CONFIG.articleCapture,
       pausedSites: DEFAULT_EXTENSION_CONFIG.pausedSites,
       privacyMode: DEFAULT_EXTENSION_CONFIG.privacyMode,
+      reviewReminderEnabled: DEFAULT_EXTENSION_CONFIG.reviewReminderEnabled,
+      reviewReminderTime: DEFAULT_EXTENSION_CONFIG.reviewReminderTime,
     });
   });
 
@@ -163,6 +176,8 @@ describe("default config seeding", () => {
       articleCapture: DEFAULT_EXTENSION_CONFIG.articleCapture,
       pausedSites: DEFAULT_EXTENSION_CONFIG.pausedSites,
       privacyMode: DEFAULT_EXTENSION_CONFIG.privacyMode,
+      reviewReminderEnabled: DEFAULT_EXTENSION_CONFIG.reviewReminderEnabled,
+      reviewReminderTime: DEFAULT_EXTENSION_CONFIG.reviewReminderTime,
     });
   });
 });

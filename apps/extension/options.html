@@ -68,6 +68,12 @@
         <button type="submit">保存配置</button>
         <button id="testConnection" type="button">测试连接</button>
         <section>
+          <h2>复习提醒</h2>
+          <label class="adapter-option"><input id="reviewReminderEnabled" type="checkbox" /> 每天提醒到期的复习卡</label>
+          <label>提醒时间<input id="reviewReminderTime" type="time" value="09:00" /></label>
+          <p class="hint">按本机时区在设定时间检查一次；同一天最多提醒一次。关闭后不再创建浏览器通知。</p>
+        </section>
+        <section>
           <h2>诊断</h2>
           <p class="hint">扩展版本：<span id="extensionVersion">—</span></p>
           <button id="checkApi" type="button">检查 API 连接</button>

@@ -29,6 +29,10 @@ export interface ExtensionConfig {
   pausedSites?: string[];
   /** 隐私模式：禁用截图存证 */
   privacyMode?: boolean;
+  /** 到期复习提醒开关 */
+  reviewReminderEnabled?: boolean;
+  /** 本地提醒时间 HH:mm */
+  reviewReminderTime?: string;
 }
 
 export const DEFAULT_EXTENSION_CONFIG: ExtensionConfig = {
@@ -39,6 +43,8 @@ export const DEFAULT_EXTENSION_CONFIG: ExtensionConfig = {
   articleCapture: false,
   pausedSites: [],
   privacyMode: false,
+  reviewReminderEnabled: true,
+  reviewReminderTime: "09:00",
 };
 
 const LOCAL_API_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
@@ -89,6 +95,12 @@ export function normalizeCustomAdapters(value: unknown): CustomAdapterConfig[] {
   return result;
 }
 
+export function normalizeReminderTime(value: unknown): string {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw);
+  return match ? `${match[1]}:${match[2]}` : "09:00";
+}
+
 export function isValidApiBaseUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -116,11 +128,13 @@ export function normalizeExtensionConfig(value: Partial<ExtensionConfig> | null 
       ? Array.from(new Set(value.pausedSites.map((item) => normalizeDomain(item)).filter(Boolean))).slice(0, 50)
       : [],
     privacyMode: value?.privacyMode === true,
+    reviewReminderEnabled: value?.reviewReminderEnabled !== false,
+    reviewReminderTime: normalizeReminderTime(value?.reviewReminderTime),
   };
 }
 
 export async function loadExtensionConfig(): Promise<ExtensionConfig> {
-  const stored = await chrome.storage.local.get(["apiBaseUrl", "apiToken", "enabledAdapters", "customAdapters", "articleCapture", "pausedSites", "privacyMode"]);
+  const stored = await chrome.storage.local.get(["apiBaseUrl", "apiToken", "enabledAdapters", "customAdapters", "articleCapture", "pausedSites", "privacyMode", "reviewReminderEnabled", "reviewReminderTime"]);
   return normalizeExtensionConfig(stored as Partial<ExtensionConfig>);
 }
 
@@ -133,7 +147,7 @@ export async function saveExtensionConfig(config: ExtensionConfig): Promise<void
 }
 
 export async function ensureDefaultExtensionConfig(): Promise<void> {
-  const stored = await chrome.storage.local.get(["apiBaseUrl", "enabledAdapters", "customAdapters", "articleCapture", "pausedSites", "privacyMode"]) as Partial<ExtensionConfig>;
+  const stored = await chrome.storage.local.get(["apiBaseUrl", "enabledAdapters", "customAdapters", "articleCapture", "pausedSites", "privacyMode", "reviewReminderEnabled", "reviewReminderTime"]) as Partial<ExtensionConfig>;
   const defaults: Partial<ExtensionConfig> = {};
   if (typeof stored.apiBaseUrl !== "string" || !stored.apiBaseUrl.trim()) {
     defaults.apiBaseUrl = DEFAULT_EXTENSION_CONFIG.apiBaseUrl;
@@ -154,6 +168,12 @@ export async function ensureDefaultExtensionConfig(): Promise<void> {
   }
   if (typeof stored.privacyMode !== "boolean") {
     defaults.privacyMode = DEFAULT_EXTENSION_CONFIG.privacyMode;
+  }
+  if (typeof stored.reviewReminderEnabled !== "boolean") {
+    defaults.reviewReminderEnabled = DEFAULT_EXTENSION_CONFIG.reviewReminderEnabled;
+  }
+  if (typeof stored.reviewReminderTime !== "string") {
+    defaults.reviewReminderTime = DEFAULT_EXTENSION_CONFIG.reviewReminderTime;
   }
   if (Object.keys(defaults).length > 0) {
     await chrome.storage.local.set(defaults);

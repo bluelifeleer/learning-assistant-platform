@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   localDayKey,
+  nextReminderTime,
   notifyDueReviewCards,
   registerReviewReminder,
   REVIEW_REMINDER_ALARM,
   reviewNotification,
+  scheduleReviewReminder,
 } from "../backgroundReviewReminder";
 
 afterEach(() => {
@@ -16,6 +18,49 @@ describe("review reminder", () => {
   it("uses local date for the once-per-day guard", () => {
     expect(localDayKey(new Date(2026, 10, 1, 23, 59))).toBe("2026-11-01");
     expect(localDayKey(new Date(2026, 0, 9, 0, 0))).toBe("2026-01-09");
+  });
+
+  it("schedules the next local reminder time", () => {
+    const morning = new Date(2026, 10, 1, 8, 0);
+    const evening = new Date(2026, 10, 1, 10, 0);
+
+    expect(nextReminderTime(morning, "09:00")).toEqual(new Date(2026, 10, 1, 9, 0));
+    expect(nextReminderTime(evening, "09:00")).toEqual(new Date(2026, 10, 2, 9, 0));
+    expect(nextReminderTime(evening, "bad")).toEqual(new Date(2026, 10, 2, 9, 0));
+  });
+
+  it("reschedules the alarm at the configured time", async () => {
+    const store: Record<string, unknown> = {
+      apiBaseUrl: "http://127.0.0.1:17890/api/v1",
+      apiToken: "la_token",
+      enabledAdapters: [],
+      reviewReminderEnabled: true,
+      reviewReminderTime: "09:30",
+    };
+    const create = vi.fn().mockResolvedValue(undefined);
+    const clear = vi.fn().mockResolvedValue(true);
+    vi.stubGlobal("chrome", {
+      storage: {
+        local: {
+          get: vi.fn(async (key: string | string[]) => {
+            if (Array.isArray(key)) return Object.fromEntries(key.map((item) => [item, store[item]]));
+            return { [key]: store[key] };
+          }),
+        },
+      },
+      alarms: { create, clear },
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 1, 8, 0));
+
+    await scheduleReviewReminder();
+
+    expect(clear).toHaveBeenCalledWith(REVIEW_REMINDER_ALARM);
+    expect(create).toHaveBeenCalledWith(
+      REVIEW_REMINDER_ALARM,
+      { when: new Date(2026, 10, 1, 9, 30).getTime() },
+    );
+    vi.useRealTimers();
   });
 
   it("builds a readable due-card notification", () => {

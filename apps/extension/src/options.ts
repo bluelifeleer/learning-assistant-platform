@@ -6,6 +6,7 @@ import {
   type CustomAdapterConfig,
   type ExtensionConfig,
 } from "./config";
+import { scheduleReviewReminder } from "./backgroundReviewReminder";
 import { flushOfflineQueue, pendingOfflineCount } from "./offlineQueue";
 import { saveConfigAndReportBinding } from "./optionsActions";
 import { reportOptionsHeartbeat } from "./pluginHeartbeat";
@@ -27,6 +28,8 @@ const flushQueueButton = document.querySelector<HTMLButtonElement>("#flushQueue"
 const extensionVersion = document.querySelector<HTMLSpanElement>("#extensionVersion");
 const checkApiButton = document.querySelector<HTMLButtonElement>("#checkApi");
 const diagnosticStatus = document.querySelector<HTMLParagraphElement>("#diagnosticStatus");
+const reviewReminderEnabledInput = document.querySelector<HTMLInputElement>("#reviewReminderEnabled");
+const reviewReminderTimeInput = document.querySelector<HTMLInputElement>("#reviewReminderTime");
 const testSelectorsButton = document.querySelector<HTMLButtonElement>("#testSelectors");
 const selectorStatus = document.querySelector<HTMLParagraphElement>("#selectorStatus");
 
@@ -235,6 +238,8 @@ function readFormConfig(): ExtensionConfig {
     articleCapture: articleCaptureInput?.checked === true,
     pausedSites: (pausedSitesInput?.value ?? "").split(/[\n,]/).map((item) => item.trim()).filter(Boolean),
     privacyMode: privacyModeInput?.checked === true,
+    reviewReminderEnabled: reviewReminderEnabledInput?.checked !== false,
+    reviewReminderTime: reviewReminderTimeInput?.value || "09:00",
   };
 }
 
@@ -249,6 +254,8 @@ async function init(): Promise<void> {
   if (articleCaptureInput) articleCaptureInput.checked = config.articleCapture === true;
   if (pausedSitesInput) pausedSitesInput.value = (config.pausedSites ?? []).join("\n");
   if (privacyModeInput) privacyModeInput.checked = config.privacyMode === true;
+  if (reviewReminderEnabledInput) reviewReminderEnabledInput.checked = config.reviewReminderEnabled !== false;
+  if (reviewReminderTimeInput) reviewReminderTimeInput.value = config.reviewReminderTime ?? "09:00";
   await renderQueueStatus();
   const idAttribute = document.querySelector<HTMLInputElement>("#customChapterIdAttribute");
   if (idAttribute) idAttribute.value = "data-id";
@@ -257,8 +264,13 @@ async function init(): Promise<void> {
 form?.addEventListener("submit", (event) => {
   event.preventDefault();
   setStatus("正在保存配置...");
-  void saveConfigAndReportBinding(readFormConfig())
-    .then((result) => setStatus(result.message))
+  const config = readFormConfig();
+  void saveConfigAndReportBinding(config)
+    .then((result) => {
+      setStatus(result.message);
+      // 保存后立即按新时间重排，不用等 service worker 重启
+      return scheduleReviewReminder();
+    })
     .catch((error: unknown) => setStatus(error instanceof Error ? error.message : "配置保存失败"));
 });
 

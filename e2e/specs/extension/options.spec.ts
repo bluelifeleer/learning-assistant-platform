@@ -26,6 +26,22 @@ test("保存配置：没填 Token 时提示先去绑定", async ({ context, exte
   await expect(page.locator("#status")).toHaveText(/配置已保存|请填写插件 Token/);
 });
 
+test("复习提醒时间和开关可以保存并读回", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/options.html`);
+  await page.locator("#apiBaseUrl").fill("http://127.0.0.1:17899/api/v1");
+  await page.locator("#apiToken").fill("la_e2e_token");
+  await page.locator("#reviewReminderTime").fill("07:15");
+  await page.locator("#reviewReminderEnabled").uncheck();
+  await page.getByRole("button", { name: "保存配置" }).click();
+  await expect(page.locator("#status")).toHaveText(/配置已保存/);
+
+  await page.reload();
+
+  await expect(page.locator("#reviewReminderTime")).toHaveValue("07:15");
+  await expect(page.locator("#reviewReminderEnabled")).not.toBeChecked();
+});
+
 test("诊断区显示版本并能检查 API", async ({ context, extensionId }) => {
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/options.html`);
