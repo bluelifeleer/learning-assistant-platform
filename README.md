@@ -230,6 +230,14 @@ password=learn_assistant
 - **在线状态自愈**:插件后台每分钟周期心跳(chrome.alarms),API 重启后插件自动恢复在线,无需手动重连。
 - **安全**:全部业务接口 Bearer 鉴权、安装向导安装后锁定、注册开关默认关闭、token 可吊销、pepper 随机生成。
 
+## 扩展已知限制
+
+- **Chrome 原生 PDF 查看器**：它是受保护的扩展页面，content script 无法注入，因此无法读取 PDF 文字层。需要 PDF 笔记时可先用截图存证，或把 PDF 内容复制到普通文章页；独立 PDF.js 查看器不在当前范围内。
+- **浏览器范围**：当前只支持 Chromium 系（Chrome / Edge）的 Manifest V3。Firefox 的后台模型和 `browser.*` API 不同，Safari 需要 Xcode App Extension 工程，均未移植。
+- **站点权限**：为保证自动挂载，manifest 仍使用 `<all_urls>`；没有做可选 host 权限收窄。用"暂停站点"和隐私模式降低误采集，但首次授权范围仍然较大。
+- **语音输入**：依赖浏览器的 `SpeechRecognition` 和麦克风授权，部分站点/iframe 会拒绝，失败时浮层会提示，不会静默上传音频。
+- **AI 功能**：需要先在控制台配置 LLM。扩展侧已用本地 mock LLM 验证完整链路，真实模型效果取决于供应商。
+
 ## 跨设备迁移
 
 把一台设备上的课程（含字幕、笔记、截图、AI 摘要、复习卡、测验）搬到另一台设备：
