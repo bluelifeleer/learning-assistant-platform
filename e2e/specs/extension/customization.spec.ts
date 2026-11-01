@@ -55,6 +55,24 @@ test("自定义站点可以编辑后保存", async ({ context, extensionId }) =>
   await expect(overlay).toContainText("适配器: E2E 编辑后");
 });
 
+test("选项页可以在最近的学习页上测试选择器", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await page.goto(SITE);
+  await expect(page.locator("#learning-assistant-overlay")).toBeVisible({ timeout: 20_000 });
+
+  const options = await openOptions(context, extensionId);
+  await options.locator("#customCourseSelector").fill("h1");
+  await options.locator("#customChapterSelector").fill("#chapters li");
+  await options.locator("#customTranscriptSelector").fill(".subtitle");
+  await options.locator("#customVideoSelector").fill("video");
+  await options.getByRole("button", { name: "测试选择器（最近的学习页）" }).click();
+
+  await expect(options.locator("#selectorStatus")).toContainText("课程标题 1 个");
+  await expect(options.locator("#selectorStatus")).toContainText("章节列表 2 个");
+  await expect(options.locator("#selectorStatus")).toContainText("字幕 1 个");
+  await expect(options.locator("#selectorStatus")).toContainText("视频 1 个");
+});
+
 test("文章/文档页模式会在普通网页挂载浮层", async ({ context, extensionId }) => {
   const options = await openOptions(context, extensionId);
   await options.locator("#articleCapture").check();

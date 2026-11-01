@@ -1,7 +1,7 @@
 import { CaptureClient, CaptureRequestError } from "./capture/client";
 import { mapChapterForSnapshot } from "./capture/snapshotChapters";
 import { genericArticleAdapter } from "./adapters/genericArticle";
-import { enqueueOfflineCapture } from "./offlineQueue";
+import { enqueueOfflineCapture, pendingOfflineCount } from "./offlineQueue";
 import { installScreenshotEditHost, requestScreenshotEditFromTop } from "./screenshotBridge";
 import { pickAdapter } from "./adapters/registry";
 import { isValidApiBaseUrl, loadExtensionConfig, type ExtensionConfig } from "./config";
@@ -211,6 +211,11 @@ async function boot(): Promise<void> {
   let client = buildClient(config);
 
   let overlay: AssistantOverlay | undefined;
+  const refreshPendingCaptures = (): void => {
+    void pendingOfflineCount()
+      .then((count) => overlay?.update({ pendingCaptures: count }))
+      .catch(() => undefined);
+  };
   const maybeFetchContinue = (): void => {
     const activeClient = client;
     const sessionId = videoSessionId();
@@ -269,7 +274,10 @@ async function boot(): Promise<void> {
               payload as unknown as Record<string, unknown>,
               options.addToReview,
             );
-            if (queued) return { seconds: videoTimeSeconds, queued: true };
+            if (queued) {
+              refreshPendingCaptures();
+              return { seconds: videoTimeSeconds, queued: true };
+            }
           }
           throw error;
         }
@@ -351,7 +359,10 @@ async function boot(): Promise<void> {
               "/capture/screenshot",
               payload as unknown as Record<string, unknown>,
             );
-            if (queued) return { seconds: videoTimeSeconds, queued: true };
+            if (queued) {
+              refreshPendingCaptures();
+              return { seconds: videoTimeSeconds, queued: true };
+            }
           }
           throw error;
         }
@@ -369,6 +380,7 @@ async function boot(): Promise<void> {
       draftKey: videoSessionId() ?? `${adapter.id}:${reportPageUrl}`,
     });
     overlay.setScreenshotEnabled(!config.privacyMode);
+    refreshPendingCaptures();
     selectionCleanup = installSelectionBubble(overlay);
     shortcutCleanup = installShortcuts(overlay);
     if (adapter.id === "generic-article") {

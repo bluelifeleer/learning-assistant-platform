@@ -304,6 +304,14 @@ describe("assistant overlay", () => {
     expect(onSaveNote).toHaveBeenCalledWith("我的理解", [], { sourceText: "选中的定义" });
   });
 
+  it("shows pending offline captures in the session line", () => {
+    const overlay = new AssistantOverlay({ onSaveNote: vi.fn() });
+
+    overlay.update({ pendingCaptures: 2 });
+
+    expect(overlaySessionLine(overlay).textContent).toContain("待补传 2");
+  });
+
   it("counts only watched seconds in the session summary", () => {
     const overlay = new AssistantOverlay({ onSaveNote: vi.fn() });
 

@@ -24,6 +24,11 @@ const privacyModeInput = document.querySelector<HTMLInputElement>("#privacyMode"
 const cancelCustomEditButton = document.querySelector<HTMLButtonElement>("#cancelCustomEdit");
 const queueStatus = document.querySelector<HTMLParagraphElement>("#queueStatus");
 const flushQueueButton = document.querySelector<HTMLButtonElement>("#flushQueue");
+const extensionVersion = document.querySelector<HTMLSpanElement>("#extensionVersion");
+const checkApiButton = document.querySelector<HTMLButtonElement>("#checkApi");
+const diagnosticStatus = document.querySelector<HTMLParagraphElement>("#diagnosticStatus");
+const testSelectorsButton = document.querySelector<HTMLButtonElement>("#testSelectors");
+const selectorStatus = document.querySelector<HTMLParagraphElement>("#selectorStatus");
 
 let customAdapters: CustomAdapterConfig[] = [];
 let editingCustomId: string | null = null;
@@ -240,6 +245,7 @@ async function init(): Promise<void> {
   renderAdapters(config.enabledAdapters);
   customAdapters = config.customAdapters;
   renderCustomAdapters();
+  if (extensionVersion) extensionVersion.textContent = chrome.runtime.getManifest().version;
   if (articleCaptureInput) articleCaptureInput.checked = config.articleCapture === true;
   if (pausedSitesInput) pausedSitesInput.value = (config.pausedSites ?? []).join("\n");
   if (privacyModeInput) privacyModeInput.checked = config.privacyMode === true;
@@ -271,6 +277,65 @@ cancelCustomEditButton?.addEventListener("click", () => {
   cancelCustomEditButton.style.display = "none";
   clearCustomForm();
   setStatus("已取消编辑");
+});
+
+testSelectorsButton?.addEventListener("click", () => {
+  const selectors = {
+    课程标题: inputValue("#customCourseSelector"),
+    章节列表: inputValue("#customChapterSelector"),
+    当前章节: inputValue("#customCurrentChapterSelector"),
+    字幕: inputValue("#customTranscriptSelector"),
+    视频: inputValue("#customVideoSelector"),
+  };
+  if (selectorStatus) selectorStatus.textContent = "正在最近打开的学习页上测试…";
+  void (async () => {
+    const tabs = await chrome.tabs.query({});
+    const target = tabs
+      .filter((tab) => tab.id !== undefined && typeof tab.url === "string" && /^https?:/i.test(tab.url))
+      .sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0))[0];
+    if (!target?.id) {
+      if (selectorStatus) selectorStatus.textContent = "没有找到可测试的网页，请先打开一个学习页";
+      return;
+    }
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId: target.id },
+      func: (values: Record<string, string>) => {
+        const counts: Record<string, number> = {};
+        for (const [label, selector] of Object.entries(values)) {
+          if (!selector) {
+            counts[label] = 0;
+            continue;
+          }
+          try {
+            counts[label] = document.querySelectorAll(selector).length;
+          } catch {
+            counts[label] = -1;
+          }
+        }
+        return counts;
+      },
+      args: [selectors],
+    });
+    const counts = (injection?.result ?? {}) as Record<string, number>;
+    const summary = Object.entries(counts)
+      .map(([label, count]) => `${label} ${count < 0 ? "选择器语法错误" : `${count} 个`}`)
+      .join(" · ");
+    if (selectorStatus) selectorStatus.textContent = summary || "没有可测试的选择器";
+  })().catch((error: unknown) => {
+    if (selectorStatus) selectorStatus.textContent = `测试失败：${error instanceof Error ? error.message : "请检查页面权限"}`;
+  });
+});
+
+checkApiButton?.addEventListener("click", () => {
+  const config = readFormConfig();
+  if (diagnosticStatus) diagnosticStatus.textContent = "正在检查…";
+  void fetch(`${config.apiBaseUrl.replace(/\/$/, "")}/health`, { signal: AbortSignal.timeout(10_000) })
+    .then(async (response) => {
+      if (diagnosticStatus) diagnosticStatus.textContent = response.ok ? `API 连接正常（HTTP ${response.status}）` : `API 返回 HTTP ${response.status}`;
+    })
+    .catch((error: unknown) => {
+      if (diagnosticStatus) diagnosticStatus.textContent = `API 连接失败：${error instanceof Error ? error.message : "未知错误"}`;
+    });
 });
 
 flushQueueButton?.addEventListener("click", () => {

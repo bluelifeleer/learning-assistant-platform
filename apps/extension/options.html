@@ -61,10 +61,18 @@
             </div>
             <label>视频选择器（可选）<input id="customVideoSelector" type="text" placeholder="video" /></label>
             <button id="addCustomAdapter" type="button">添加自定义站点</button>
+            <button id="testSelectors" type="button" style="background:#5b6b7d">测试选择器（最近的学习页）</button>
+            <p id="selectorStatus" class="hint"></p>
           </div>
         </section>
         <button type="submit">保存配置</button>
         <button id="testConnection" type="button">测试连接</button>
+        <section>
+          <h2>诊断</h2>
+          <p class="hint">扩展版本：<span id="extensionVersion">—</span></p>
+          <button id="checkApi" type="button">检查 API 连接</button>
+          <p id="diagnosticStatus" class="hint"></p>
+        </section>
         <section>
           <h2>离线队列</h2>
           <p class="hint">网络失败时的笔记/截图会暂存在本地，恢复后自动补传。</p>

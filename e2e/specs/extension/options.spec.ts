@@ -26,6 +26,17 @@ test("保存配置：没填 Token 时提示先去绑定", async ({ context, exte
   await expect(page.locator("#status")).toHaveText(/配置已保存|请填写插件 Token/);
 });
 
+test("诊断区显示版本并能检查 API", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/options.html`);
+  await page.locator("#apiBaseUrl").fill("http://127.0.0.1:17899/api/v1");
+
+  await expect(page.locator("#extensionVersion")).toHaveText(/\d+\.\d+\.\d+/);
+  await expect(page.locator("#queueStatus")).toContainText("待补传");
+  await page.getByRole("button", { name: "检查 API 连接" }).click();
+  await expect(page.locator("#diagnosticStatus")).toContainText("API 连接正常");
+});
+
 test("保存的配置会被重新打开时读回", async ({ context, extensionId }) => {
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/options.html`);

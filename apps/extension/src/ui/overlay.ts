@@ -14,6 +14,8 @@ export interface OverlayState {
   draftKey?: string;
   /** 上次播放位置;有值时浮层显示「继续上次」 */
   continueSeconds?: number;
+  /** 本地待补传的采集数量 */
+  pendingCaptures?: number;
 }
 
 export const OVERLAY_NOTE_TAGS = ["考点", "高频", "疑问", "普通", "简答", "多选", "单选"];
@@ -403,6 +405,7 @@ export class AssistantOverlay {
     if (this.sessionQuestions) parts.push(`疑问 ${this.sessionQuestions}`);
     if (this.sessionScreenshots) parts.push(`截图 ${this.sessionScreenshots}`);
     if (this.sessionReviews) parts.push(`复习 ${this.sessionReviews}`);
+    if (this.currentState.pendingCaptures) parts.push(`待补传 ${this.currentState.pendingCaptures}`);
     this.sessionLine.textContent = parts.join(" · ");
   }
 
@@ -620,6 +623,7 @@ export class AssistantOverlay {
   update(state: Partial<OverlayState>): void {
     this.currentState = { ...this.currentState, ...state };
     this.render();
+    if (state.pendingCaptures !== undefined) this.renderSession();
   }
 
   private render(): void {
