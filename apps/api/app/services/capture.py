@@ -16,6 +16,8 @@ from app.models.entities import (
     Membership,
     Note,
     NoteImage,
+    Organization,
+    ReviewCard,
     Screenshot,
     Site,
     TranscriptSegment,
@@ -24,6 +26,7 @@ from app.models.entities import (
     VideoSession,
 )
 from app.schemas.capture import (
+    CaptureAskIn,
     ChapterSnapshotIn,
     CourseSnapshotIn,
     NoteCaptureIn,
@@ -32,8 +35,10 @@ from app.schemas.capture import (
     TranscriptSegmentIn,
     VideoEventIn,
 )
-from app.services import ai_tasks
+from app.schemas.ai import AskAnswerOut, AskRequestIn
+from app.services import ai_qa, ai_tasks, llm
 from app.services.plugins import hash_plugin_token
+from app.services.review import build_review_card, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -359,6 +364,96 @@ class CaptureService:
         self.db.add(note)
         self.db.commit()
         return {"status": "accepted", "external_course_id": payload.external_course_id, "note_id": note.id}
+
+    def accept_due_count(self, bearer_token: str) -> dict[str, int]:
+        """插件可读的今日到期数,用于浏览器提醒;按当前插件用户统计。"""
+        token = self._plugin_token(bearer_token)
+        user_id = self._capture_user_id(token)
+        count = (
+            self.db.query(ReviewCard)
+            .filter(
+                ReviewCard.user_id == user_id,
+                ReviewCard.suspended.is_(False),
+                ReviewCard.due_at <= utc_now(),
+            )
+            .count()
+        )
+        return {"due": count}
+
+    def accept_continue(self, bearer_token: str, session_id: str) -> dict[str, float | None]:
+        """返回该会话上次播放到的位置,浮层只提示不自动跳转。"""
+        token = self._plugin_token(bearer_token)
+        user_id = self._capture_user_id(token)
+        session = (
+            self.db.query(VideoSession)
+            .join(Course, Course.id == VideoSession.course_id)
+            .filter(
+                VideoSession.external_session_id == session_id,
+                VideoSession.user_id == user_id,
+                Course.organization_id == token.organization_id,
+            )
+            .order_by(VideoSession.last_event_at.desc())
+            .first()
+        )
+        if not session or session.last_position_seconds is None:
+            return {"position_seconds": None}
+        return {"position_seconds": float(session.last_position_seconds)}
+
+    def accept_ask(self, bearer_token: str, payload: CaptureAskIn) -> AskAnswerOut:
+        """插件浮层内 AI 问答:按外部课程/章节解析范围,复用控制台同一套检索与提示词。"""
+        token = self._plugin_token(bearer_token)
+        organization = self.db.get(Organization, token.organization_id)
+        if not organization:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+        course = (
+            self.db.query(Course)
+            .filter(Course.organization_id == organization.id, Course.external_course_id == payload.external_course_id)
+            .first()
+        )
+        if not course:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Course not found")
+        chapter = None
+        if payload.external_chapter_id:
+            chapter = (
+                self.db.query(Chapter)
+                .filter(Chapter.course_id == course.id, Chapter.external_chapter_id == payload.external_chapter_id)
+                .first()
+            )
+        try:
+            llm.llm_config_for_organization(organization)
+        except llm.LLMNotConfiguredError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+        transcript_query = self.db.query(TranscriptSegment.id).filter(TranscriptSegment.course_id == course.id)
+        if chapter:
+            transcript_query = transcript_query.filter(TranscriptSegment.chapter_id == chapter.id)
+        if transcript_query.first() is None:
+            raise HTTPException(status_code=422, detail="该范围还没有任何字幕,请先播放并采集字幕")
+        ask = AskRequestIn(
+            course_id=course.id,
+            chapter_id=chapter.id if chapter else None,
+            question=payload.question,
+        )
+        try:
+            return ai_qa.answer_question(self.db, organization, ask)
+        except llm.LLMRequestError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from None
+
+    def accept_review_card(self, bearer_token: str, note_id: str) -> dict[str, str]:
+        """把插件刚保存的笔记加入复习队列;同一笔记重复点击直接返回已有卡片。"""
+        token = self._plugin_token(bearer_token)
+        note = (
+            self.db.query(Note)
+            .join(Course, Course.id == Note.course_id)
+            .filter(Note.id == note_id, Course.organization_id == token.organization_id)
+            .first()
+        )
+        if not note:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Note not found")
+        existing = self.db.query(ReviewCard).filter(ReviewCard.note_id == note.id).first()
+        if existing:
+            return {"status": "exists", "card_id": existing.id}
+        card = build_review_card(self.db, note, self._capture_user_id(token))
+        return {"status": "created", "card_id": card.id}
 
     def _capture_user_id(self, token: ApiToken) -> str:
         if token.user_id:

@@ -27,8 +27,9 @@ describe("extension manifest", () => {
     expect(manifest.content_scripts[0].js).toContain("dist/content.js");
   });
 
-  it("requests the permissions required by captureVisibleTab", () => {
+  it("requests the permissions required by captureVisibleTab and review reminders", () => {
     expect(manifest.permissions).toContain("activeTab");
+    expect(manifest.permissions).toContain("notifications");
     expect(manifest.host_permissions).toContain("<all_urls>");
   });
 

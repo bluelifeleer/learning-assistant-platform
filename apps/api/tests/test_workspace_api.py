@@ -64,6 +64,171 @@ def test_capture_persists_course_and_transcript_for_workspace_pages(client, auth
     assert adapters[0]["adapter_id"] == "wencai-school"
 
 
+def test_capture_note_can_be_added_to_review_from_extension(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+
+    note_response = client.post(
+        "/api/v1/capture/note",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={
+            "external_course_id": "course-1",
+            "external_chapter_id": "1.1",
+            "video_time_seconds": 30,
+            "content": "这章的运输模型要重点复习",
+            "source_text": "运输问题是一类特殊的线性规划",
+            "tags": ["考点"],
+        },
+    )
+    assert note_response.status_code == 200
+    note_id = note_response.json()["note_id"]
+
+    created = client.post(
+        "/api/v1/capture/review-card",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={"note_id": note_id},
+    )
+    assert created.status_code == 200
+    assert created.json()["status"] == "created"
+    card_id = created.json()["card_id"]
+
+    again = client.post(
+        "/api/v1/capture/review-card",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={"note_id": note_id},
+    )
+    assert again.status_code == 200
+    assert again.json() == {"status": "exists", "card_id": card_id}
+
+    cards = client.get("/api/v1/review/cards", headers=auth_headers).json()["items"]
+    card = next(item for item in cards if item["id"] == card_id)
+    assert "这章的运输模型要重点复习" in card["front"]
+    assert "运输问题是一类特殊的线性规划" in card["front"]
+
+    due = client.post(
+        "/api/v1/capture/due-count",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+    )
+    assert due.status_code == 200
+    assert due.json()["due"] == 1
+
+
+def test_capture_review_card_rejects_unknown_note(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+
+    response = client.post(
+        "/api/v1/capture/review-card",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={"note_id": "not-a-real-note"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_capture_continue_returns_last_position(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+    session_id = "wencai-school:course-1:1.1"
+
+    event = client.post(
+        "/api/v1/capture/video-event",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={
+            "session_id": session_id,
+            "event_type": "progress",
+            "video_time_seconds": 154.5,
+            "payload": {
+                "external_course_id": "course-1",
+                "external_chapter_id": "1.1",
+                "course_url": "https://learning.wencaischool.net/openlearning/console/",
+            },
+        },
+    )
+    assert event.status_code == 200
+
+    response = client.post(
+        "/api/v1/capture/continue",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={"session_id": session_id},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["position_seconds"] == 154.5
+
+    missing = client.post(
+        "/api/v1/capture/continue",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={"session_id": "no-such-session"},
+    )
+    assert missing.status_code == 200
+    assert missing.json()["position_seconds"] is None
+
+
+def test_capture_ask_answers_with_plugin_token(client, auth_headers, session_factory, monkeypatch):
+    from app.models.entities import Organization
+    from app.services import llm
+
+    db = session_factory()
+    try:
+        organization = db.query(Organization).first()
+        organization.llm_base_url = "https://llm.example.com/v1"
+        organization.llm_api_key = "test-key"
+        organization.llm_model = "test-model"
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(
+        llm,
+        "chat_completion",
+        lambda config, messages, json_mode=True: "供应链是把供应商、制造商和客户连起来的网络 [00:00]。",
+    )
+
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+    client.post(
+        "/api/v1/capture/transcript-segment",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={
+            "external_course_id": "course-1",
+            "external_chapter_id": "1.1",
+            "text": "供应链管理覆盖采购、生产、仓储与配送",
+            "source": "dom-visible-text",
+            "start_seconds": 0,
+        },
+    )
+
+    response = client.post(
+        "/api/v1/capture/ask",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={
+            "external_course_id": "course-1",
+            "external_chapter_id": "1.1",
+            "question": "什么是供应链？",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "供应链" in body["answer_md"]
+    assert body["citations"]
+    assert body["citations"][0]["chapter_title"] == "1.1 课程主要内容"
+
+
+def test_capture_ask_requires_llm_configuration(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+    capture_sample_course(client, plugin_token)
+
+    response = client.post(
+        "/api/v1/capture/ask",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={"external_course_id": "course-1", "question": "问点什么"},
+    )
+
+    assert response.status_code == 400
+    assert "LLM" in response.json()["detail"]
+
+
 def test_duplicate_transcript_segment_is_not_inserted_twice(client, auth_headers):
     token = create_plugin_token(client, auth_headers)
     capture_sample_course(client, token)

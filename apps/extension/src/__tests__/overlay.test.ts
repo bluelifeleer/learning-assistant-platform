@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AssistantOverlay, formatVideoTime, insertSnippetAtCursor, noteImageMarkdown } from "../ui/overlay";
+import {
+  AssistantOverlay,
+  clampOverlayPosition,
+  formatVideoTime,
+  insertSnippetAtCursor,
+  nextOverlayOpacity,
+  noteImageMarkdown,
+  translationPrompt,
+} from "../ui/overlay";
 
 type FakeHandler = (...args: unknown[]) => void;
 
@@ -53,6 +61,10 @@ class FakeElement {
     return this.children.find((child) => child.tagName === upper)
       ?? this.children.map((child) => child.findByTag(upper)).find(Boolean);
   }
+
+  replaceChildren(...children: FakeElement[]): void {
+    this.children = children;
+  }
 }
 
 function installFakeDocument(): void {
@@ -74,6 +86,10 @@ function overlayMini(overlay: AssistantOverlay): FakeElement {
 
 function overlayStatus(overlay: AssistantOverlay): string {
   return (overlay as unknown as { status: FakeElement }).status.textContent;
+}
+
+function overlayMeta(overlay: AssistantOverlay): string {
+  return (overlay as unknown as { meta: FakeElement }).meta.textContent;
 }
 
 function flushAsync(): Promise<void> {
@@ -221,6 +237,142 @@ describe("assistant overlay", () => {
     const html = fakeDocument.documentElement as FakeElement;
     expect(html.children).toContain(root);
     expect(html.children).toContain(overlayMini(overlay));
+  });
+
+  it("shows the current subtitle and timestamp in the overlay", () => {
+    const overlay = new AssistantOverlay({ onSaveNote: vi.fn() });
+    overlay.update({ transcript: "这是当前字幕", timeSeconds: 75 });
+
+    expect(overlayMeta(overlay)).toContain("01:15");
+    expect(overlayMeta(overlay)).toContain("这是当前字幕");
+  });
+
+  it("opens the question editor with the current subtitle quoted and the 疑问 tag selected", async () => {
+    const onSaveNote = vi.fn().mockResolvedValue(undefined);
+    const overlay = new AssistantOverlay({ onSaveNote });
+    overlay.update({ transcript: "这是当前字幕", timeSeconds: 10 });
+    const root = overlayRoot(overlay);
+
+    root.findByText("标记疑问")?.click();
+    expect(root.findByText("这是当前字幕")).toBeDefined();
+
+    const input = root.findByTag("TEXTAREA");
+    if (input) input.value = "这里没听懂";
+    root.findByText("保存")?.click();
+    await flushAsync();
+
+    expect(onSaveNote).toHaveBeenCalledWith(
+      "这里没听懂",
+      ["疑问"],
+      { sourceText: "这是当前字幕" },
+    );
+  });
+
+  it("opens the review editor with the subtitle prefilled and requests a review card", async () => {
+    const onSaveNote = vi.fn().mockResolvedValue({ reviewCreated: true });
+    const overlay = new AssistantOverlay({ onSaveNote });
+    overlay.update({ transcript: "要复习的句子" });
+    const root = overlayRoot(overlay);
+
+    root.findByText("加入复习")?.click();
+    const input = root.findByTag("TEXTAREA");
+    expect(input?.value).toBe("要复习的句子");
+    root.findByText("保存")?.click();
+    await flushAsync();
+
+    expect(onSaveNote).toHaveBeenCalledWith("要复习的句子", ["考点"], { addToReview: true });
+    expect(overlayStatus(overlay)).toContain("已加入复习");
+  });
+
+  it("uses selected page text as the note quote", async () => {
+    const onSaveNote = vi.fn().mockResolvedValue(undefined);
+    const overlay = new AssistantOverlay({ onSaveNote });
+    const root = overlayRoot(overlay);
+
+    overlay.openNoteFromSelection("  选中的定义  ");
+    expect(root.findByText("选中的定义")).toBeDefined();
+
+    const input = root.findByTag("TEXTAREA");
+    if (input) input.value = "我的理解";
+    root.findByText("保存")?.click();
+    await flushAsync();
+
+    expect(onSaveNote).toHaveBeenCalledWith("我的理解", [], { sourceText: "选中的定义" });
+  });
+
+  it("chooses the translation target from the subtitle language", () => {
+    expect(translationPrompt("这是中文字幕")).toContain("翻译成英文");
+    expect(translationPrompt("This is an English caption")).toContain("翻译成中文");
+  });
+
+  it("offers voice input in the note editor", () => {
+    const overlay = new AssistantOverlay({ onSaveNote: vi.fn() });
+    const root = overlayRoot(overlay);
+
+    root.findByText("添加笔记")?.click();
+
+    expect(root.findByText("语音输入")).toBeDefined();
+  });
+
+  it("clamps a dragged overlay inside the viewport and cycles opacity", () => {
+    expect(clampOverlayPosition(-50, -20, 280, 200, 1280, 720)).toEqual({ left: 8, top: 8 });
+    expect(clampOverlayPosition(2000, 1000, 280, 200, 1280, 720)).toEqual({ left: 992, top: 512 });
+    expect(nextOverlayOpacity(1)).toBe(0.85);
+    expect(nextOverlayOpacity(0.85)).toBe(0.7);
+    expect(nextOverlayOpacity(0.7)).toBe(1);
+  });
+
+  it("asks AI inside the overlay and renders answer plus citations", async () => {
+    const onAsk = vi.fn().mockResolvedValue({
+      answer: "这是解释",
+      citations: [{ chapter_title: "第一章 线性规划", start_seconds: 65, excerpt: "原文片段" }],
+    });
+    const overlay = new AssistantOverlay({ onAsk, onSaveNote: vi.fn() });
+    overlay.update({ transcript: "这是当前字幕" });
+    overlay.openAskDialog("为什么要用对偶？");
+    const root = overlayRoot(overlay);
+
+    expect(root.findByTag("TEXTAREA")?.value).toBe("为什么要用对偶？");
+    root.findByText("提问")?.click();
+    await flushAsync();
+
+    expect(onAsk).toHaveBeenCalledWith("为什么要用对偶？");
+    expect(root.findByText("这是解释")).toBeDefined();
+    expect(root.findByText("[01:05] 第一章 线性规划 · 原文片段")).toBeDefined();
+    expect(root.findByText("存为笔记")).toBeDefined();
+  });
+
+  it("translates the current subtitle from the AI dialog", async () => {
+    const onAsk = vi.fn().mockResolvedValue({ answer: "translated", citations: [] });
+    const overlay = new AssistantOverlay({ onAsk, onSaveNote: vi.fn() });
+    overlay.update({ transcript: "这是中文字幕" });
+    overlay.openAskDialog();
+
+    overlayRoot(overlay).findByText("翻译这句")?.click();
+    await flushAsync();
+
+    expect(onAsk).toHaveBeenCalledWith("请把这句话翻译成英文：这是中文字幕");
+  });
+
+  it("auto-asks when opening from the current subtitle", async () => {
+    const onAsk = vi.fn().mockResolvedValue({ answer: "解释", citations: [] });
+    const overlay = new AssistantOverlay({ onAsk, onSaveNote: vi.fn() });
+    overlay.update({ transcript: "当前字幕" });
+
+    overlay.openAskFromTranscript();
+    await flushAsync();
+
+    expect(onAsk).toHaveBeenCalledWith("请解释这句话：当前字幕");
+    expect(overlayRoot(overlay).findByText("解释")).toBeDefined();
+  });
+
+  it("shows the AI error inside the dialog", async () => {
+    const onAsk = vi.fn().mockRejectedValue(new Error("LLM 未配置"));
+    const overlay = new AssistantOverlay({ onAsk, onSaveNote: vi.fn() });
+    overlay.openAskDialog("问题", true);
+    await flushAsync();
+
+    expect(overlayRoot(overlay).findByText("问答失败：LLM 未配置")).toBeDefined();
   });
 
   it("invokes the injected onOpenExports callback from the export button", () => {

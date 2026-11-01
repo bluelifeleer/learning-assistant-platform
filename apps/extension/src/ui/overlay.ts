@@ -1,19 +1,120 @@
 import { assertAssistantOnlyElement } from "../safety/guardrails";
+import { ScreenshotEditor } from "./screenshotEditor";
 
 export interface OverlayState {
   adapterName: string;
   courseTitle?: string;
   chapterTitle?: string;
   status: string;
+  /** 当前屏幕上的字幕,用于浮层展示与"记下这句" */
+  transcript?: string;
+  /** 视频当前秒数 */
+  timeSeconds?: number;
+  /** 当前课程/章节的稳定标识,用于按章节保存笔记草稿 */
+  draftKey?: string;
+  /** 上次播放位置;有值时浮层显示「继续上次」 */
+  continueSeconds?: number;
 }
 
-export const OVERLAY_NOTE_TAGS = ["考点", "高频", "普通", "简答", "多选", "单选"];
+export const OVERLAY_NOTE_TAGS = ["考点", "高频", "疑问", "普通", "简答", "多选", "单选"];
+
+const NOTE_TEMPLATES = [
+  { value: "qa", label: "问题-结论-例子", text: "## 问题\n\n\n## 结论\n\n\n## 例子\n" },
+  { value: "definition", label: "定义-易错点", text: "## 定义\n\n\n## 易错点\n" },
+  { value: "summary", label: "本节要点", text: "## 本节要点\n- \n- \n" },
+] as const;
+
+export interface NoteSaveOptions {
+  /** 划词/字幕引用的原文,后端会以引用块存在笔记里 */
+  sourceText?: string;
+  /** 保存后立即生成复习卡 */
+  addToReview?: boolean;
+}
+
+export interface NoteSaveResult {
+  seconds?: number;
+  noteId?: string;
+  reviewCreated?: boolean;
+  reviewError?: string;
+  /** 网络不可用时已写入本地队列，联网后自动补传 */
+  queued?: boolean;
+}
+
+export interface NoteEditorOptions {
+  content?: string;
+  sourceText?: string;
+  tags?: string[];
+  addToReview?: boolean;
+}
+
+export interface ScreenshotCaptureResult {
+  imageBase64: string;
+  videoTimeSeconds?: number;
+}
+
+export interface ScreenshotSaveResult {
+  seconds?: number;
+  queued?: boolean;
+}
+
+export interface AskCitation {
+  chapter_title: string;
+  start_seconds?: number | null;
+  excerpt: string;
+}
+
+export interface AskResult {
+  answer: string;
+  citations: AskCitation[];
+}
 
 export interface AssistantOverlayCallbacks {
-  onSaveNote?: (content: string, tags: string[]) => Promise<number | undefined>;
+  onSaveNote?: (content: string, tags: string[], options?: NoteSaveOptions) => Promise<NoteSaveResult | number | undefined>;
   onOpenExports?: () => void;
+  /** 旧接口:截图并直接上传,返回视频时间点 */
   onCaptureScreenshot?: () => Promise<number | undefined>;
+  /** 新接口:只截图,交给浮层内编辑器裁剪/打码 */
+  onCaptureScreenshotImage?: () => Promise<ScreenshotCaptureResult>;
+  /** 新接口:把编辑后的 dataURL 上传 */
+  onSaveScreenshot?: (imageBase64: string, videoTimeSeconds?: number) => Promise<ScreenshotSaveResult | number | undefined>;
   onUploadNoteImage?: (imageBase64: string) => Promise<string>;
+  /** 浮层内 AI 问答:按当前课程/章节检索字幕并生成回答 */
+  onAsk?: (question: string) => Promise<AskResult>;
+  /** 用户点「继续上次」时把视频定位到该秒数(不自动播放) */
+  onContinue?: (seconds: number) => void;
+}
+
+export const OVERLAY_POSITION_KEY = "learning-assistant:overlay-position";
+export const OVERLAY_OPACITY_KEY = "learning-assistant:overlay-opacity";
+export const OVERLAY_OPACITY_STEPS = [1, 0.85, 0.7] as const;
+
+export interface OverlayPosition {
+  left: number;
+  top: number;
+}
+
+/** 拖动后把浮层夹在视口内,避免拖到屏幕外找不回来。 */
+export function clampOverlayPosition(
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): OverlayPosition {
+  const margin = 8;
+  const maxLeft = Math.max(margin, viewportWidth - width - margin);
+  const maxTop = Math.max(margin, viewportHeight - height - margin);
+  return {
+    left: Math.min(Math.max(left, margin), maxLeft),
+    top: Math.min(Math.max(top, margin), maxTop),
+  };
+}
+
+/** 100% → 85% → 70% → 100% 循环。 */
+export function nextOverlayOpacity(current: number): number {
+  const index = OVERLAY_OPACITY_STEPS.findIndex((step) => Math.abs(step - current) < 0.01);
+  return OVERLAY_OPACITY_STEPS[(index + 1) % OVERLAY_OPACITY_STEPS.length];
 }
 
 export const ASSISTANT_OVERLAY_ACTIONS = [
@@ -58,6 +159,13 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+/** 根据字幕语言选择翻译目标:中文 → 英文,其它 → 中文。 */
+export function translationPrompt(text: string): string {
+  return /[\u4e00-\u9fff]/.test(text)
+    ? `请把这句话翻译成英文：${text}`
+    : `请把这句话翻译成中文：${text}`;
+}
+
 export function formatVideoTime(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
   const minutes = Math.floor(total / 60);
@@ -74,8 +182,13 @@ export class AssistantOverlay {
   private readonly body: HTMLDivElement;
   private readonly mini: HTMLButtonElement;
   private readonly status: HTMLDivElement;
+  private readonly meta: HTMLDivElement;
+  private readonly opacityButton: HTMLButtonElement;
   private readonly callbacks: AssistantOverlayCallbacks;
   private collapsed = false;
+  private currentState: OverlayState = { adapterName: "", status: "待连接" };
+  private position: OverlayPosition | null = null;
+  private opacity = 1;
   private noteModal: HTMLDivElement | null = null;
   private noteInput: HTMLTextAreaElement | null = null;
   private noteSaveButton: HTMLButtonElement | null = null;
@@ -83,10 +196,52 @@ export class AssistantOverlay {
   private noteUploadButton: HTMLButtonElement | null = null;
   private noteFileInput: HTMLInputElement | null = null;
   private noteTags: string[] = [];
+  private noteContext: NoteSaveOptions = {};
+  private noteAddToReview = false;
+  private noteQuote: HTMLDivElement | null = null;
+  private noteReviewCheckbox: HTMLInputElement | null = null;
   private savingNote = false;
+  private readonly noteEscapeHandler = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    this.closeNoteEditor();
+  };
   private uploadingImage = false;
   private readonly screenshotButton: HTMLButtonElement;
+  private readonly continueButton: HTMLButtonElement;
+  private readonly sessionLine: HTMLDivElement;
+  private sessionStartedAt: number | null = null;
+  private sessionNotes = 0;
+  private sessionScreenshots = 0;
+  private sessionReviews = 0;
+  private sessionQuestions = 0;
+  private sessionTimer: number | undefined;
+  private draftTimer: number | undefined;
+  private summaryModal: HTMLDivElement | null = null;
+  private summaryStatus: HTMLDivElement | null = null;
+  private readonly summaryEscapeHandler = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    this.closeSessionSummary();
+  };
+  private askModal: HTMLDivElement | null = null;
+  private askInput: HTMLTextAreaElement | null = null;
+  private askAnswer: HTMLDivElement | null = null;
+  private askCitations: HTMLDivElement | null = null;
+  private askStatus: HTMLDivElement | null = null;
+  private askButton: HTMLButtonElement | null = null;
+  private askNoteButton: HTMLButtonElement | null = null;
+  private asking = false;
+  private voiceButton: HTMLButtonElement | null = null;
+  private voiceRecognition: { stop: () => void; start: () => void } | null = null;
+  private readonly askEscapeHandler = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    this.closeAskDialog();
+  };
   private capturingScreenshot = false;
+  private readonly onWindowResize = (): void => this.applyStoredPosition();
+  private screenshotEditorOpen = false;
 
   constructor(callbacks: AssistantOverlayCallbacks = {}) {
     this.callbacks = callbacks;
@@ -113,12 +268,18 @@ export class AssistantOverlay {
     title.textContent = "学习助手";
     // 页面全局 CSS 可能直接重置 span/button 的字号和颜色,关键文字全部内联显式声明
     title.style.cssText = "font-size:13px;font-weight:600;color:#f4f7fb;line-height:1.4";
+    this.opacityButton = this.makeButton("◐", () => this.cycleOpacity(), "#31465c");
+    this.opacityButton.title = "透明度";
+    this.opacityButton.style.margin = "0 6px 0 0";
+    this.opacityButton.style.padding = "2px 8px";
     const collapseButton = this.makeButton("—", () => this.setCollapsed(true), "#31465c");
-    collapseButton.title = "收缩为图标";
+    collapseButton.title = "收起（Alt+H）";
     collapseButton.style.margin = "0";
     collapseButton.style.padding = "2px 8px";
     header.appendChild(title);
+    header.appendChild(this.opacityButton);
     header.appendChild(collapseButton);
+    this.enableRootDrag(header);
     this.root.appendChild(header);
 
     this.body = document.createElement("div");
@@ -126,10 +287,47 @@ export class AssistantOverlay {
     this.status = document.createElement("div");
     this.status.style.cssText = "margin-top:6px;font-size:13px;color:#f4f7fb;line-height:1.4";
     this.body.appendChild(this.status);
-    this.body.appendChild(this.makeButton("添加笔记", () => this.toggleNoteEditor()));
-    this.body.appendChild(this.makeButton("导出字幕", () => this.openExports()));
+
+    this.meta = document.createElement("div");
+    this.meta.style.cssText = "margin-top:6px;font-size:12px;color:#9fb3c8;line-height:1.45;display:none;cursor:pointer";
+    this.meta.addEventListener("click", () => {
+      if (this.currentState.transcript) this.openNoteEditor({ sourceText: this.currentState.transcript });
+    });
+    this.body.appendChild(this.meta);
+
+    this.continueButton = this.makeButton("继续上次", () => {
+      if (this.currentState.continueSeconds !== undefined) {
+        this.callbacks.onContinue?.(this.currentState.continueSeconds);
+      }
+    }, "#31465c");
+    this.continueButton.style.display = "none";
+    this.continueButton.title = "跳到上次播放位置（只定位，不自动播放）";
+    this.body.appendChild(this.continueButton);
+
+    this.sessionLine = document.createElement("div");
+    this.sessionLine.id = "learning-assistant-session-line";
+    this.sessionLine.style.cssText = "margin-top:8px;font-size:11px;color:#7b8ba4;line-height:1.4;cursor:pointer";
+    this.sessionLine.title = "查看本次学习小结";
+    this.sessionLine.addEventListener("click", () => this.openSessionSummary());
+    this.body.appendChild(this.sessionLine);
+
+    const noteButton = this.makeButton("添加笔记", () => this.toggleNoteEditor());
+    noteButton.title = "记录当前时间点的笔记（Alt+N）";
+    this.body.appendChild(noteButton);
+    const questionButton = this.makeButton("标记疑问", () => this.openQuestionNote(), "#31465c");
+    questionButton.title = "把当前这句记成待解决的疑问（Alt+Q）";
+    this.body.appendChild(questionButton);
+    const reviewButton = this.makeButton("加入复习", () => this.openReviewNote(), "#31465c");
+    reviewButton.title = "写下要复习的内容并生成复习卡（Alt+R）";
+    this.body.appendChild(reviewButton);
+    const askButton = this.makeButton("AI 解释", () => this.openAskFromTranscript(), "#31465c");
+    askButton.title = "用 AI 解释当前字幕，也可以继续追问（Alt+A）";
+    this.body.appendChild(askButton);
     this.screenshotButton = this.makeButton("截图存证", () => { void this.captureScreenshot(); });
+    this.screenshotButton.title = "截取当前画面并存证（Alt+S）";
     this.body.appendChild(this.screenshotButton);
+    const exportButton = this.makeButton("导出字幕", () => this.openExports(), "#31465c");
+    this.body.appendChild(exportButton);
     this.root.appendChild(this.body);
 
     this.mini = this.makeButton("LA", () => this.setCollapsed(false));
@@ -160,11 +358,230 @@ export class AssistantOverlay {
     document.documentElement.appendChild(this.root);
     document.documentElement.appendChild(this.mini);
     this.applyCollapsed(this.readCollapsedPreference());
+    this.applyOpacity(this.readOpacity());
+    this.position = this.readPosition();
+    this.applyStoredPosition();
+    this.renderSession();
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", this.onWindowResize);
+      this.sessionTimer = window.setInterval(() => this.renderSession(), 60_000);
+    }
   }
 
   unmount(): void {
     this.root.remove();
     this.mini.remove();
+    if (typeof window !== "undefined") {
+      window.removeEventListener("resize", this.onWindowResize);
+      if (this.sessionTimer !== undefined) window.clearInterval(this.sessionTimer);
+      this.sessionTimer = undefined;
+    }
+  }
+
+  /** 视频第一次播放时开始计时;暂停不累计额外时长,只统计本次会话跨度。 */
+  markPlaybackStarted(): void {
+    if (this.sessionStartedAt !== null) return;
+    this.sessionStartedAt = Date.now();
+    this.renderSession();
+  }
+
+  private renderSession(): void {
+    if (!this.sessionLine) return;
+    const minutes = this.sessionStartedAt === null ? 0 : Math.max(0, Math.floor((Date.now() - this.sessionStartedAt) / 60_000));
+    const parts = [`本次 ${minutes} 分钟`];
+    if (this.sessionNotes) parts.push(`笔记 ${this.sessionNotes}`);
+    if (this.sessionQuestions) parts.push(`疑问 ${this.sessionQuestions}`);
+    if (this.sessionScreenshots) parts.push(`截图 ${this.sessionScreenshots}`);
+    if (this.sessionReviews) parts.push(`复习 ${this.sessionReviews}`);
+    this.sessionLine.textContent = parts.join(" · ");
+  }
+
+  openSessionSummary(): void {
+    this.closeSessionSummary();
+    const minutes = this.sessionStartedAt === null ? 0 : Math.max(0, Math.floor((Date.now() - this.sessionStartedAt) / 60_000));
+    const lines = [
+      "学习小结",
+      `课程：${this.currentState.courseTitle || "—"}`,
+      `章节：${this.currentState.chapterTitle || "—"}`,
+      `本次：${minutes} 分钟`,
+      `笔记：${this.sessionNotes} 条`,
+      `疑问：${this.sessionQuestions} 条`,
+      `截图：${this.sessionScreenshots} 张`,
+      `复习卡：${this.sessionReviews} 张`,
+    ];
+    const modal = document.createElement("div");
+    modal.id = "learning-assistant-session-summary";
+    modal.style.cssText = "position:fixed;left:50%;top:22%;transform:translateX(-50%);width:360px;max-width:92vw;background:#101820;border:1px solid #31465c;border-radius:10px;box-shadow:0 16px 44px rgba(0,0,0,.45);z-index:2147483647;color:#f4f7fb";
+    const header = document.createElement("div");
+    header.textContent = "本次学习小结";
+    header.style.cssText = "padding:10px 12px;border-bottom:1px solid #31465c;font-weight:600";
+    modal.appendChild(header);
+    const body = document.createElement("div");
+    body.style.cssText = "padding:10px 12px;display:grid;gap:4px;font-size:12.5px;line-height:1.6;color:#f4f7fb";
+    for (const line of lines.slice(1)) {
+      const row = document.createElement("div");
+      row.textContent = line;
+      body.appendChild(row);
+    }
+    const status = document.createElement("div");
+    status.style.cssText = "min-height:16px;color:#9fb3c8;font-size:11px";
+    body.appendChild(status);
+    this.summaryStatus = status;
+    modal.appendChild(body);
+    const footer = document.createElement("div");
+    footer.style.cssText = "padding:0 12px 12px;display:flex;justify-content:flex-end;gap:8px";
+    const copy = this.makeButton("复制小结", () => { void this.copySessionSummary(lines.join("\n")); }, "#31465c");
+    footer.appendChild(copy);
+    footer.appendChild(this.makeButton("关闭", () => this.closeSessionSummary(), "#31465c"));
+    modal.appendChild(footer);
+    this.root.appendChild(modal);
+    this.summaryModal = modal;
+    if (typeof document.addEventListener === "function") {
+      document.addEventListener("keydown", this.summaryEscapeHandler, true);
+    }
+  }
+
+  private async copySessionSummary(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (this.summaryStatus) this.summaryStatus.textContent = "已复制到剪贴板";
+    } catch {
+      if (this.summaryStatus) this.summaryStatus.textContent = "浏览器拒绝了剪贴板访问";
+    }
+  }
+
+  private closeSessionSummary(): void {
+    if (typeof document.removeEventListener === "function") {
+      document.removeEventListener("keydown", this.summaryEscapeHandler, true);
+    }
+    if (this.summaryModal) this.root.removeChild(this.summaryModal);
+    this.summaryModal = null;
+    this.summaryStatus = null;
+  }
+
+  private readPosition(): OverlayPosition | null {
+    try {
+      const raw = globalThis.localStorage?.getItem(OVERLAY_POSITION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<OverlayPosition>;
+      if (typeof parsed.left !== "number" || typeof parsed.top !== "number") return null;
+      if (!Number.isFinite(parsed.left) || !Number.isFinite(parsed.top)) return null;
+      return { left: parsed.left, top: parsed.top };
+    } catch {
+      return null;
+    }
+  }
+
+  /** 拖到视口外后能靠 Alt+H/刷新找回;这里把位置夹回可视区。 */
+  private applyStoredPosition(): void {
+    if (!this.position) return;
+    const rect = typeof this.root.getBoundingClientRect === "function" ? this.root.getBoundingClientRect() : null;
+    if (!rect || typeof window === "undefined") return;
+    const next = clampOverlayPosition(
+      this.position.left,
+      this.position.top,
+      rect.width || 280,
+      rect.height || 200,
+      window.innerWidth,
+      window.innerHeight,
+    );
+    this.applyPosition(next);
+  }
+
+  private applyPosition(position: OverlayPosition): void {
+    this.position = position;
+    this.root.style.left = `${Math.round(position.left)}px`;
+    this.root.style.top = `${Math.round(position.top)}px`;
+    this.root.style.right = "auto";
+    this.root.style.bottom = "auto";
+  }
+
+  private persistPosition(): void {
+    if (!this.position) return;
+    try {
+      globalThis.localStorage?.setItem(OVERLAY_POSITION_KEY, JSON.stringify(this.position));
+    } catch {
+      // 页面禁用 localStorage 时只保留本次会话位置
+    }
+  }
+
+  private enableRootDrag(handle: HTMLElement): void {
+    handle.addEventListener("mousedown", (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("button")) return;
+      if (typeof this.root.getBoundingClientRect !== "function") return;
+      event.preventDefault();
+      const rect = this.root.getBoundingClientRect();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const baseLeft = rect.left;
+      const baseTop = rect.top;
+      const onMove = (move: MouseEvent) => {
+        if (typeof window === "undefined") return;
+        this.applyPosition(clampOverlayPosition(
+          baseLeft + move.clientX - startX,
+          baseTop + move.clientY - startY,
+          rect.width || 280,
+          rect.height || 200,
+          window.innerWidth,
+          window.innerHeight,
+        ));
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        this.persistPosition();
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+
+  private readOpacity(): number {
+    try {
+      const raw = Number(globalThis.localStorage?.getItem(OVERLAY_OPACITY_KEY));
+      return OVERLAY_OPACITY_STEPS.includes(raw as (typeof OVERLAY_OPACITY_STEPS)[number]) ? raw : 1;
+    } catch {
+      return 1;
+    }
+  }
+
+  private applyOpacity(value: number): void {
+    this.opacity = value;
+    this.root.style.opacity = String(value);
+    this.opacityButton.title = `透明度 ${Math.round(value * 100)}%（Alt+O 切换）`;
+  }
+
+  cycleOpacity(): void {
+    this.applyOpacity(nextOverlayOpacity(this.opacity));
+    try {
+      globalThis.localStorage?.setItem(OVERLAY_OPACITY_KEY, String(this.opacity));
+    } catch {
+      // 忽略存储失败
+    }
+  }
+
+  toggleCollapsed(): void {
+    this.setCollapsed(!this.collapsed);
+  }
+
+  /** 隐私模式下隐藏截图入口；快捷键仍会走回调并提示原因。 */
+  setScreenshotEnabled(enabled: boolean): void {
+    this.screenshotButton.disabled = !enabled;
+    this.screenshotButton.style.display = enabled ? "" : "none";
+    this.screenshotButton.title = enabled ? "截取当前画面并存证（Alt+S）" : "隐私模式已开启，截图存证不可用";
+  }
+
+  /** 快捷键/划词气泡用:直接截当前画面,复用原有截图流程。 */
+  triggerScreenshot(): void {
+    void this.captureScreenshot();
+  }
+
+  /** 划词后把选中文本作为引用打开笔记弹窗。 */
+  openNoteFromSelection(text: string): void {
+    const sourceText = text.trim();
+    if (!sourceText) return;
+    this.openNoteEditor({ sourceText });
   }
 
   setCollapsed(collapsed: boolean): void {
@@ -191,14 +608,43 @@ export class AssistantOverlay {
   }
 
   update(state: Partial<OverlayState>): void {
+    this.currentState = { ...this.currentState, ...state };
+    this.render();
+  }
+
+  private render(): void {
+    const state = this.currentState;
     const lines = [
       state.adapterName ? `适配器: ${state.adapterName}` : null,
       state.courseTitle ? `课程: ${state.courseTitle}` : null,
       state.chapterTitle ? `章节: ${state.chapterTitle}` : null,
-      `状态: ${state.status ?? "待连接"}`,
+      `状态: ${state.status || "待连接"}`,
     ].filter(Boolean);
     this.status.textContent = lines.join("\n");
     this.status.style.whiteSpace = "pre-line";
+
+    const baseMeta = "margin-top:6px;font-size:12px;color:#9fb3c8;line-height:1.45;";
+    const transcript = state.transcript?.trim();
+    if (transcript) {
+      const time = state.timeSeconds !== undefined ? `${formatVideoTime(state.timeSeconds)}  ` : "";
+      this.meta.textContent = `${time}${transcript}`;
+      this.meta.title = "点击记下这句";
+      this.meta.style.cssText = `${baseMeta}display:block;padding:6px 8px;border-left:2px solid #1f8fff;background:#0b1220;border-radius:0 6px 6px 0;max-height:54px;overflow:auto;white-space:pre-wrap;cursor:pointer;`;
+    } else if (state.timeSeconds !== undefined) {
+      this.meta.textContent = `当前 ${formatVideoTime(state.timeSeconds)}`;
+      this.meta.title = "";
+      this.meta.style.cssText = `${baseMeta}display:block;cursor:default;`;
+    } else {
+      this.meta.style.cssText = `${baseMeta}display:none;`;
+    }
+
+    const continueSeconds = state.continueSeconds;
+    if (continueSeconds !== undefined && continueSeconds > 10) {
+      this.continueButton.textContent = `继续上次 ${formatVideoTime(continueSeconds)}`;
+      this.continueButton.style.display = "inline-block";
+    } else {
+      this.continueButton.style.display = "none";
+    }
   }
 
   remindManualSave(): void {
@@ -214,27 +660,65 @@ export class AssistantOverlay {
   }
 
   private async captureScreenshot(): Promise<void> {
-    if (!this.callbacks.onCaptureScreenshot) {
+    const directCapture = this.callbacks.onCaptureScreenshot;
+    const captureImage = this.callbacks.onCaptureScreenshotImage;
+    const saveImage = this.callbacks.onSaveScreenshot;
+    const canEdit = Boolean(captureImage && saveImage);
+    if (!directCapture && !canEdit) {
       this.update({ status: "请先在扩展选项中完成插件绑定，再截图存证" });
       return;
     }
     if (this.capturingScreenshot) return;
+    this.markPlaybackStarted();
     this.capturingScreenshot = true;
     this.screenshotButton.disabled = true;
     this.screenshotButton.textContent = "截图中…";
     // 截的是整个标签页画面,先隐藏浮层并等待重绘,避免浮层本身出现在存证截图里
     this.root.style.display = "none";
+    this.mini.style.display = "none";
     await waitForRepaint();
     try {
-      const seconds = await this.callbacks.onCaptureScreenshot();
-      this.applyCollapsed(this.collapsed);
-      this.update({ status: seconds === undefined ? "截图已存证" : `已存证 ${formatVideoTime(seconds)}` });
+      if (canEdit && captureImage && saveImage) {
+        const raw = await captureImage();
+        const editor = new ScreenshotEditor({
+          imageDataUrl: raw.imageBase64,
+          onCancel: () => {
+            this.screenshotEditorOpen = false;
+            this.applyCollapsed(this.collapsed);
+            this.update({ status: "已取消截图存证" });
+          },
+          onSave: async (imageDataUrl) => {
+            const saved = await saveImage(imageDataUrl, raw.videoTimeSeconds);
+            const result = typeof saved === "number" ? { seconds: saved } : saved ?? {};
+            this.sessionScreenshots += 1;
+            this.renderSession();
+            this.update({
+              status: result.queued
+                ? "截图已离线保存，联网后自动补传"
+                : result.seconds === undefined
+                  ? "截图已存证"
+                  : `已存证 ${formatVideoTime(result.seconds)}`,
+            });
+            // 编辑器在 onSave 返回后自己移除，等一帧再把浮层放回来
+            window.setTimeout(() => {
+              this.screenshotEditorOpen = false;
+              this.applyCollapsed(this.collapsed);
+            }, 0);
+          },
+        });
+        this.screenshotEditorOpen = true;
+        editor.mount();
+      } else if (directCapture) {
+        const seconds = await directCapture();
+        this.applyCollapsed(this.collapsed);
+        this.update({ status: seconds === undefined ? "截图已存证" : `已存证 ${formatVideoTime(seconds)}` });
+      }
     } catch (error) {
       this.applyCollapsed(this.collapsed);
       const message = error instanceof Error && error.message ? error.message : "请稍后重试";
       this.update({ status: `截图存证失败：${message}` });
     } finally {
-      this.applyCollapsed(this.collapsed);
+      if (!this.screenshotEditorOpen) this.applyCollapsed(this.collapsed);
       this.capturingScreenshot = false;
       this.screenshotButton.disabled = false;
       this.screenshotButton.textContent = "截图存证";
@@ -250,10 +734,292 @@ export class AssistantOverlay {
       this.closeNoteEditor();
       return;
     }
-    this.openNoteModal();
+    this.openNoteEditor();
   }
 
-  private openNoteModal(): void {
+  /** 供划词气泡/快捷键调用;可预填引用原文、标签和"加入复习"。 */
+  openNoteEditor(options: NoteEditorOptions = {}): void {
+    if (!this.callbacks.onSaveNote) {
+      this.update({ status: "请先在扩展选项中完成插件绑定，再添加笔记" });
+      return;
+    }
+    if (this.noteModal) this.closeNoteEditor();
+    this.openNoteModal(options);
+  }
+
+  private openQuestionNote(): void {
+    this.openNoteEditor({
+      tags: ["疑问"],
+      sourceText: this.currentState.transcript?.trim() || undefined,
+    });
+  }
+
+  private openReviewNote(): void {
+    this.openNoteEditor({
+      content: this.currentState.transcript?.trim() || "",
+      addToReview: true,
+      tags: ["考点"],
+    });
+  }
+
+  openAskFromTranscript(): void {
+    const transcript = this.currentState.transcript?.trim() || "";
+    this.openAskDialog(transcript ? `请解释这句话：${transcript}` : "", Boolean(transcript));
+  }
+
+  /** 浮层内 AI 问答;有字幕时默认带上"解释这句"并自动提问。 */
+  openAskDialog(initialQuestion = "", autoAsk = false): void {
+    if (!this.callbacks.onAsk) {
+      this.update({ status: "请先在扩展选项中完成插件绑定，再使用 AI 问答" });
+      return;
+    }
+    this.closeAskDialog();
+    const modal = document.createElement("div");
+    modal.id = "learning-assistant-ask-modal";
+    modal.style.cssText = [
+      "position:fixed",
+      "left:50%",
+      "top:18%",
+      "transform:translateX(-50%)",
+      "width:420px",
+      "max-width:92vw",
+      "background:#101820",
+      "border:1px solid #31465c",
+      "border-radius:10px",
+      "box-shadow:0 16px 44px rgba(0,0,0,.45)",
+      "z-index:2147483647",
+      "color:#f4f7fb",
+    ].join(";");
+
+    const header = document.createElement("div");
+    header.textContent = "AI 问答（按住此栏可拖动）";
+    header.style.cssText = "cursor:move;user-select:none;padding:10px 12px;border-bottom:1px solid #31465c;font-weight:600";
+    this.enableDrag(header, modal);
+    modal.appendChild(header);
+
+    const body = document.createElement("div");
+    body.style.cssText = "padding:10px 12px;display:grid;gap:8px";
+    const transcript = this.currentState.transcript?.trim();
+    if (transcript) {
+      const quote = document.createElement("div");
+      quote.textContent = transcript;
+      quote.style.cssText = "max-height:72px;overflow:auto;border-left:3px solid #1f8fff;background:#0b1220;padding:6px 8px;border-radius:0 6px 6px 0;color:#9fb3c8;font-size:12px;line-height:1.5;white-space:pre-wrap";
+      body.appendChild(quote);
+    }
+
+    const input = document.createElement("textarea");
+    input.rows = 3;
+    input.value = initialQuestion;
+    input.placeholder = "就当前章节提问，回答会带字幕出处…";
+    input.style.cssText = "box-sizing:border-box;width:100%;padding:8px;border-radius:6px;border:1px solid #31465c;background:#0b1220;color:#f4f7fb;font:inherit;resize:vertical";
+    input.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        void this.askQuestion();
+      }
+    });
+    body.appendChild(input);
+
+    const status = document.createElement("div");
+    status.style.cssText = "min-height:16px;color:#9fb3c8;font-size:12px";
+    body.appendChild(status);
+
+    const answer = document.createElement("div");
+    answer.style.cssText = "display:none;max-height:220px;overflow:auto;border-top:1px solid #31465c;padding-top:8px;color:#f4f7fb;font-size:13px;line-height:1.6;white-space:pre-wrap";
+    body.appendChild(answer);
+
+    const citations = document.createElement("div");
+    citations.style.cssText = "display:none;color:#9fb3c8;font-size:11px;line-height:1.5;border-left:2px solid #31465c;padding-left:8px;max-height:100px;overflow:auto";
+    body.appendChild(citations);
+    this.askAnswer = answer;
+    this.askCitations = citations;
+    this.askStatus = status;
+    this.askInput = input;
+
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:center";
+    this.askButton = this.makeButton("提问", () => { void this.askQuestion(); });
+    this.askNoteButton = this.makeButton("存为笔记", () => this.saveAskAsNote(), "#31465c");
+    this.askNoteButton.style.display = "none";
+    const closeButton = this.makeButton("关闭", () => this.closeAskDialog(), "#31465c");
+    actions.appendChild(this.askButton);
+    const translateButton = this.makeButton("翻译这句", () => {
+      const transcript = this.currentState.transcript?.trim();
+      if (!transcript || !this.askInput) {
+        if (this.askStatus) this.askStatus.textContent = "当前没有可翻译的字幕";
+        return;
+      }
+      this.askInput.value = translationPrompt(transcript);
+      void this.askQuestion();
+    }, "#31465c");
+    translateButton.title = "把当前字幕翻译成中文/英文";
+    actions.appendChild(translateButton);
+    actions.appendChild(this.askNoteButton);
+    actions.appendChild(closeButton);
+    body.appendChild(actions);
+    modal.appendChild(body);
+
+    this.root.appendChild(modal);
+    this.askModal = modal;
+    if (typeof document.addEventListener === "function") {
+      document.addEventListener("keydown", this.askEscapeHandler, true);
+    }
+    input.focus?.();
+    input.setSelectionRange?.(input.value.length, input.value.length);
+    if (autoAsk) void this.askQuestion();
+  }
+
+  private closeAskDialog(): void {
+    if (typeof document.removeEventListener === "function") {
+      document.removeEventListener("keydown", this.askEscapeHandler, true);
+    }
+    if (this.askModal) this.root.removeChild(this.askModal);
+    this.askModal = null;
+    this.askInput = null;
+    this.askAnswer = null;
+    this.askCitations = null;
+    this.askStatus = null;
+    this.askButton = null;
+    this.askNoteButton = null;
+    this.asking = false;
+  }
+
+  private async askQuestion(): Promise<void> {
+    if (this.asking || !this.askInput || !this.askStatus || !this.callbacks.onAsk) return;
+    const question = this.askInput.value.trim();
+    if (!question) {
+      this.askStatus.textContent = "请输入问题";
+      return;
+    }
+    this.asking = true;
+    const askButton = this.askButton;
+    if (askButton) {
+      askButton.disabled = true;
+      askButton.textContent = "思考中…";
+    }
+    this.askStatus.textContent = "正在检索字幕并生成回答…";
+    if (this.askAnswer) {
+      this.askAnswer.textContent = "";
+      this.askAnswer.style.display = "none";
+    }
+    if (this.askCitations) {
+      this.askCitations.textContent = "";
+      this.askCitations.style.display = "none";
+    }
+    if (this.askNoteButton) this.askNoteButton.style.display = "none";
+    try {
+      const result = await this.callbacks.onAsk(question);
+      if (this.askAnswer) {
+        this.askAnswer.textContent = result.answer;
+        this.askAnswer.style.display = "block";
+      }
+      if (this.askCitations) {
+        this.askCitations.replaceChildren();
+        for (const citation of result.citations) {
+          const line = document.createElement("div");
+          const time = citation.start_seconds !== null && citation.start_seconds !== undefined
+            ? `[${formatVideoTime(citation.start_seconds)}] `
+            : "";
+          line.textContent = `${time}${citation.chapter_title} · ${citation.excerpt}`;
+          this.askCitations.appendChild(line);
+        }
+        this.askCitations.style.display = result.citations.length ? "block" : "none";
+      }
+      this.askStatus.textContent = "";
+      if (this.askNoteButton) this.askNoteButton.style.display = "inline-block";
+    } catch (error) {
+      this.askStatus.textContent = `问答失败：${error instanceof Error && error.message ? error.message : "请稍后重试"}`;
+    } finally {
+      this.asking = false;
+      if (askButton) {
+        askButton.disabled = false;
+        askButton.textContent = "提问";
+      }
+    }
+  }
+
+  private saveAskAsNote(): void {
+    const answer = this.askAnswer?.textContent?.trim();
+    if (!answer) return;
+    const citations = this.askCitations?.textContent?.trim();
+    const content = citations ? `${answer}\n\n---\n${citations}` : answer;
+    const sourceText = this.currentState.transcript?.trim() || undefined;
+    this.closeAskDialog();
+    this.openNoteEditor({ content, sourceText });
+  }
+
+  private toggleVoiceInput(): void {
+    if (this.voiceRecognition) {
+      this.voiceRecognition.stop();
+      this.voiceRecognition = null;
+      if (this.voiceButton) this.voiceButton.textContent = "语音输入";
+      this.update({ status: "语音输入已停止" });
+      return;
+    }
+    const scope = globalThis as unknown as {
+      SpeechRecognition?: new () => {
+        lang: string;
+        continuous: boolean;
+        interimResults: boolean;
+        start: () => void;
+        stop: () => void;
+        onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+        onerror: ((event: { error?: string }) => void) | null;
+        onend: (() => void) | null;
+      };
+      webkitSpeechRecognition?: new () => {
+        lang: string;
+        continuous: boolean;
+        interimResults: boolean;
+        start: () => void;
+        stop: () => void;
+        onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+        onerror: ((event: { error?: string }) => void) | null;
+        onend: (() => void) | null;
+      };
+    };
+    const Recognition = scope.SpeechRecognition ?? scope.webkitSpeechRecognition;
+    if (!Recognition) {
+      this.update({ status: "当前浏览器不支持语音识别" });
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = "zh-CN";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      if (!this.noteInput) return;
+      let added = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        added += event.results[index][0]?.transcript ?? "";
+      }
+      if (added.trim()) {
+        this.noteInput.value = this.noteInput.value ? `${this.noteInput.value}${added}` : added.trim();
+        this.scheduleDraftSave();
+      }
+    };
+    recognition.onerror = (event) => {
+      this.update({ status: `语音输入失败：${event.error || "请检查麦克风权限"}` });
+    };
+    recognition.onend = () => {
+      this.voiceRecognition = null;
+      if (this.voiceButton) this.voiceButton.textContent = "语音输入";
+    };
+    try {
+      recognition.start();
+    } catch (error) {
+      this.update({ status: `语音输入启动失败：${error instanceof Error ? error.message : "请检查麦克风权限"}` });
+      return;
+    }
+    this.voiceRecognition = recognition;
+    if (this.voiceButton) this.voiceButton.textContent = "停止语音";
+    this.update({ status: "正在听…" });
+  }
+
+  private openNoteModal(options: NoteEditorOptions = {}): void {
+    this.noteContext = { sourceText: options.sourceText, addToReview: options.addToReview };
+    this.noteAddToReview = Boolean(options.addToReview);
+    this.noteTags = [...(options.tags ?? [])];
     const modal = document.createElement("div");
     modal.id = "learning-assistant-note-modal";
     modal.style.cssText = [
@@ -271,19 +1037,63 @@ export class AssistantOverlay {
     ].join(";");
 
     const header = document.createElement("div");
-    header.textContent = "添加笔记（按住此栏可拖动）";
+    header.textContent = options.addToReview
+      ? "加入复习（按住此栏可拖动）"
+      : this.noteTags.includes("疑问")
+        ? "标记疑问（按住此栏可拖动）"
+        : "添加笔记（按住此栏可拖动）";
     header.style.cssText = "cursor:move;user-select:none;padding:10px 12px;border-bottom:1px solid #31465c;font-weight:600";
     this.enableDrag(header, modal);
     modal.appendChild(header);
 
     const body = document.createElement("div");
     body.style.cssText = "padding:10px 12px";
+
+    if (options.sourceText) {
+      const quote = document.createElement("div");
+      quote.textContent = options.sourceText;
+      quote.style.cssText = "margin-bottom:8px;max-height:96px;overflow:auto;border-left:3px solid #1f8fff;background:#0b1220;padding:6px 8px;border-radius:0 6px 6px 0;color:#9fb3c8;font-size:12px;line-height:1.5;white-space:pre-wrap";
+      body.appendChild(quote);
+      this.noteQuote = quote;
+    }
+
     const input = document.createElement("textarea");
     input.rows = 6;
-    input.placeholder = "记录当前视频时间点的笔记，可直接粘贴图片…";
+    input.value = options.content ?? "";
+    input.placeholder = this.noteTags.includes("疑问")
+      ? "写下你的疑问，保存后可在控制台「疑问」标签里找到…"
+      : options.addToReview
+        ? "写下要复习的内容，保存后会生成一张到期复习卡…"
+        : "记录当前视频时间点的笔记，可直接粘贴图片…";
     input.style.cssText = "box-sizing:border-box;width:100%;padding:8px;border-radius:6px;border:1px solid #31465c;background:#0b1220;color:#f4f7fb;font:inherit;resize:vertical";
     input.addEventListener("paste", (event: ClipboardEvent) => this.handleNotePaste(event));
+    input.addEventListener("input", () => this.scheduleDraftSave());
     body.appendChild(input);
+
+    const templateRow = document.createElement("div");
+    templateRow.style.cssText = "margin-top:6px;display:flex;align-items:center;gap:6px;color:#9fb3c8;font-size:12px";
+    const templateLabel = document.createElement("span");
+    templateLabel.textContent = "模板";
+    const templateSelect = document.createElement("select");
+    templateSelect.style.cssText = "padding:4px 6px;border-radius:6px;border:1px solid #31465c;background:#0b1220;color:#f4f7fb;font:inherit;font-size:12px;cursor:pointer";
+    const blankOption = document.createElement("option");
+    blankOption.value = "";
+    blankOption.textContent = "选择模板…";
+    templateSelect.appendChild(blankOption);
+    for (const template of NOTE_TEMPLATES) {
+      const option = document.createElement("option");
+      option.value = template.value;
+      option.textContent = template.label;
+      templateSelect.appendChild(option);
+    }
+    templateSelect.addEventListener("change", () => {
+      const template = NOTE_TEMPLATES.find((item) => item.value === templateSelect.value);
+      if (template) this.applyNoteTemplate(template.text);
+      templateSelect.value = "";
+    });
+    templateRow.appendChild(templateLabel);
+    templateRow.appendChild(templateSelect);
+    body.appendChild(templateRow);
 
     const toolbar = document.createElement("div");
     toolbar.style.cssText = "margin-top:8px";
@@ -300,7 +1110,15 @@ export class AssistantOverlay {
     toolbar.appendChild(this.noteUploadButton);
     toolbar.appendChild(fileInput);
     this.noteFileInput = fileInput;
+    this.voiceButton = this.makeButton("语音输入", () => this.toggleVoiceInput(), "#31465c");
+    this.voiceButton.title = "用浏览器语音识别把说的话转成笔记";
+    toolbar.appendChild(this.voiceButton);
     body.appendChild(toolbar);
+
+    if (!options.content && !options.sourceText) {
+      const draft = this.readDraft();
+      if (draft) input.value = draft;
+    }
 
     const tagRow = document.createElement("div");
     tagRow.style.cssText = "margin-top:8px;display:flex;gap:6px;flex-wrap:wrap";
@@ -323,6 +1141,22 @@ export class AssistantOverlay {
       tagRow.appendChild(chip);
     }
     body.appendChild(tagRow);
+
+    const reviewRow = document.createElement("label");
+    reviewRow.style.cssText = "margin-top:8px;display:flex;align-items:center;gap:6px;color:#9fb3c8;font-size:12px;cursor:pointer";
+    const reviewCheckbox = document.createElement("input");
+    reviewCheckbox.type = "checkbox";
+    reviewCheckbox.checked = this.noteAddToReview;
+    reviewCheckbox.style.cssText = "accent-color:#1f8fff;cursor:pointer";
+    reviewCheckbox.addEventListener("change", () => {
+      this.noteAddToReview = reviewCheckbox.checked;
+    });
+    reviewRow.appendChild(reviewCheckbox);
+    const reviewLabel = document.createElement("span");
+    reviewLabel.textContent = "保存后加入复习";
+    reviewRow.appendChild(reviewLabel);
+    this.noteReviewCheckbox = reviewCheckbox;
+    body.appendChild(reviewRow);
     modal.appendChild(body);
 
     const footer = document.createElement("div");
@@ -336,7 +1170,11 @@ export class AssistantOverlay {
     this.root.appendChild(modal);
     this.noteModal = modal;
     this.noteInput = input;
+    if (typeof document.addEventListener === "function") {
+      document.addEventListener("keydown", this.noteEscapeHandler, true);
+    }
     input.focus?.();
+    input.setSelectionRange?.(input.value.length, input.value.length);
   }
 
   private enableDrag(handle: HTMLElement, modal: HTMLElement): void {
@@ -400,7 +1238,72 @@ export class AssistantOverlay {
     }
   }
 
+  private draftStorageKey(): string | null {
+    const key = this.currentState.draftKey;
+    return key ? `learning-assistant:note-draft:${key}` : null;
+  }
+
+  private readDraft(): string {
+    const key = this.draftStorageKey();
+    if (!key) return "";
+    try {
+      return globalThis.localStorage?.getItem(key)?.trim() ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  private scheduleDraftSave(): void {
+    if (typeof window === "undefined") return;
+    if (this.draftTimer !== undefined) window.clearTimeout(this.draftTimer);
+    this.draftTimer = window.setTimeout(() => {
+      this.draftTimer = undefined;
+      this.saveDraftNow();
+    }, 300);
+  }
+
+  private saveDraftNow(): void {
+    const key = this.draftStorageKey();
+    if (!key || !this.noteInput) return;
+    try {
+      const value = this.noteInput.value;
+      if (value.trim()) globalThis.localStorage?.setItem(key, value);
+      else globalThis.localStorage?.removeItem(key);
+    } catch {
+      // 隐私模式等场景写不进去时忽略
+    }
+  }
+
+  private clearDraft(): void {
+    const key = this.draftStorageKey();
+    if (key) {
+      try {
+        globalThis.localStorage?.removeItem(key);
+      } catch {
+        // 忽略
+      }
+    }
+  }
+
+  private applyNoteTemplate(text: string): void {
+    if (!this.noteInput) return;
+    const current = this.noteInput.value.trimEnd();
+    this.noteInput.value = current ? `${current}\n\n${text}` : text;
+    const end = this.noteInput.value.length;
+    this.noteInput.setSelectionRange?.(end, end);
+    this.noteInput.focus?.();
+    this.scheduleDraftSave();
+  }
+
   private closeNoteEditor(): void {
+    if (typeof document.removeEventListener === "function") {
+      document.removeEventListener("keydown", this.noteEscapeHandler, true);
+    }
+    if (this.draftTimer !== undefined && typeof window !== "undefined") {
+      window.clearTimeout(this.draftTimer);
+      this.draftTimer = undefined;
+    }
+    this.saveDraftNow();
     if (this.noteModal) {
       this.root.removeChild(this.noteModal);
     }
@@ -411,6 +1314,13 @@ export class AssistantOverlay {
     this.noteUploadButton = null;
     this.noteFileInput = null;
     this.noteTags = [];
+    this.noteContext = {};
+    this.noteAddToReview = false;
+    this.noteQuote = null;
+    this.noteReviewCheckbox = null;
+    this.voiceButton = null;
+    this.voiceRecognition?.stop();
+    this.voiceRecognition = null;
   }
 
   private async saveNote(): Promise<void> {
@@ -420,6 +1330,8 @@ export class AssistantOverlay {
       this.update({ status: "笔记内容不能为空" });
       return;
     }
+    this.markPlaybackStarted();
+    const saveTags = [...this.noteTags];
     const saveButton = this.noteSaveButton;
     const cancelButton = this.noteCancelButton;
     this.savingNote = true;
@@ -429,8 +1341,24 @@ export class AssistantOverlay {
     }
     if (cancelButton) cancelButton.disabled = true;
     try {
-      const seconds = await this.callbacks.onSaveNote(content, [...this.noteTags]);
-      this.update({ status: seconds === undefined ? "笔记已保存" : `已保存 ${formatVideoTime(seconds)}` });
+      const options: NoteSaveOptions = {};
+      if (this.noteContext.sourceText) options.sourceText = this.noteContext.sourceText;
+      if (this.noteAddToReview) options.addToReview = true;
+      const result = Object.keys(options).length
+        ? await this.callbacks.onSaveNote(content, saveTags, options)
+        : await this.callbacks.onSaveNote(content, saveTags);
+      const normalized: NoteSaveResult = typeof result === "number" ? { seconds: result } : result ?? {};
+      this.sessionNotes += 1;
+      if (saveTags.includes("疑问")) this.sessionQuestions += 1;
+      if (normalized.reviewCreated) this.sessionReviews += 1;
+      this.renderSession();
+      let status = normalized.seconds === undefined ? "笔记已保存" : `已保存 ${formatVideoTime(normalized.seconds)}`;
+      if (normalized.queued) status = "已离线保存，联网后自动补传";
+      if (normalized.reviewCreated) status += " · 已加入复习";
+      if (normalized.reviewError) status += ` · 复习卡失败：${normalized.reviewError}`;
+      this.update({ status });
+      if (this.noteInput) this.noteInput.value = "";
+      this.clearDraft();
       this.closeNoteEditor();
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : "请稍后重试";

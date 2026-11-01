@@ -9,6 +9,7 @@ describe("options actions", () => {
       apiBaseUrl: "http://127.0.0.1:17890/api/v1",
       apiToken: "lap_token",
       enabledAdapters: ["wencai-school"],
+      customAdapters: [],
     };
 
     const result = await saveConfigAndReportBinding(config, { saveConfig, reportHeartbeat });

@@ -1,11 +1,12 @@
 {
   "name": "@learn-assistant/extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "build": "tsc --noEmit && node build.mjs"
+    "build": "tsc --noEmit && node build.mjs",
+    "package": "node build.mjs && node ../../scripts/package-extension.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",

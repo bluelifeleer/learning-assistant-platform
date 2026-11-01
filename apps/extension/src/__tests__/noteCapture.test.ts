@@ -29,6 +29,18 @@ describe("buildNotePayload", () => {
     });
   });
 
+  it("keeps selected page text as a source quote", () => {
+    const payload = buildNotePayload({
+      content: "我的理解",
+      sourceText: "  选中的定义  ",
+      externalCourseId: "course-1",
+      externalChapterId: "chapter-1",
+      pageId: "https://learning.example.com/course/1",
+    });
+
+    expect(payload.source_text).toBe("选中的定义");
+  });
+
   it("omits the video time when there is no video element", () => {
     const payload = buildNotePayload({
       content: "无视频笔记",

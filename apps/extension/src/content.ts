@@ -1,5 +1,7 @@
 import { CaptureClient, CaptureRequestError } from "./capture/client";
 import { mapChapterForSnapshot } from "./capture/snapshotChapters";
+import { genericArticleAdapter } from "./adapters/genericArticle";
+import { enqueueOfflineCapture } from "./offlineQueue";
 import { pickAdapter } from "./adapters/registry";
 import { isValidApiBaseUrl, loadExtensionConfig, type ExtensionConfig } from "./config";
 import { registerContentScriptPing } from "./contentPing";
@@ -10,16 +12,162 @@ import { buildScreenshotPayload } from "./screenshotCapture";
 import { captureVisibleTabScreenshot } from "./screenshotCaptureClient";
 import { fetchSubtitleFileText } from "./subtitleFetchClient";
 import { collectAndReportSubtitleTrackFiles } from "./subtitleTrackReporter";
-import { AssistantOverlay } from "./ui/overlay";
+import { assertAssistantOnlyElement } from "./safety/guardrails";
+import { AssistantOverlay, formatVideoTime } from "./ui/overlay";
 
 // 同一个文档可能被注入两次:manifest 的 document_idle 注入,以及 background 的
 // 强制注入(见 backgroundReinject)。两份实例会各自注册监听、各自上报,
 // 产生重复的快照/心跳/字幕。这里做一次性守卫,保证一个文档只跑一份。
 const BOOT_FLAG = "__learningAssistantBooted";
 
+function isOfflineError(error: unknown): boolean {
+  return error instanceof TypeError || (error instanceof CaptureRequestError && error.status === 0);
+}
+const SELECTION_BUBBLE_ID = "learning-assistant-selection-bubble";
+
+function selectionInsideAssistant(node: Node | null): boolean {
+  const element = node instanceof Element ? node : node?.parentElement;
+  return Boolean(element?.closest("#learning-assistant-overlay, #learning-assistant-overlay-mini, #learning-assistant-note-modal"));
+}
+
+function selectionInEditableField(node: Node | null): boolean {
+  const element = node instanceof Element ? node : node?.parentElement;
+  return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+/** 选中网页文字后出现的小气泡；只在浮层已挂载的 frame 里安装。 */
+function installSelectionBubble(overlay: AssistantOverlay): () => void {
+  let bubble: HTMLButtonElement | null = null;
+  const hideBubble = (): void => {
+    bubble?.remove();
+    bubble = null;
+  };
+  const showBubble = (text: string, rect: DOMRect): void => {
+    hideBubble();
+    const button = document.createElement("button");
+    button.id = SELECTION_BUBBLE_ID;
+    button.type = "button";
+    button.textContent = "记入笔记";
+    button.title = "把选中的文字记入学习笔记";
+    button.style.cssText = [
+      "position:fixed",
+      "z-index:2147483647",
+      "padding:6px 10px",
+      "border:0",
+      "border-radius:6px",
+      "background:#1f8fff",
+      "color:#fff",
+      "font:600 12px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+      "cursor:pointer",
+      "box-shadow:0 6px 18px rgba(0,0,0,.3)",
+    ].join(";");
+    const left = Math.min(Math.max(rect.left + rect.width / 2 - 44, 8), Math.max(8, window.innerWidth - 96));
+    const top = Math.min(Math.max(rect.bottom + 8, 8), Math.max(8, window.innerHeight - 40));
+    button.style.left = `${left}px`;
+    button.style.top = `${top}px`;
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => {
+      overlay.openNoteFromSelection(text);
+      hideBubble();
+    });
+    assertAssistantOnlyElement(button);
+    document.documentElement.appendChild(button);
+    bubble = button;
+  };
+
+  const onMouseUp = (): void => {
+    window.setTimeout(() => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() ?? "";
+      if (!selection || !text || selection.rangeCount === 0) {
+        hideBubble();
+        return;
+      }
+      if (selectionInsideAssistant(selection.anchorNode) || selectionInEditableField(selection.anchorNode)) {
+        hideBubble();
+        return;
+      }
+      const rect = selection.getRangeAt(0).getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) {
+        hideBubble();
+        return;
+      }
+      showBubble(text.slice(0, 2000), rect);
+    }, 0);
+  };
+  const onMouseDown = (event: MouseEvent): void => {
+    const target = event.target as Element | null;
+    if (!target?.closest?.(`#${SELECTION_BUBBLE_ID}`)) hideBubble();
+  };
+
+  document.addEventListener("mouseup", onMouseUp);
+  document.addEventListener("mousedown", onMouseDown, true);
+  document.addEventListener("scroll", hideBubble, true);
+  window.addEventListener("resize", hideBubble);
+  return () => {
+    hideBubble();
+    document.removeEventListener("mouseup", onMouseUp);
+    document.removeEventListener("mousedown", onMouseDown, true);
+    document.removeEventListener("scroll", hideBubble, true);
+    window.removeEventListener("resize", hideBubble);
+  };
+}
+
+/** Alt+N/S/Q/R/H/O 快捷键；输入框里不触发。 */
+function installShortcuts(overlay: AssistantOverlay): () => void {
+  const handler = (event: KeyboardEvent): void => {
+    if (!event.altKey || event.ctrlKey || event.metaKey) return;
+    const target = event.target as Element | null;
+    if (target?.closest?.("input, textarea, select, [contenteditable='true']")) return;
+    const selected = window.getSelection()?.toString().trim() || "";
+    switch (event.key.toLowerCase()) {
+      case "n":
+        event.preventDefault();
+        if (selected) overlay.openNoteFromSelection(selected);
+        else overlay.openNoteEditor();
+        break;
+      case "a":
+        event.preventDefault();
+        overlay.openAskFromTranscript();
+        break;
+      case "s":
+        event.preventDefault();
+        overlay.triggerScreenshot();
+        break;
+      case "q":
+        event.preventDefault();
+        overlay.openNoteEditor({ tags: ["疑问"], sourceText: selected || undefined });
+        break;
+      case "r":
+        event.preventDefault();
+        overlay.openNoteEditor({ addToReview: true, content: selected || undefined });
+        break;
+      case "h":
+        event.preventDefault();
+        overlay.toggleCollapsed();
+        break;
+      case "o":
+        event.preventDefault();
+        overlay.cycleOpacity();
+        break;
+      default:
+        break;
+    }
+  };
+  document.addEventListener("keydown", handler, true);
+  return () => document.removeEventListener("keydown", handler, true);
+}
+
 async function boot(): Promise<void> {
   const config = await loadExtensionConfig();
-  const adapter = pickAdapter(new URL(location.href), config.enabledAdapters);
+  const hostname = location.hostname;
+  const paused = (config.pausedSites ?? []).some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+  if (paused) {
+    console.info("[Learning Assistant] site paused by user", hostname);
+    return;
+  }
+  const adapter = pickAdapter(new URL(location.href), config.enabledAdapters, config.customAdapters)
+    ?? (config.articleCapture ? genericArticleAdapter : null);
   if (!adapter) return;
   console.info("[Learning Assistant] adapter matched", adapter.id, location.hostname);
   // 上报到 API 的页面 URL 只保留 origin+pathname,避免 query/fragment 中可能携带的 token 被采集
@@ -61,30 +209,80 @@ async function boot(): Promise<void> {
   let client = buildClient(config);
 
   let overlay: AssistantOverlay | undefined;
+  const maybeFetchContinue = (): void => {
+    const activeClient = client;
+    const sessionId = videoSessionId();
+    if (!activeClient || !sessionId) return;
+    void activeClient
+      .postJson<{ position_seconds: number | null }>("/capture/continue", { session_id: sessionId })
+      .then((result) => {
+        const position = result.position_seconds;
+        if (typeof position === "number" && position > 10) {
+          overlay?.update({ continueSeconds: position });
+        } else {
+          overlay?.update({ continueSeconds: undefined });
+        }
+      })
+      .catch(() => undefined);
+  };
+  let selectionCleanup: (() => void) | undefined;
+  let shortcutCleanup: (() => void) | undefined;
+  const teardownOverlay = (): void => {
+    selectionCleanup?.();
+    shortcutCleanup?.();
+    selectionCleanup = undefined;
+    shortcutCleanup = undefined;
+    overlay?.unmount();
+    overlay = undefined;
+  };
   const mountOverlay = (): void => {
     if (overlay) return;
     overlay = new AssistantOverlay({
       // 这三个回调在调用时再取 client —— 选项页后来补上 token 也能立即生效
-      onSaveNote: async (content: string, tags: string[]) => {
+      onSaveNote: async (content, tags, options = {}) => {
         const activeClient = client;
         if (!activeClient) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
         const videoTimeSeconds = video?.currentTime;
+        const payload = buildNotePayload({
+          content,
+          tags,
+          sourceText: options.sourceText,
+          videoTimeSeconds,
+          externalCourseId: currentCourseId(),
+          externalChapterId: currentChapterId(),
+          pageId: `${location.origin}${location.pathname}`,
+        });
+        let noteId: string | undefined;
         try {
-          await activeClient.post("/capture/note", buildNotePayload({
-            content,
-            tags,
-            videoTimeSeconds,
-            externalCourseId: currentCourseId(),
-            externalChapterId: currentChapterId(),
-            pageId: `${location.origin}${location.pathname}`,
-          }));
+          const result = await activeClient.postJson<{ note_id: string }>("/capture/note", payload);
+          noteId = result.note_id;
         } catch (error) {
-          if (error instanceof Error && error.message.includes("404")) {
+          if (error instanceof CaptureRequestError && error.status === 404) {
             throw new Error("课程尚未采集，请先在课程页面停留片刻后重试");
+          }
+          if (isOfflineError(error)) {
+            const queued = await enqueueOfflineCapture(
+              "note",
+              "/capture/note",
+              payload as unknown as Record<string, unknown>,
+              options.addToReview,
+            );
+            if (queued) return { seconds: videoTimeSeconds, queued: true };
           }
           throw error;
         }
-        return videoTimeSeconds;
+
+        let reviewCreated = false;
+        let reviewError: string | undefined;
+        if (options.addToReview && noteId) {
+          try {
+            await activeClient.postJson("/capture/review-card", { note_id: noteId });
+            reviewCreated = true;
+          } catch (error) {
+            reviewError = error instanceof Error && error.message ? error.message : "复习卡创建失败";
+          }
+        }
+        return { seconds: videoTimeSeconds, noteId, reviewCreated, reviewError };
       },
       onOpenExports: () => window.open(consoleUrlFromApiBaseUrl(config.apiBaseUrl), "_blank"),
       onUploadNoteImage: async (imageBase64: string) => {
@@ -93,26 +291,68 @@ async function boot(): Promise<void> {
         const result = await activeClient.postJson<{ id: string }>("/capture/note-image", { image_base64: imageBase64 });
         return result.id;
       },
-      onCaptureScreenshot: async () => {
+      onCaptureScreenshotImage: async () => {
+        if (config.privacyMode) throw new Error("隐私模式已开启，截图存证已禁用");
+        if (!client) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
+        return {
+          imageBase64: await captureVisibleTabScreenshot(),
+          videoTimeSeconds: video?.currentTime,
+        };
+      },
+      onContinue: (seconds) => {
+        if (!video) return;
+        video.currentTime = Math.max(0, seconds);
+        overlay?.update({ continueSeconds: undefined, status: `已定位到 ${formatVideoTime(seconds)}` });
+      },
+      onAsk: async (question) => {
         const activeClient = client;
         if (!activeClient) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
-        const videoTimeSeconds = video?.currentTime;
-        const imageBase64 = await captureVisibleTabScreenshot();
+        const courseId = currentCourseId();
+        if (!courseId) throw new Error("课程尚未解析，请稍后重试");
+        const result = await activeClient.postJson<{
+          answer_md: string;
+          citations: { chapter_title: string; start_seconds?: number | null; excerpt: string }[];
+        }>("/capture/ask", {
+          external_course_id: courseId,
+          external_chapter_id: currentChapterId(),
+          question,
+        });
+        return {
+          answer: result.answer_md,
+          citations: result.citations.map((item) => ({
+            chapter_title: item.chapter_title,
+            start_seconds: item.start_seconds,
+            excerpt: item.excerpt,
+          })),
+        };
+      },
+      onSaveScreenshot: async (imageBase64, videoTimeSeconds) => {
+        const activeClient = client;
+        if (!activeClient) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
+        const payload = buildScreenshotPayload({
+          imageBase64,
+          videoTimeSeconds,
+          externalCourseId: currentCourseId(),
+          externalChapterId: currentChapterId(),
+          pageId: `${location.origin}${location.pathname}`,
+        });
         try {
-          await activeClient.post("/capture/screenshot", buildScreenshotPayload({
-            imageBase64,
-            videoTimeSeconds,
-            externalCourseId: currentCourseId(),
-            externalChapterId: currentChapterId(),
-            pageId: `${location.origin}${location.pathname}`,
-          }));
+          await activeClient.post("/capture/screenshot", payload);
         } catch (error) {
-          if (error instanceof Error && error.message.includes("404")) {
+          if (error instanceof CaptureRequestError && error.status === 404) {
             throw new Error("课程尚未采集，请先在课程页面停留片刻后重试");
+          }
+          if (isOfflineError(error)) {
+            const queued = await enqueueOfflineCapture(
+              "screenshot",
+              "/capture/screenshot",
+              payload as unknown as Record<string, unknown>,
+            );
+            if (queued) return { seconds: videoTimeSeconds, queued: true };
           }
           throw error;
         }
-        return videoTimeSeconds;
+        return { seconds: videoTimeSeconds };
       },
     });
     overlay.mount();
@@ -121,7 +361,14 @@ async function boot(): Promise<void> {
       courseTitle: course?.title,
       chapterTitle: currentChapter?.title,
       status: client ? "已连接页面" : "请先在扩展选项中完成插件绑定",
+      transcript: adapter.extractTranscript(document)?.text,
+      timeSeconds: video?.currentTime,
+      draftKey: videoSessionId() ?? `${adapter.id}:${reportPageUrl}`,
     });
+    overlay.setScreenshotEnabled(!config.privacyMode);
+    selectionCleanup = installSelectionBubble(overlay);
+    shortcutCleanup = installShortcuts(overlay);
+    maybeFetchContinue();
   };
 
   // 顶层浮层消息的口令:用只有扩展隔离世界读得到的 runtime.id。
@@ -141,10 +388,7 @@ async function boot(): Promise<void> {
       if (!isTrustedOverlayMountedMessage(event.data, event.source, window.frames, overlayToken)) return;
       iframeMounted = true;
       // iframe(视频实际播放帧)已挂载,撤销顶层的重复浮层
-      if (overlay) {
-        overlay.unmount();
-        overlay = undefined;
-      }
+      if (overlay) teardownOverlay();
     });
   }
   if (plan === "now") {
@@ -305,7 +549,18 @@ async function boot(): Promise<void> {
 
   if (video) {
     reportVideoSource("video-source");
+    let lastOverlayTimeAt = 0;
+    video.addEventListener("timeupdate", () => {
+      const now = Date.now();
+      if (now - lastOverlayTimeAt < 500) return;
+      lastOverlayTimeAt = now;
+      overlay?.update({ timeSeconds: video.currentTime });
+      // track 字幕的 activeCues 变化不会触发 DOM MutationObserver,
+      // 所以播放中也要主动取一次当前字幕。
+      acceptTranscript(adapter.extractTranscript(document), currentChapterId(), now);
+    });
     video.addEventListener("play", () => {
+      overlay?.markPlaybackStarted();
       overlay?.update({ adapterName: adapter.name, courseTitle: course?.title, status: "正在记录播放" });
       reportVideoSource("play");
       startProgressReporting();
@@ -348,6 +603,24 @@ async function boot(): Promise<void> {
     }).catch(() => undefined);
   };
 
+  const acceptTranscript = (
+    transcript: { text: string; source: string } | null,
+    chapterId: string | undefined,
+    now = Date.now(),
+  ): void => {
+    if (!transcript || transcript.text === lastTranscriptText) return;
+    // 字幕节点按行刷新,body 上的 characterData 监听触发非常频繁,做 1s 节流
+    if (now - lastTranscriptAt < 1000) return;
+    // 课程/章节 id 解析不出来时跳过,不发 "unknown"(后端 404 且静默丢弃);
+    // 此时不更新 lastTranscriptText,等 id 可用后还能把当前这句补上
+    if (!currentCourseId() || !chapterId) return;
+    lastTranscriptAt = now;
+    lastTranscriptText = transcript.text;
+    overlay?.update({ transcript: transcript.text, timeSeconds: video?.currentTime });
+    flushTranscript(video?.currentTime);
+    pendingTranscript = { text: transcript.text, source: transcript.source, startSeconds: video?.currentTime };
+  };
+
   const observer = new MutationObserver(() => {
     maybeRefreshSnapshot();
     maybeImportSubtitleTracks();
@@ -357,19 +630,15 @@ async function boot(): Promise<void> {
       flushTranscript(video?.currentTime);
       lastTranscriptText = "";
       observedChapterId = chapterId;
+      overlay?.update({
+        transcript: "",
+        timeSeconds: video?.currentTime,
+        draftKey: videoSessionId() ?? `${adapter.id}:${reportPageUrl}`,
+      });
+      // 切章节后重新查该章节的上次位置
+      window.setTimeout(maybeFetchContinue, 600);
     }
-    const transcript = adapter.extractTranscript(document);
-    if (!transcript || transcript.text === lastTranscriptText) return;
-    // 字幕节点按行刷新,body 上的 characterData 监听触发非常频繁,做 1s 节流
-    const now = Date.now();
-    if (now - lastTranscriptAt < 1000) return;
-    // 课程/章节 id 解析不出来时跳过,不发 "unknown"(后端 404 且静默丢弃);
-    // 此时不更新 lastTranscriptText,等 id 可用后还能把当前这句补上
-    if (!currentCourseId() || !chapterId) return;
-    lastTranscriptAt = now;
-    lastTranscriptText = transcript.text;
-    flushTranscript(video?.currentTime);
-    pendingTranscript = { text: transcript.text, source: transcript.source, startSeconds: video?.currentTime };
+    acceptTranscript(adapter.extractTranscript(document), chapterId);
   });
 
   if (document.body) {

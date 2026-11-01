@@ -6,6 +6,7 @@ const config: ExtensionConfig = {
   apiBaseUrl: "http://127.0.0.1:17890/api/v1",
   apiToken: "lap_test",
   enabledAdapters: ["wencai-school"],
+  customAdapters: [],
 };
 
 describe("sendBackgroundHeartbeat", () => {

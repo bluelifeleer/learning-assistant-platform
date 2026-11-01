@@ -7,8 +7,21 @@
       body { margin: 0; padding: 24px; font: 14px/1.5 Arial, sans-serif; color: #16202a; background: #f5f7fb; }
       main { max-width: 720px; margin: 0 auto; background: white; border: 1px solid #d8e0ea; border-radius: 8px; padding: 20px; }
       label { display: block; margin: 14px 0; font-weight: 600; }
-      input[type="text"], input[type="password"] { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 9px 10px; border: 1px solid #bdc9d8; border-radius: 6px; }
+      input[type="text"], input[type="password"], textarea { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 9px 10px; border: 1px solid #bdc9d8; border-radius: 6px; font: inherit; }
+      textarea { resize: vertical; }
       .adapter-option { font-weight: 400; margin: 8px 0; }
+      h2 { margin-top: 24px; }
+      .hint { margin: 4px 0 12px; color: #5b6b7d; font-size: 12px; font-weight: 400; }
+      .custom-form { border: 1px solid #d8e0ea; border-radius: 8px; padding: 12px 14px; background: #fbfcfe; }
+      .custom-form label { margin: 8px 0; font-size: 12px; }
+      .custom-form input { margin-top: 4px; }
+      .custom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .custom-adapter-item { display: flex; align-items: center; gap: 8px; border: 1px solid #d8e0ea; border-radius: 6px; padding: 8px 10px; margin: 8px 0; font-weight: 400; }
+      .custom-adapter-item strong { font-size: 13px; }
+      .custom-adapter-item .meta { color: #5b6b7d; font-size: 12px; }
+      .custom-adapter-item .spacer { margin-left: auto; }
+      .custom-adapter-item button { background: #b42318; padding: 4px 8px; font-size: 12px; }
+      .custom-adapter-item input[type="checkbox"] { accent-color: #1267d8; }
       button { margin-right: 10px; padding: 8px 12px; border: 0; border-radius: 6px; color: white; background: #1267d8; cursor: pointer; }
       #status { min-height: 20px; color: #2d5d36; }
     </style>
@@ -22,6 +35,32 @@
         <section>
           <h2>启用的网站 adapter</h2>
           <div id="adapterList"></div>
+          <label class="adapter-option"><input id="articleCapture" type="checkbox" /> 文章 / 文档页笔记（任意网页，包括非视频资料）</label>
+          <p class="hint">开启后，未命中学习站点的普通网页也会挂浮层，便于划词记笔记。Chrome 自带 PDF 查看器无法注入脚本，PDF 文字层暂不支持。</p>
+          <label>暂停采集的站点（每行一个域名）<textarea id="pausedSites" rows="3" placeholder="例如 private.example.com"></textarea></label>
+          <label class="adapter-option"><input id="privacyMode" type="checkbox" /> 隐私模式：禁用截图存证（笔记与字幕采集不受影响）</label>
+        </section>
+        <section>
+          <h2>自定义站点</h2>
+          <p class="hint">为不在内置列表里的学习站点填写 CSS selector。选择器只在对应域名下生效，视频/字幕可留空使用默认规则。</p>
+          <div id="customAdapterList"></div>
+          <div class="custom-form">
+            <div class="custom-row">
+              <label>名称<input id="customName" type="text" placeholder="例如 学校在线课堂" /></label>
+              <label>域名<input id="customDomain" type="text" placeholder="learn.example.com" /></label>
+            </div>
+            <label>课程标题选择器<input id="customCourseSelector" type="text" placeholder="h1.course-title" /></label>
+            <div class="custom-row">
+              <label>章节列表选择器<input id="customChapterSelector" type="text" placeholder=".chapter-list li" /></label>
+              <label>章节 ID 属性<input id="customChapterIdAttribute" type="text" placeholder="data-id" /></label>
+            </div>
+            <div class="custom-row">
+              <label>当前章节选择器（可选）<input id="customCurrentChapterSelector" type="text" placeholder=".chapter-list li.active" /></label>
+              <label>字幕选择器（可选）<input id="customTranscriptSelector" type="text" placeholder=".subtitle" /></label>
+            </div>
+            <label>视频选择器（可选）<input id="customVideoSelector" type="text" placeholder="video" /></label>
+            <button id="addCustomAdapter" type="button">添加自定义站点</button>
+          </div>
         </section>
         <button type="submit">保存配置</button>
         <button id="testConnection" type="button">测试连接</button>

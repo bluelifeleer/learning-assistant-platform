@@ -47,7 +47,14 @@ export class CaptureClient {
       throw error;
     }
     if (!response.ok) {
-      throw new CaptureRequestError(`Capture request failed: ${response.status}`, response.status);
+      let detail = "";
+      try {
+        const body = (await response.json()) as { detail?: unknown };
+        if (typeof body.detail === "string") detail = body.detail;
+      } catch {
+        // 非 JSON 错误体，保留状态码文案
+      }
+      throw new CaptureRequestError(detail || `Capture request failed: ${response.status}`, response.status);
     }
     return (await response.json()) as T;
   }

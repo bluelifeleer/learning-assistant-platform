@@ -46,6 +46,20 @@ class NoteCaptureIn(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class ContinueSessionIn(BaseModel):
+    session_id: str = Field(min_length=1)
+
+
+class CaptureAskIn(BaseModel):
+    external_course_id: str
+    external_chapter_id: str | None = None
+    question: str = Field(min_length=1, max_length=2000)
+
+
+class ReviewCardCaptureIn(BaseModel):
+    note_id: str = Field(min_length=1)
+
+
 class ScreenshotCaptureIn(BaseModel):
     external_course_id: str
     external_chapter_id: str | None = None

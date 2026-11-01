@@ -3,10 +3,14 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_bearer_token
 from app.db.session import get_db
+from app.schemas.ai import AskAnswerOut
 from app.schemas.capture import (
+    CaptureAskIn,
+    ContinueSessionIn,
     CourseSnapshotIn,
     NoteCaptureIn,
     NoteImageCaptureIn,
+    ReviewCardCaptureIn,
     ScreenshotCaptureIn,
     TranscriptSegmentIn,
     VideoEventIn,
@@ -55,6 +59,41 @@ def note(
     service: CaptureService = Depends(get_capture_service),
 ) -> dict[str, str]:
     return service.accept_note(token, payload)
+
+
+@router.post("/due-count")
+def due_count(
+    token: str = Depends(require_bearer_token),
+    service: CaptureService = Depends(get_capture_service),
+) -> dict[str, int]:
+    return service.accept_due_count(token)
+
+
+@router.post("/continue")
+def continue_session(
+    payload: ContinueSessionIn,
+    token: str = Depends(require_bearer_token),
+    service: CaptureService = Depends(get_capture_service),
+) -> dict[str, float | None]:
+    return service.accept_continue(token, payload.session_id)
+
+
+@router.post("/ask", response_model=AskAnswerOut)
+def ask(
+    payload: CaptureAskIn,
+    token: str = Depends(require_bearer_token),
+    service: CaptureService = Depends(get_capture_service),
+) -> AskAnswerOut:
+    return service.accept_ask(token, payload)
+
+
+@router.post("/review-card")
+def review_card(
+    payload: ReviewCardCaptureIn,
+    token: str = Depends(require_bearer_token),
+    service: CaptureService = Depends(get_capture_service),
+) -> dict[str, str]:
+    return service.accept_review_card(token, payload.note_id)
 
 
 @router.post("/screenshot")

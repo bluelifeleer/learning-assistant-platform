@@ -15,9 +15,11 @@ test("命中适配器的页面会挂载浮层并提示配置不完整", async ({
   await expect(overlay).toContainText("学习助手");
   await expect(overlay).toContainText(/插件配置不完整|请先在扩展选项中完成插件绑定/);
   // 浮层按钮齐全
-  for (const label of ["添加笔记", "导出字幕", "截图存证"]) {
+  for (const label of ["添加笔记", "标记疑问", "加入复习", "AI 解释", "导出字幕", "截图存证"]) {
     await expect(overlay.getByRole("button", { name: label })).toBeVisible();
   }
+  // 当前字幕会展示在浮层里，方便点一下就记笔记
+  await expect(overlay).toContainText("这是假站点的字幕文本");
 });
 
 test("在选项页绑定后，浮层状态不再提示配置不完整", async ({ context, extensionId }) => {

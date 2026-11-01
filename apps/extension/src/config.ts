@@ -1,16 +1,93 @@
+export interface CustomAdapterConfig {
+  id: string;
+  name: string;
+  /** 域名，例如 learn.example.com；匹配该域名及其子域名 */
+  domain: string;
+  /** 课程标题选择器 */
+  courseSelector: string;
+  /** 章节列表选择器 */
+  chapterSelector: string;
+  /** 章节 id 所在属性，默认 data-id */
+  chapterIdAttribute?: string;
+  /** 当前章节选择器，可选；不填取第一个章节 */
+  currentChapterSelector?: string;
+  /** 字幕选择器，可选 */
+  transcriptSelector?: string;
+  /** 视频选择器，默认 video */
+  videoSelector?: string;
+  enabled?: boolean;
+}
+
 export interface ExtensionConfig {
   apiBaseUrl: string;
   apiToken: string;
   enabledAdapters: string[];
+  customAdapters: CustomAdapterConfig[];
+  /** 通用文章/文档页笔记：在没有命中学习 adapter 的页面上也挂浮层 */
+  articleCapture?: boolean;
+  /** 完全不注入/采集的域名 */
+  pausedSites?: string[];
+  /** 隐私模式：禁用截图存证 */
+  privacyMode?: boolean;
 }
 
 export const DEFAULT_EXTENSION_CONFIG: ExtensionConfig = {
   apiBaseUrl: "http://127.0.0.1:17890/api/v1",
   apiToken: "",
   enabledAdapters: ["wencai-school", "generic-dom-course", "generic-video"],
+  customAdapters: [],
+  articleCapture: false,
+  pausedSites: [],
+  privacyMode: false,
 };
 
 const LOCAL_API_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
+const MAX_CUSTOM_ADAPTERS = 20;
+
+function cleanText(value: unknown, maxLength: number): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, maxLength) : "";
+}
+
+export function normalizeDomain(value: unknown): string {
+  const raw = cleanText(value, 200).toLowerCase();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw.includes("://") ? raw : `https://${raw}`);
+    return url.hostname;
+  } catch {
+    return "";
+  }
+}
+
+/** 只保留字段完整、域名合法的自定义 adapter；坏数据不能拖垮整个配置。 */
+export function normalizeCustomAdapters(value: unknown): CustomAdapterConfig[] {
+  if (!Array.isArray(value)) return [];
+  const result: CustomAdapterConfig[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Partial<CustomAdapterConfig>;
+    const id = cleanText(raw.id, 80);
+    const name = cleanText(raw.name, 60);
+    const domain = normalizeDomain(raw.domain);
+    const courseSelector = cleanText(raw.courseSelector, 200);
+    const chapterSelector = cleanText(raw.chapterSelector, 200);
+    if (!id || !name || !domain || !courseSelector || !chapterSelector) continue;
+    result.push({
+      id,
+      name,
+      domain,
+      courseSelector,
+      chapterSelector,
+      chapterIdAttribute: cleanText(raw.chapterIdAttribute, 80) || "data-id",
+      currentChapterSelector: cleanText(raw.currentChapterSelector, 200) || undefined,
+      transcriptSelector: cleanText(raw.transcriptSelector, 200) || undefined,
+      videoSelector: cleanText(raw.videoSelector, 200) || "video",
+      enabled: raw.enabled !== false,
+    });
+    if (result.length >= MAX_CUSTOM_ADAPTERS) break;
+  }
+  return result;
+}
 
 export function isValidApiBaseUrl(value: string): boolean {
   try {
@@ -33,11 +110,17 @@ export function normalizeExtensionConfig(value: Partial<ExtensionConfig> | null 
     enabledAdapters: Array.isArray(value?.enabledAdapters)
       ? value.enabledAdapters.filter((item): item is string => typeof item === "string")
       : DEFAULT_EXTENSION_CONFIG.enabledAdapters,
+    customAdapters: normalizeCustomAdapters(value?.customAdapters),
+    articleCapture: value?.articleCapture === true,
+    pausedSites: Array.isArray(value?.pausedSites)
+      ? Array.from(new Set(value.pausedSites.map((item) => normalizeDomain(item)).filter(Boolean))).slice(0, 50)
+      : [],
+    privacyMode: value?.privacyMode === true,
   };
 }
 
 export async function loadExtensionConfig(): Promise<ExtensionConfig> {
-  const stored = await chrome.storage.local.get(["apiBaseUrl", "apiToken", "enabledAdapters"]);
+  const stored = await chrome.storage.local.get(["apiBaseUrl", "apiToken", "enabledAdapters", "customAdapters", "articleCapture", "pausedSites", "privacyMode"]);
   return normalizeExtensionConfig(stored as Partial<ExtensionConfig>);
 }
 
@@ -50,7 +133,7 @@ export async function saveExtensionConfig(config: ExtensionConfig): Promise<void
 }
 
 export async function ensureDefaultExtensionConfig(): Promise<void> {
-  const stored = await chrome.storage.local.get(["apiBaseUrl", "enabledAdapters"]) as Partial<ExtensionConfig>;
+  const stored = await chrome.storage.local.get(["apiBaseUrl", "enabledAdapters", "customAdapters", "articleCapture", "pausedSites", "privacyMode"]) as Partial<ExtensionConfig>;
   const defaults: Partial<ExtensionConfig> = {};
   if (typeof stored.apiBaseUrl !== "string" || !stored.apiBaseUrl.trim()) {
     defaults.apiBaseUrl = DEFAULT_EXTENSION_CONFIG.apiBaseUrl;
@@ -59,6 +142,18 @@ export async function ensureDefaultExtensionConfig(): Promise<void> {
   // 每次 service worker 启动都重新塞回默认值会把用户的关闭操作吃掉
   if (!Array.isArray(stored.enabledAdapters)) {
     defaults.enabledAdapters = DEFAULT_EXTENSION_CONFIG.enabledAdapters;
+  }
+  if (!Array.isArray(stored.customAdapters)) {
+    defaults.customAdapters = DEFAULT_EXTENSION_CONFIG.customAdapters;
+  }
+  if (typeof stored.articleCapture !== "boolean") {
+    defaults.articleCapture = DEFAULT_EXTENSION_CONFIG.articleCapture;
+  }
+  if (!Array.isArray(stored.pausedSites)) {
+    defaults.pausedSites = DEFAULT_EXTENSION_CONFIG.pausedSites;
+  }
+  if (typeof stored.privacyMode !== "boolean") {
+    defaults.privacyMode = DEFAULT_EXTENSION_CONFIG.privacyMode;
   }
   if (Object.keys(defaults).length > 0) {
     await chrome.storage.local.set(defaults);

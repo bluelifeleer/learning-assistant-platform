@@ -1,22 +1,44 @@
 {
   "manifest_version": 3,
   "name": "Learning Assistant",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "icons": {
     "16": "assets/icon-16.png",
     "32": "assets/icon-32.png",
     "48": "assets/icon-48.png",
     "128": "assets/icon-128.png"
   },
-  "permissions": ["storage", "activeTab", "alarms", "scripting"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "dist/background.js", "type": "module" },
-  "options_ui": { "page": "options.html", "open_in_tab": true },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "alarms",
+    "scripting",
+    "notifications"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "content_scripts": [
     {
-      "matches": ["https://*/*", "http://*/*"],
-      "exclude_matches": ["http://127.0.0.1:17891/*", "http://localhost:17891/*"],
-      "js": ["dist/content.js"],
+      "matches": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "exclude_matches": [
+        "http://127.0.0.1:17891/*",
+        "http://localhost:17891/*"
+      ],
+      "js": [
+        "dist/content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true
     }

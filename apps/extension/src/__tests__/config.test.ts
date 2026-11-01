@@ -62,6 +62,18 @@ describe("extension config", () => {
     expect(isValidApiBaseUrl(config.apiBaseUrl)).toBe(false);
   });
 
+  it("normalizes paused site domains and privacy mode", () => {
+    const config = normalizeExtensionConfig({
+      pausedSites: ["https://Private.Example.com/path", "private.example.com", "bad domain"],
+      privacyMode: true,
+    });
+
+    expect(config.pausedSites).toEqual(["private.example.com"]);
+    expect(config.privacyMode).toBe(true);
+    expect(normalizeExtensionConfig({}).pausedSites).toEqual([]);
+    expect(normalizeExtensionConfig({}).privacyMode).toBe(false);
+  });
+
   it("treats an explicitly empty adapter list as a deliberate choice", () => {
     // 用户取消勾选全部适配器后保存,不能被默认值覆盖(否则扩展会继续在已关闭的站点采集)
     expect(normalizeExtensionConfig({ enabledAdapters: [] }).enabledAdapters).toEqual([]);
@@ -81,6 +93,7 @@ describe("extension config", () => {
       apiBaseUrl: "http://example.test/api",
       apiToken: "",
       enabledAdapters: ["generic-video"],
+      customAdapters: [],
     })).rejects.toThrow("https://");
     expect(set).not.toHaveBeenCalled();
   });
@@ -92,12 +105,17 @@ describe("extension config", () => {
       apiBaseUrl: "https://api.example.com/v1",
       apiToken: "token",
       enabledAdapters: ["generic-video"],
+      customAdapters: [],
     });
 
     expect(set).toHaveBeenCalledWith({
       apiBaseUrl: "https://api.example.com/v1",
       apiToken: "token",
       enabledAdapters: ["generic-video"],
+      customAdapters: [],
+      articleCapture: false,
+      pausedSites: [],
+      privacyMode: false,
     });
   });
 });
@@ -107,6 +125,10 @@ describe("default config seeding", () => {
     const { set } = stubChromeStorage({
       apiBaseUrl: "https://api.example.com/v1",
       enabledAdapters: ["generic-video"],
+      customAdapters: [],
+      articleCapture: false,
+      pausedSites: [],
+      privacyMode: false,
     });
 
     await ensureDefaultExtensionConfig();
@@ -120,7 +142,13 @@ describe("default config seeding", () => {
     await ensureDefaultExtensionConfig();
 
     expect(set).toHaveBeenCalledTimes(1);
-    expect(set).toHaveBeenCalledWith({ enabledAdapters: DEFAULT_EXTENSION_CONFIG.enabledAdapters });
+    expect(set).toHaveBeenCalledWith({
+      enabledAdapters: DEFAULT_EXTENSION_CONFIG.enabledAdapters,
+      customAdapters: DEFAULT_EXTENSION_CONFIG.customAdapters,
+      articleCapture: DEFAULT_EXTENSION_CONFIG.articleCapture,
+      pausedSites: DEFAULT_EXTENSION_CONFIG.pausedSites,
+      privacyMode: DEFAULT_EXTENSION_CONFIG.privacyMode,
+    });
   });
 
   it("writes all defaults on a fresh install", async () => {
@@ -131,6 +159,10 @@ describe("default config seeding", () => {
     expect(set).toHaveBeenCalledWith({
       apiBaseUrl: DEFAULT_EXTENSION_CONFIG.apiBaseUrl,
       enabledAdapters: DEFAULT_EXTENSION_CONFIG.enabledAdapters,
+      customAdapters: DEFAULT_EXTENSION_CONFIG.customAdapters,
+      articleCapture: DEFAULT_EXTENSION_CONFIG.articleCapture,
+      pausedSites: DEFAULT_EXTENSION_CONFIG.pausedSites,
+      privacyMode: DEFAULT_EXTENSION_CONFIG.privacyMode,
     });
   });
 });

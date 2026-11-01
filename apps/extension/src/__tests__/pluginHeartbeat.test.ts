@@ -10,6 +10,7 @@ describe("plugin heartbeat", () => {
         apiBaseUrl: "http://127.0.0.1:17890/api/v1",
         apiToken: "lap_token",
         enabledAdapters: ["wencai-school", "generic-video"],
+        customAdapters: [],
       },
       { fetch: fetchMock, extensionVersion: "0.1.0" },
     );

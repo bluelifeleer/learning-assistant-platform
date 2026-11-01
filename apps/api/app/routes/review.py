@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_current_user
 from app.db.session import get_db
-from app.models.entities import Course, Note, ReviewCard, ReviewLog, TranscriptSegment, User
+from app.models.entities import Note, ReviewCard, ReviewLog, User
 from app.schemas.review import (
     ReviewAnswerIn,
     ReviewCardCreateIn,
@@ -13,11 +13,10 @@ from app.schemas.review import (
     ReviewCardUpdateIn,
 )
 from app.services import audit
-from app.services.review import ReviewService, utc_now
+from app.services.review import CONTEXT_WINDOW_SECONDS, ReviewService, build_review_card, utc_now
 
 router = APIRouter(prefix="/review", tags=["review"])
 
-CONTEXT_WINDOW_SECONDS = 10
 
 
 def card_out(card: ReviewCard) -> ReviewCardOut:
@@ -47,38 +46,7 @@ def create_card(payload: ReviewCardCreateIn, user: User = Depends(require_curren
     note = db.query(Note).filter(Note.id == payload.note_id).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
-    course = db.query(Course).filter(Course.id == note.course_id).first()
-    if not course:
-        raise HTTPException(status_code=404, detail="Course not found")
-    back = ""
-    if note.chapter_id and note.video_time_seconds is not None:
-        center = float(note.video_time_seconds)
-        segments = (
-            db.query(TranscriptSegment)
-            .filter(
-                TranscriptSegment.chapter_id == note.chapter_id,
-                TranscriptSegment.start_seconds.isnot(None),
-                TranscriptSegment.start_seconds >= center - CONTEXT_WINDOW_SECONDS,
-                TranscriptSegment.start_seconds <= center + CONTEXT_WINDOW_SECONDS,
-            )
-            .order_by(TranscriptSegment.start_seconds.asc())
-            .all()
-        )
-        back = "\n".join(segment.text for segment in segments)
-    card = ReviewCard(
-        organization_id=course.organization_id,
-        note_id=note.id,
-        course_id=note.course_id,
-        chapter_id=note.chapter_id,
-        user_id=user.id,
-        front=note.corrected_content or note.content,
-        back=back,
-        due_at=utc_now(),
-    )
-    db.add(card)
-    db.commit()
-    db.refresh(card)
-    return card_out(card)
+    return card_out(build_review_card(db, note, user.id))
 
 
 @router.get("/due", response_model=ReviewCardListOut)
