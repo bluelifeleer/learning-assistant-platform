@@ -6,6 +6,7 @@ from app.db.session import get_db
 from app.schemas.ai import AskAnswerOut
 from app.schemas.capture import (
     CaptureAskIn,
+    CaptureTranslateIn,
     ContinueSessionIn,
     CourseSnapshotIn,
     NoteCaptureIn,
@@ -76,6 +77,15 @@ def continue_session(
     service: CaptureService = Depends(get_capture_service),
 ) -> dict[str, float | None]:
     return service.accept_continue(token, payload.session_id)
+
+
+@router.post("/translate")
+def translate_caption(
+    payload: CaptureTranslateIn,
+    token: str = Depends(require_bearer_token),
+    service: CaptureService = Depends(get_capture_service),
+) -> dict[str, str]:
+    return service.accept_translate(token, payload)
 
 
 @router.post("/ask", response_model=AskAnswerOut)

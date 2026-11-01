@@ -229,6 +229,54 @@ def test_capture_ask_requires_llm_configuration(client, auth_headers):
     assert "LLM" in response.json()["detail"]
 
 
+def test_capture_translate_uses_llm_without_course_context(client, auth_headers, session_factory, monkeypatch):
+    from app.models.entities import Organization
+    from app.services import llm
+
+    db = session_factory()
+    try:
+        organization = db.query(Organization).first()
+        organization.llm_base_url = "https://llm.example.com/v1"
+        organization.llm_api_key = "test-key"
+        organization.llm_model = "test-model"
+        db.commit()
+    finally:
+        db.close()
+
+    calls: list[dict] = []
+
+    def fake_completion(config, messages, json_mode=True):
+        calls.append({"messages": messages, "json_mode": json_mode})
+        return "  Linear programming is a resource allocation model.  "
+
+    monkeypatch.setattr(llm, "chat_completion", fake_completion)
+    plugin_token = create_plugin_token(client, auth_headers)
+
+    response = client.post(
+        "/api/v1/capture/translate",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={"text": "线性规划是资源分配模型", "target_language": "en"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["translation"] == "Linear programming is a resource allocation model."
+    assert calls[0]["json_mode"] is False
+    assert "英文" in calls[0]["messages"][-1]["content"]
+
+
+def test_capture_translate_requires_llm_configuration(client, auth_headers):
+    plugin_token = create_plugin_token(client, auth_headers)
+
+    response = client.post(
+        "/api/v1/capture/translate",
+        headers={"Authorization": f"Bearer {plugin_token}"},
+        json={"text": "需要翻译的字幕", "target_language": "zh"},
+    )
+
+    assert response.status_code == 400
+    assert "LLM" in response.json()["detail"]
+
+
 def test_duplicate_transcript_segment_is_not_inserted_twice(client, auth_headers):
     token = create_plugin_token(client, auth_headers)
     capture_sample_course(client, token)

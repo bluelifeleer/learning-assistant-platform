@@ -96,6 +96,10 @@ function overlaySessionLine(overlay: AssistantOverlay): FakeElement {
   return (overlay as unknown as { sessionLine: FakeElement }).sessionLine;
 }
 
+function overlayTranslation(overlay: AssistantOverlay): FakeElement {
+  return (overlay as unknown as { bilingualTranslation: FakeElement }).bilingualTranslation;
+}
+
 function flushAsync(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -302,6 +306,19 @@ describe("assistant overlay", () => {
     await flushAsync();
 
     expect(onSaveNote).toHaveBeenCalledWith("我的理解", [], { sourceText: "选中的定义" });
+  });
+
+  it("shows original and translated subtitles side by side", async () => {
+    const onTranslate = vi.fn().mockResolvedValue("Linear programming");
+    const overlay = new AssistantOverlay({ onSaveNote: vi.fn(), onTranslate });
+    overlay.update({ transcript: "线性规划", timeSeconds: 12 });
+
+    overlay.setBilingual(true);
+    await flushAsync();
+
+    expect(onTranslate).toHaveBeenCalledWith("线性规划", "en");
+    expect(overlayTranslation(overlay).textContent).toBe("Linear programming");
+    expect((overlay as unknown as { root: FakeElement }).root.style.width).toBe("440px");
   });
 
   it("shows pending offline captures in the session line", () => {

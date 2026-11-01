@@ -27,6 +27,7 @@ from app.models.entities import (
 )
 from app.schemas.capture import (
     CaptureAskIn,
+    CaptureTranslateIn,
     ChapterSnapshotIn,
     CourseSnapshotIn,
     NoteCaptureIn,
@@ -398,6 +399,29 @@ class CaptureService:
         if not session or session.last_position_seconds is None:
             return {"position_seconds": None}
         return {"position_seconds": float(session.last_position_seconds)}
+
+    def accept_translate(self, bearer_token: str, payload: CaptureTranslateIn) -> dict[str, str]:
+        """插件双语字幕:只做翻译,不检索课程,尽量短。"""
+        token = self._plugin_token(bearer_token)
+        organization = self.db.get(Organization, token.organization_id)
+        if not organization:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+        try:
+            config = llm.llm_config_for_organization(organization)
+        except llm.LLMNotConfiguredError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+        target = "英文" if payload.target_language == "en" else "中文"
+        messages = [
+            {"role": "system", "content": "你是字幕翻译引擎。只输出译文，不要解释，不要加引号。"},
+            {"role": "user", "content": f"把下面的字幕翻译成{target}：\n{payload.text}"},
+        ]
+        try:
+            translation = llm.chat_completion(config, messages, json_mode=False).strip()
+        except llm.LLMRequestError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from None
+        if not translation:
+            raise HTTPException(status_code=502, detail="LLM 返回了空译文")
+        return {"translation": translation}
 
     def accept_ask(self, bearer_token: str, payload: CaptureAskIn) -> AskAnswerOut:
         """插件浮层内 AI 问答:按外部课程/章节解析范围,复用控制台同一套检索与提示词。"""

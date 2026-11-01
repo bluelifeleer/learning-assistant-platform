@@ -315,6 +315,15 @@ async function boot(): Promise<void> {
         video.currentTime = Math.max(0, seconds);
         overlay?.update({ continueSeconds: undefined, status: `已定位到 ${formatVideoTime(seconds)}` });
       },
+      onTranslate: async (text, target) => {
+        const activeClient = client;
+        if (!activeClient) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");
+        const result = await activeClient.postJson<{ translation: string }>("/capture/translate", {
+          text,
+          target_language: target,
+        });
+        return result.translation;
+      },
       onAsk: async (question) => {
         const activeClient = client;
         if (!activeClient) throw new Error("尚未绑定插件 Token，请在扩展选项中完成绑定");

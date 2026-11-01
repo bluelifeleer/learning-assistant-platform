@@ -16,6 +16,8 @@ export interface OverlayState {
   continueSeconds?: number;
   /** 本地待补传的采集数量 */
   pendingCaptures?: number;
+  /** 当前字幕的译文（双语模式） */
+  translation?: string;
 }
 
 export const OVERLAY_NOTE_TAGS = ["考点", "高频", "疑问", "普通", "简答", "多选", "单选"];
@@ -89,6 +91,8 @@ export interface AssistantOverlayCallbacks {
    * undefined=顶层不可用，由浮层自己打开本地编辑器。
    */
   onRequestScreenshotEditor?: (imageDataUrl: string) => Promise<string | null | undefined>;
+  /** 双语字幕翻译，target 由字幕语言自动决定 */
+  onTranslate?: (text: string, target: "zh" | "en") => Promise<string>;
 }
 
 export const OVERLAY_POSITION_KEY = "learning-assistant:overlay-position";
@@ -167,8 +171,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 /** 根据字幕语言选择翻译目标:中文 → 英文,其它 → 中文。 */
+export function translationTarget(text: string): "zh" | "en" {
+  return /[\u4e00-\u9fff]/.test(text) ? "en" : "zh";
+}
+
 export function translationPrompt(text: string): string {
-  return /[\u4e00-\u9fff]/.test(text)
+  return translationTarget(text) === "en"
     ? `请把这句话翻译成英文：${text}`
     : `请把这句话翻译成中文：${text}`;
 }
@@ -216,6 +224,14 @@ export class AssistantOverlay {
   private uploadingImage = false;
   private readonly screenshotButton: HTMLButtonElement;
   private readonly continueButton: HTMLButtonElement;
+  private readonly bilingualBox: HTMLDivElement;
+  private readonly bilingualOriginal: HTMLDivElement;
+  private readonly bilingualTranslation: HTMLDivElement;
+  private readonly bilingualButton: HTMLButtonElement;
+  private bilingual = false;
+  private translationTimer: number | undefined;
+  private translationRequestId = 0;
+  private lastTranslatedTranscript = "";
   private readonly sessionLine: HTMLDivElement;
   private watchedSeconds = 0;
   private sessionNotes = 0;
@@ -260,6 +276,7 @@ export class AssistantOverlay {
       "bottom:16px",
       "z-index:2147483647",
       "width:280px",
+      "max-width:calc(100vw - 32px)",
       "font:13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
       "background:#101820",
       "color:#f4f7fb",
@@ -302,6 +319,35 @@ export class AssistantOverlay {
     });
     this.body.appendChild(this.meta);
 
+    this.bilingualBox = document.createElement("div");
+    this.bilingualBox.id = "learning-assistant-bilingual";
+    this.bilingualBox.style.cssText = "margin-top:6px;display:none;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;line-height:1.5;color:#9fb3c8";
+    const originalColumn = document.createElement("div");
+    originalColumn.style.cssText = "min-width:0;background:#0b1220;border-left:2px solid #1f8fff;border-radius:0 6px 6px 0;padding:6px 8px";
+    const originalLabel = document.createElement("div");
+    originalLabel.textContent = "原文";
+    originalLabel.style.cssText = "font-size:10px;color:#7b8ba4;margin-bottom:2px";
+    this.bilingualOriginal = document.createElement("div");
+    this.bilingualOriginal.style.cssText = "white-space:pre-wrap;max-height:74px;overflow:auto;cursor:pointer";
+    this.bilingualOriginal.title = "点击记下这句";
+    this.bilingualOriginal.addEventListener("click", () => {
+      if (this.currentState.transcript) this.openNoteEditor({ sourceText: this.currentState.transcript });
+    });
+    originalColumn.appendChild(originalLabel);
+    originalColumn.appendChild(this.bilingualOriginal);
+    const translationColumn = document.createElement("div");
+    translationColumn.style.cssText = "min-width:0;background:#0b1220;border-left:2px solid #38bdf8;border-radius:0 6px 6px 0;padding:6px 8px";
+    const translationLabel = document.createElement("div");
+    translationLabel.textContent = "译文";
+    translationLabel.style.cssText = "font-size:10px;color:#7b8ba4;margin-bottom:2px";
+    this.bilingualTranslation = document.createElement("div");
+    this.bilingualTranslation.style.cssText = "white-space:pre-wrap;max-height:74px;overflow:auto";
+    translationColumn.appendChild(translationLabel);
+    translationColumn.appendChild(this.bilingualTranslation);
+    this.bilingualBox.appendChild(originalColumn);
+    this.bilingualBox.appendChild(translationColumn);
+    this.body.appendChild(this.bilingualBox);
+
     this.continueButton = this.makeButton("继续上次", () => {
       if (this.currentState.continueSeconds !== undefined) {
         this.callbacks.onContinue?.(this.currentState.continueSeconds);
@@ -327,6 +373,9 @@ export class AssistantOverlay {
     const reviewButton = this.makeButton("加入复习", () => this.openReviewNote(), "#31465c");
     reviewButton.title = "写下要复习的内容并生成复习卡（Alt+R）";
     this.body.appendChild(reviewButton);
+    this.bilingualButton = this.makeButton("双语", () => this.setBilingual(!this.bilingual), "#31465c");
+    this.bilingualButton.title = "并排显示当前字幕的原文和译文";
+    this.body.appendChild(this.bilingualButton);
     const askButton = this.makeButton("AI 解释", () => this.openAskFromTranscript(), "#31465c");
     askButton.title = "用 AI 解释当前字幕，也可以继续追问（Alt+A）";
     this.body.appendChild(askButton);
@@ -378,6 +427,10 @@ export class AssistantOverlay {
   unmount(): void {
     this.root.remove();
     this.mini.remove();
+    if (this.translationTimer !== undefined && typeof window !== "undefined") {
+      window.clearTimeout(this.translationTimer);
+      this.translationTimer = undefined;
+    }
     if (typeof window !== "undefined") {
       window.removeEventListener("resize", this.onWindowResize);
       if (this.sessionTimer !== undefined) window.clearInterval(this.sessionTimer);
@@ -610,6 +663,76 @@ export class AssistantOverlay {
     this.collapsed = collapsed;
     this.root.style.display = collapsed ? "none" : "";
     this.mini.style.display = collapsed ? "" : "none";
+    this.applyBilingualLayout();
+  }
+
+  private applyBilingualLayout(): void {
+    if (this.collapsed) return;
+    this.root.style.width = this.bilingual ? "440px" : "280px";
+  }
+
+  /** 开关双语并立即翻译当前字幕。 */
+  setBilingual(enabled: boolean): void {
+    this.bilingual = enabled;
+    this.applyBilingualLayout();
+    if (!enabled) {
+      if (this.translationTimer !== undefined && typeof window !== "undefined") {
+        window.clearTimeout(this.translationTimer);
+        this.translationTimer = undefined;
+      }
+      this.translationRequestId += 1;
+      this.currentState.translation = undefined;
+      this.lastTranslatedTranscript = "";
+      this.render();
+      return;
+    }
+    this.lastTranslatedTranscript = "";
+    this.scheduleTranslation(true);
+  }
+
+  private scheduleTranslation(immediate = false): void {
+    if (!this.bilingual) return;
+    const transcript = this.currentState.transcript?.trim();
+    if (!transcript) {
+      this.currentState.translation = undefined;
+      this.render();
+      return;
+    }
+    if (!this.callbacks.onTranslate) {
+      this.currentState.translation = "请先在控制台配置 LLM";
+      this.render();
+      return;
+    }
+    if (transcript === this.lastTranslatedTranscript) return;
+    this.lastTranslatedTranscript = transcript;
+    this.currentState.translation = "翻译中…";
+    this.render();
+    if (this.translationTimer !== undefined && typeof window !== "undefined") {
+      window.clearTimeout(this.translationTimer);
+      this.translationTimer = undefined;
+    }
+    const run = (): void => { void this.translateCurrent(transcript); };
+    if (immediate || typeof window === "undefined") {
+      run();
+    } else {
+      this.translationTimer = window.setTimeout(run, 450);
+    }
+  }
+
+  private async translateCurrent(transcript: string): Promise<void> {
+    if (!this.callbacks.onTranslate) return;
+    const requestId = ++this.translationRequestId;
+    try {
+      const translation = await this.callbacks.onTranslate(transcript, translationTarget(transcript));
+      if (requestId !== this.translationRequestId || this.currentState.transcript?.trim() !== transcript) return;
+      this.currentState.translation = translation;
+      this.render();
+    } catch (error) {
+      if (requestId !== this.translationRequestId || this.currentState.transcript?.trim() !== transcript) return;
+      const message = error instanceof Error && error.message ? error.message : "请稍后重试";
+      this.currentState.translation = `翻译失败：${message}`;
+      this.render();
+    }
   }
 
   private readCollapsedPreference(): boolean {
@@ -621,9 +744,13 @@ export class AssistantOverlay {
   }
 
   update(state: Partial<OverlayState>): void {
+    const previousTranscript = this.currentState.transcript;
     this.currentState = { ...this.currentState, ...state };
     this.render();
     if (state.pendingCaptures !== undefined) this.renderSession();
+    if (this.bilingual && state.transcript !== undefined && state.transcript !== previousTranscript) {
+      this.scheduleTranslation();
+    }
   }
 
   private render(): void {
@@ -639,17 +766,27 @@ export class AssistantOverlay {
 
     const baseMeta = "margin-top:6px;font-size:12px;color:#9fb3c8;line-height:1.45;";
     const transcript = state.transcript?.trim();
-    if (transcript) {
-      const time = state.timeSeconds !== undefined ? `${formatVideoTime(state.timeSeconds)}  ` : "";
-      this.meta.textContent = `${time}${transcript}`;
-      this.meta.title = "点击记下这句";
-      this.meta.style.cssText = `${baseMeta}display:block;padding:6px 8px;border-left:2px solid #1f8fff;background:#0b1220;border-radius:0 6px 6px 0;max-height:54px;overflow:auto;white-space:pre-wrap;cursor:pointer;`;
-    } else if (state.timeSeconds !== undefined) {
-      this.meta.textContent = `当前 ${formatVideoTime(state.timeSeconds)}`;
-      this.meta.title = "";
-      this.meta.style.cssText = `${baseMeta}display:block;cursor:default;`;
-    } else {
+    const time = state.timeSeconds !== undefined ? `${formatVideoTime(state.timeSeconds)}  ` : "";
+    const showBilingual = this.bilingual && Boolean(transcript);
+    this.bilingualButton.style.background = this.bilingual ? "#1f8fff" : "#31465c";
+    if (showBilingual) {
       this.meta.style.cssText = `${baseMeta}display:none;`;
+      this.bilingualBox.style.display = "grid";
+      this.bilingualOriginal.textContent = `${time}${transcript}`;
+      this.bilingualTranslation.textContent = state.translation ?? "翻译中…";
+    } else {
+      this.bilingualBox.style.display = "none";
+      if (transcript) {
+        this.meta.textContent = `${time}${transcript}`;
+        this.meta.title = "点击记下这句";
+        this.meta.style.cssText = `${baseMeta}display:block;padding:6px 8px;border-left:2px solid #1f8fff;background:#0b1220;border-radius:0 6px 6px 0;max-height:54px;overflow:auto;white-space:pre-wrap;cursor:pointer;`;
+      } else if (state.timeSeconds !== undefined) {
+        this.meta.textContent = `当前 ${formatVideoTime(state.timeSeconds)}`;
+        this.meta.title = "";
+        this.meta.style.cssText = `${baseMeta}display:block;cursor:default;`;
+      } else {
+        this.meta.style.cssText = `${baseMeta}display:none;`;
+      }
     }
 
     const continueSeconds = state.continueSeconds;
